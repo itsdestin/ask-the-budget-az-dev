@@ -366,6 +366,14 @@ class _WriteState:
     shared flag did) sends an operator hunting a search-correctness problem
     that does not exist, and towards a restore that would throw away a
     perfectly good write.
+
+    `verified` records that `_verify_nothing_was_lost` RETURNED -- every
+    written row re-read and compared column by column against what was sent.
+    It is what `remedy()` reads to decide whether a restore is the right move
+    at all: on a verified corpus, rolling back would discard a correct write
+    plus every upload since, to fix an index or a version prune. It cannot be
+    inferred from the counters, because a batch counter reaching its total
+    says the write finished, not that anybody checked what landed.
     """
 
     snapshot: str | None
@@ -375,8 +383,31 @@ class _WriteState:
     batches_attempted: int = 0
     ids_in_flight: int = 0
     index_rebuilt: bool = False
+    verified: bool = False
     rebuild_error: BaseException | None = None
     optimize_error: BaseException | None = None
+
+    def _snapshot_phrase(self) -> str:
+        """The snapshot named ONE way, empty-corpus fallback included.
+
+        It was spelled three ways across the terminating messages -- `the
+        snapshot at X`, `(no snapshot -- the corpus was empty)` and `(none --
+        the corpus was empty)`. To an operator comparing two error messages
+        from the same run those read as different artefacts, which is the last
+        thing to be guessing at while deciding whether to restore.
+        """
+        if self.snapshot:
+            return f"the snapshot at {self.snapshot}"
+        return "no snapshot was taken (the corpus was empty when this pass started)"
+
+    def _restore_offered(self) -> bool:
+        """Is the message being composed going to point at a restore point?
+
+        True only once a write has been ATTEMPTED and the rows have NOT been
+        verified -- which is exactly the set of paths on which `remedy()` names
+        a snapshot or the reversal record as the next step.
+        """
+        return bool(self.batches_attempted) and not self.verified
 
     def _index_phrase(self) -> str:
         if self.index_rebuilt:
@@ -388,8 +419,17 @@ class _WriteState:
                 # table versions, which costs disk and nothing else.
                 phrase += (
                     f"; optimize failed: {self.optimize_error} -- old versions were "
-                    "not pruned, search is correct; re-run optimize by hand"
+                    "not pruned, search is correct"
                 )
+                # WHY the "re-run optimize" clause is dropped whenever a
+                # restore is being offered: the operator would be handed two
+                # remedies in one breath -- put the corpus back, and also run a
+                # maintenance command on it -- and beside a possible restore
+                # the version prune is noise. Pruning old versions is only ever
+                # the next step once the rows are known good, which is the one
+                # case `_restore_offered()` is false.
+                if not self._restore_offered():
+                    phrase += "; re-run optimize by hand"
             return phrase
         phrase = "was NOT rebuilt"
         if self.rebuild_error is not None:
@@ -421,7 +461,30 @@ class _WriteState:
             )
         return f"{state} and the full-text index {self._index_phrase()}"
 
-    def hint(self) -> str:
+    def remedy(self) -> str:
+        """What to DO about the state `state_sentence()` describes.
+
+        Every terminating message in this module is now `state_sentence()`
+        (which carries the index phrase) plus this. Split out because the three
+        raise sites each hand-wrote their own artefact-naming prose and had
+        already drifted -- two spellings of the empty-snapshot fallback, and
+        two different orders for naming the snapshot and the reversal record.
+
+        🔴 The branch that matters is the half-committed batch, and it is the
+        one `hint()` used to get WRONG. `upsert_chunks` deletes the batch's
+        chunk_ids and adds the replacements in a SECOND commit
+        (`store/chunk_store.py`, the CAUTION comment above `tbl.delete`), so a
+        batch that raised may have committed the delete alone and up to
+        `ids_in_flight` rows are simply GONE. **The reversal record cannot put
+        a deleted row back.** `_plan_corpus` writes one entry per chunk_id
+        holding `before`/`after` `section_path` and `text` and NOTHING else --
+        no `vector`, no `agency_canonical_ids`, no `fund_mentions`, none of the
+        ~30 other columns `store/schema.py` defines -- so replaying it can set
+        values on rows that still exist and cannot recreate one that does not.
+        Offering "restore from X or replay Y" there (which `hint()` did) hands
+        the operator two options of which one silently cannot work, on the one
+        failure path that has actually lost data.
+        """
         if not self.batches_attempted:
             # WHY this branch does not offer the snapshot: restoring it rolls
             # the whole corpus back to the moment this pass started, discarding
@@ -433,20 +496,48 @@ class _WriteState:
             # was a destructive instruction resting on a premise the old
             # `rows_written` test got wrong (see the class docstring). Litter
             # on the share is cheap; a deleted snapshot is not recoverable.
-            snapshot = (
-                f"the snapshot at {self.snapshot}" if self.snapshot
-                else "no snapshot was taken"
-            )
             return (
-                "No write was ever attempted, so the corpus is unchanged -- there is "
-                f"nothing to undo; {snapshot} and the reversal record at "
+                f"{self._snapshot_phrase()} and the reversal record at "
                 f"{self.reversal_path} are unneeded but harmless. Leave them in place."
             )
-        snapshot = self.snapshot or "(no snapshot -- the corpus was empty)"
-        return (
-            f"{self.state_sentence()}. Restore from {snapshot} or replay "
-            f"{self.reversal_path}."
-        )
+        if self.verified:
+            # Every written row was re-read and compared column by column
+            # against what was sent, so the corpus is correct and a restore
+            # would discard a good write plus every upload since it -- to fix
+            # an index rebuild or a version prune. Both artefacts are still
+            # NAMED, as facts an operator may want later, never as the
+            # instruction.
+            return (
+                "The rows are correct and verified, so do NOT roll the corpus back. "
+                f"{self._snapshot_phrase()} and the reversal record at "
+                f"{self.reversal_path} are still in place if the rows ever do need "
+                "undoing."
+            )
+        if self.batches_written < self.batches_attempted:
+            # Rows may be DELETED. See the docstring above: the reversal record
+            # carries two fields per chunk_id and cannot recreate a row, so the
+            # snapshot is the sole recovery and must be named as such.
+            return (
+                f"{self._snapshot_phrase()} is the ONLY way to bring deleted rows "
+                f"back; the reversal record at {self.reversal_path} carries a "
+                "before/after section_path and text per chunk_id and nothing else "
+                "(no vector, no agency or fund stamps, no other column), so replaying "
+                "it restores values on rows that still exist and CANNOT recreate a "
+                "row that the failed batch removed."
+            )
+        # Every attempted batch RETURNED, so nothing was deleted without a
+        # replacement and the two artefacts really are alternatives: the
+        # reversal record puts the four columns back row by row, the snapshot
+        # puts the whole table back.
+        return f"Restore from {self._snapshot_phrase()} or replay {self.reversal_path}."
+
+    def hint(self) -> str:
+        if not self.batches_attempted:
+            return (
+                "No write was ever attempted, so the corpus is unchanged -- there is "
+                f"nothing to undo; {self.remedy()}"
+            )
+        return f"{self.state_sentence()}. {self.remedy()}"
 
 
 def _write_changed_rows(
@@ -799,9 +890,12 @@ def repair_section_paths(
     failure after the first write is ATTEMPTED is re-raised as a `RuntimeError`
     carrying `_WriteState.hint()`, with the real exception on `__cause__` (and,
     when the index rebuild or the optimize also failed, that exception one
-    further down the `__cause__` chain -- including a `KeyboardInterrupt`
-    raised inside the rebuild). A future CLI wanting distinct exit codes must
-    read `__cause__`, not the type of what it caught.
+    further down the `__cause__` chain). That includes a `KeyboardInterrupt` --
+    raised inside the write, or inside the rebuild -- which is caught, reported
+    with the state of the corpus, and chained rather than allowed to reach the
+    terminal bare. So a future CLI wanting distinct exit codes must read
+    `__cause__`, not the type of what it caught, and must not assume a Ctrl-C
+    arrives as `KeyboardInterrupt`.
     """
     progress = progress or _default_progress
     changes, result, before_by_id = _plan_corpus(store, root, table, progress, only)
@@ -863,7 +957,7 @@ def repair_section_paths(
         )
 
         state = _WriteState(snapshot=snapshot, reversal_path=reversal_path)
-        failure: Exception | None = None
+        failure: BaseException | None = None
         try:
             written = _write_changed_rows(
                 store, table, changes, embedder, batch_size, progress, state
@@ -871,7 +965,25 @@ def repair_section_paths(
             _verify_nothing_was_lost(
                 store, table, changes, written, untouched_baseline, batch_size, progress
             )
-        except Exception as exc:  # noqa: BLE001 -- re-raised below, enriched
+            # Set only once the verifier has RETURNED. Everything downstream
+            # that decides "is a restore the right move?" reads this, so it
+            # must mean "somebody checked what landed", never "the loop
+            # finished".
+            state.verified = True
+        except BaseException as exc:  # noqa: BLE001 -- re-raised below, enriched
+            # WHY BaseException and not Exception, on the OUTER handler as
+            # well as the rebuild's: this block is the 30-60 minute embed and
+            # write, which is both when an operator is most likely to press
+            # Ctrl-C and the ONLY phase that can leave rows deleted
+            # (`upsert_chunks` is a delete commit then a separate add commit).
+            # Under `except Exception` a KeyboardInterrupt skipped the hint
+            # entirely -- so the interrupt reached the terminal with no row
+            # count, no "rows may be DELETED", and neither restore point --
+            # while the `finally` still rebuilt the index and any
+            # `rebuild_error`/`optimize_error` it recorded was dropped on the
+            # floor. The interrupt is not swallowed: the `raise RuntimeError(
+            # ...) from failure` below still terminates the run and keeps it on
+            # `__cause__`.
             failure = exc
         finally:
             # Re-added rows are invisible to BM25 until the index is rebuilt
@@ -963,23 +1075,20 @@ def repair_section_paths(
             # stale BM25 index, which is the most dangerous state this module
             # can produce, and no count, no "NOT rebuilt", no restore paths.
             #
-            # WHY this no longer routes through `hint()`: hint's second half is
-            # "Restore from X or replay Y", and on THIS path every row was
-            # written and then verified column by column, so the corpus is
-            # correct. Restoring would roll back a good write plus every upload
-            # since, to fix an index. `rebuild_error`'s own docstring already
-            # names the remedy -- fix the share and re-run `build_fts_index` by
-            # hand -- and that is what the sentence says now. Both artefacts are
-            # still NAMED, as facts an operator may want later, never as the
-            # instruction.
+            # WHY the artefact prose is `state.remedy()` and not written out
+            # here: on THIS path every row was written and then verified column
+            # by column, so the corpus is correct and a restore would roll back
+            # a good write plus every upload since, to fix an index --
+            # `remedy()`'s `verified` branch is exactly that sentence, and it
+            # is shared with the optimize path below rather than typed twice
+            # (the two copies had already drifted on how they spelled the
+            # empty-snapshot fallback). What stays here is the only part that
+            # is specific to a rebuild failure: which command to re-run.
             raise RuntimeError(
                 "the full-text index rebuild failed AFTER the rows were written "
-                f"-- {state.state_sentence()}. The rows are correct and verified, so "
-                "do NOT roll the corpus back: fix whatever the rebuild could not reach "
-                f"and re-run build_fts_index on {table} by hand. The snapshot at "
-                f"{state.snapshot or '(none -- the corpus was empty)'} and the reversal "
-                f"record at {state.reversal_path} are still in place if the rows ever "
-                "do need undoing."
+                f"-- {state.state_sentence()}. {state.remedy()} Fix whatever the "
+                f"rebuild could not reach and re-run build_fts_index on {table} by "
+                "hand."
             ) from state.rebuild_error
         if state.optimize_error is not None:
             # The rows landed, verified, and the index WAS rebuilt -- only the
@@ -989,9 +1098,9 @@ def repair_section_paths(
             # index are both correct and the only cost is disk.
             raise RuntimeError(
                 "the table optimize failed after a clean, verified write "
-                f"-- {state.state_sentence()}. Nothing needs restoring and search is "
-                f"correct; re-run optimize on {table} by hand to prune the old "
-                "table versions."
+                f"-- {state.state_sentence()}. {state.remedy()} Nothing needs "
+                f"restoring and search is correct; re-run optimize on {table} by hand "
+                "to prune the old table versions."
             ) from state.optimize_error
 
     return result

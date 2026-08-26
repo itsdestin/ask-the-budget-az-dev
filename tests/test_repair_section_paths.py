@@ -812,8 +812,21 @@ def test_a_batch_that_deleted_its_rows_then_failed_is_never_reported_as_unchange
     assert "can be deleted" not in message
     assert "FAILED PART-WAY" in message
     assert "The corpus is NOT known to be unchanged" in message
-    # ...and both restore paths are named.
+    # 🔴 The SNAPSHOT is named as the only way back, and replay is explicitly
+    # NOT offered as an equivalent. The reversal record holds `before`/`after`
+    # `section_path` and `text` per chunk_id and nothing else (see
+    # `_plan_corpus`, which writes it), so replaying it cannot recreate a row
+    # the failed batch's delete commit removed -- it can only set values on
+    # rows that still exist. The old wording ended "Restore from X or replay
+    # Y", handing the operator two options of which one silently cannot work,
+    # on the single failure path that has actually lost data.
     assert "snap.zip" in message
+    assert "is the ONLY way to bring deleted rows back" in message
+    assert "CANNOT recreate a row" in message
+    assert "Restore from" not in message
+    assert "or replay" not in message
+    # The record is still NAMED -- it does restore values on the rows that
+    # survived, and an operator may want it later.
     assert "section-path-reversal-budget_chunks-" in message
     # The index is rebuilt on this path too: rows left the table, so the old
     # index describes a corpus that no longer exists.
@@ -843,16 +856,20 @@ def test_an_optimize_failure_after_a_clean_write_says_the_index_WAS_rebuilt(
         )
     message = str(caught.value)
     assert store.fts_built == ["budget_chunks"]
+    # The positive claim is the property; a `"NOT rebuilt" not in message`
+    # check alongside it added nothing (it could not fail while this passes)
+    # and was case-sensitive, so a future "not rebuilt" would have slipped by
+    # it anyway.
     assert "WAS rebuilt over them" in message
-    assert "NOT rebuilt" not in message
     # The optimize failure is its own named fact, with its own remedy.
     assert "optimize could not prune the old versions" in message
     assert "re-run optimize on budget_chunks by hand" in message
     # Never a restore: the rows are written AND verified, and the index is
-    # current.
+    # current. (The lede sentence's exact wording is deliberately not pinned --
+    # these three properties are what matters about it.)
     assert "Restore from" not in message
     assert "Nothing needs restoring" in message
-    assert "the table optimize failed after a clean, verified write" in message
+    assert "do NOT roll the corpus back" in message
     assert isinstance(caught.value.__cause__, RuntimeError)
     assert "optimize could not prune" in str(caught.value.__cause__)
     # The rows really did land.
@@ -894,6 +911,92 @@ def test_a_ctrl_c_inside_the_rebuild_does_not_replace_the_verification_failure(
     assert "snap.zip" in message
     # ...and the interrupt is chained, not lost.
     assert isinstance(caught.value.__cause__.__cause__, KeyboardInterrupt)
+
+
+class _DeletingThenInterruptedStore(_FakeStore):
+    """The delete half of `upsert_chunks` commits and then the operator hits
+    Ctrl-C -- the add half never runs and the rows are gone.
+
+    Same damage as `_DeletingThenExplodingStore`, arriving as a
+    `KeyboardInterrupt` instead of a `RuntimeError`. That difference used to
+    decide whether the operator was told anything at all.
+    """
+
+    def upsert_chunks(self, name, rows):
+        gone = {r["chunk_id"] for r in rows}
+        self.rows = [r for r in self.rows if r["chunk_id"] not in gone]
+        raise KeyboardInterrupt("ctrl-c between the delete and the add")
+
+
+def test_a_ctrl_c_during_the_write_still_reports_that_rows_may_be_deleted(
+    root: Path, tmp_path: Path
+):
+    """The write phase is the 30-60 minute embed: the moment an operator is
+    most likely to press Ctrl-C, and the ONLY phase that can leave rows
+    deleted. Under `except Exception` the interrupt skipped the hint entirely
+    -- the terminal got a bare KeyboardInterrupt with no row count, no "rows
+    may be DELETED" and neither restore point, over a corpus that had just
+    silently lost rows -- while the `finally` still rebuilt the index and any
+    error it recorded was dropped on the floor.
+
+    It must not be swallowed either: the run still ends in a raise and the
+    interrupt is on `__cause__`."""
+    store = _DeletingThenInterruptedStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    # The damage is real.
+    assert "doc-a-0001" not in {r["chunk_id"] for r in store.rows}
+    # The operator is told the write was attempted and what that means.
+    assert "FAILED PART-WAY" in message
+    assert "may now be DELETED" in message
+    assert "The corpus is NOT known to be unchanged" in message
+    assert "the corpus is unchanged" not in message
+    # ...and the snapshot, as the only thing that can bring the rows back.
+    assert "snap.zip" in message
+    assert "is the ONLY way to bring deleted rows back" in message
+    assert "Restore from" not in message
+    # The interrupt is chained, not lost, and not re-raised bare.
+    assert isinstance(caught.value.__cause__, KeyboardInterrupt)
+    # The `finally` still ran: rows left the table, so the old index describes
+    # a corpus that no longer exists.
+    assert store.fts_built == ["budget_chunks"]
+
+
+class _CorruptingOptimizeExplodingStore(_CorruptingStore):
+    """Verification fails AND the optimize in the `finally` fails too."""
+
+    def optimize(self, name, *, retention=None):
+        raise RuntimeError("optimize could not prune the old versions")
+
+
+def test_a_restore_message_does_not_also_tell_the_operator_to_re_run_optimize(
+    root: Path, tmp_path: Path
+):
+    """Two remedies in one breath -- put the corpus back, and also run a
+    maintenance command on it -- is one too many. The version prune is only
+    ever the next step once the rows are known good; beside a possible restore
+    it is noise. The optimize failure is still REPORTED, because it is a fact
+    about the run, just without an instruction attached."""
+    store = _CorruptingOptimizeExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    # A restore really is on the table here: the rows landed and were never
+    # verified.
+    assert "section_path did not land" in message
+    assert "Restore from" in message
+    # The optimize failure is named, and search is still correct...
+    assert "optimize could not prune the old versions" in message
+    assert "search is correct" in message
+    # ...but no second instruction rides along with the restore.
+    assert "re-run optimize" not in message
 
 
 def _rows_with_many_untouched(count: int = 20) -> list[dict]:
