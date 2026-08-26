@@ -88,6 +88,7 @@ def test_a_stored_key_matching_nobody_appears_nowhere(client):
     assert [p["username"] for p in body["people"]] == ["dmoss"]
     assert "tmartin" not in json.dumps(body)
     assert "ghost" not in json.dumps(body)
+    assert "nobody" not in json.dumps(body)
 
 
 def test_two_stored_spellings_are_reported_as_a_collision(client):

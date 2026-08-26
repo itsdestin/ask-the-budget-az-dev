@@ -38,7 +38,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from store.config import data_dir
-from users.whoami import fold, roster_key
+from users.whoami import roster_key
 
 USERS_DIR = "users"
 VERSION = 1

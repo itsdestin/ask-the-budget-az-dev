@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type * as api from "../api";
@@ -166,5 +167,88 @@ describe("sortPeople", () => {
     expect(person).toHaveAttribute("aria-sort", "descending");
     expect(screen.getAllByRole("rowheader")[0]).toHaveTextContent("Geoff Paulsen");
     expect(screen.getByRole("columnheader", { name: /spent/i })).not.toHaveAttribute("aria-sort");
+  });
+});
+
+// Fix 1 (2026-08-26 final review): the limit dropdown and amount box were
+// bound to `people` (the SERVER row), which never changes as the admin
+// edits — so the dropdown snapped back to the server's kind and a typed
+// amount was overwritten on the next render. Reproduced live before the
+// fix. This wrapper mirrors Admin.tsx's `setPersonLimit` exactly (same
+// mutually-exclusive-field logic, U8) and holds the draft in real React
+// state, so `onLimitChange` actually flows back into what the panel
+// renders — a static `draft` prop (as every other test above uses) cannot
+// tell the fixed binding from the broken one, because neither ever
+// re-renders from a changed draft.
+function StatefulPeoplePanel({
+  people, initialDraft,
+}: { people: api.AdminUsers; initialDraft: api.AdminSettings }) {
+  const [draft, setDraft] = useState(initialDraft);
+  function onLimitChange(username: string, kind: api.PersonLimit["kind"], amount: number | null) {
+    setDraft((d) => {
+      const user_limits = { ...d.user_limits };
+      for (const k of Object.keys(user_limits)) {
+        if (k.trim().toLowerCase() === username.trim().toLowerCase()) delete user_limits[k];
+      }
+      const exempt_users = d.exempt_users.filter(
+        (u) => u.trim().toLowerCase() !== username.trim().toLowerCase(),
+      );
+      if (kind === "custom") user_limits[username] = amount ?? 0;
+      if (kind === "exempt") exempt_users.push(username);
+      return { ...d, user_limits, exempt_users };
+    });
+  }
+  return (
+    <PeoplePanel
+      people={people}
+      loadError={null}
+      draft={draft}
+      onLimitChange={onLimitChange}
+      onHiddenChange={() => {}}
+    />
+  );
+}
+
+describe("the limit control reads the draft, not the server row", () => {
+  it("keeps a dropdown change instead of snapping back to the server's kind", () => {
+    render(<StatefulPeoplePanel
+      people={{ month: "2026-08", unreachable: false, unreadable: 0, people: PEOPLE }}
+      initialDraft={DRAFT}
+    />);
+    const select = screen.getByRole("combobox", { name: /limit for Geoff Paulsen/i });
+    expect(select).toHaveValue("default"); // starting state, matches the server row
+    fireEvent.change(select, { target: { value: "exempt" } });
+    expect(select).toHaveValue("exempt");
+  });
+
+  it("keeps a typed amount instead of being overwritten by the server row", () => {
+    render(<StatefulPeoplePanel
+      people={{ month: "2026-08", unreachable: false, unreadable: 0, people: PEOPLE }}
+      initialDraft={DRAFT}
+    />);
+    const amountBox = screen.getByRole("spinbutton", { name: /amount for Danielle Moss/i });
+    expect(amountBox).toHaveValue(25); // starting state, matches the server row
+    fireEvent.change(amountBox, { target: { value: "30" } });
+    expect(amountBox).toHaveValue(30);
+  });
+});
+
+describe("hide/unhide fold under U0 (spec, samePerson)", () => {
+  it("hides a person whose roster spelling differs from the stored hidden key, and Unhide clears it", () => {
+    const props = renderPanel({
+      people: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+        person({ key: "pchen", username: "PCHEN", display_name: "Pat Chen" }),
+      ] },
+      draft: { ...DRAFT, hidden_users: ["pchen"] },
+    });
+    // The roster's current observed spelling is "PCHEN"; the stored hidden
+    // entry is "pchen". Under U0 these are the same person, so the row
+    // collapses to the "1 person hidden" line rather than appearing in
+    // the visible table.
+    expect(screen.queryByRole("rowheader", { name: /PCHEN/ })).toBeNull();
+    expect(screen.getByText(/1 person hidden/)).toHaveTextContent("Pat Chen");
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    fireEvent.click(screen.getByRole("button", { name: /Unhide Pat Chen/ }));
+    expect(props.onHiddenChange).toHaveBeenCalledWith([]);
   });
 });

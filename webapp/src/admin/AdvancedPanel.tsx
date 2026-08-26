@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as api from "../api";
 import { CollapsibleCard } from "./Card";
+import { samePerson } from "./same-person";
 
 // The things an admin touches once, or never — collapsed by default.
 //
@@ -43,7 +44,7 @@ export function AdvancedPanel({
   // list itself cannot be read (spec U12) — an empty picker there would be
   // a dead end.
   const candidates = (people?.people ?? []).filter(
-    (p) => !p.hidden && p.username.trim().toLowerCase() !== me.user.trim().toLowerCase(),
+    (p) => !p.hidden && !samePerson(p.username, me.user),
   );
   const chosen = candidates.find((p) => p.username === next);
   const chosenLabel = chosen?.display_name ? chosen.display_name : next;

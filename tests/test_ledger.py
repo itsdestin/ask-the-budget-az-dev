@@ -129,6 +129,47 @@ def test_month_total_excludes_none_cost_from_dollar_total_but_keeps_tokens():
     assert usage.rows_with_unknown_cost == 1
 
 
+def test_month_total_sums_across_differently_cased_spellings_of_one_person():
+    # U0: the ledger keeps writing whatever spelling the OS handed it that
+    # day (`dmoss` one day, `DMOSS` the next), so the same person's rows can
+    # be split across two exact keys. Found by the 2026-08-26 final review:
+    # `month_total` used to match by exact username, so the People panel's
+    # (folded) total and the cap's (exact) total could disagree.
+    when = datetime(2026, 7, 1)
+    record_usage("dmoss", "standard", "m", 100, 100, 10.0, now=when)
+    record_usage("DMOSS", "standard", "m", 40, 40, 4.2, now=when)
+
+    assert month_total("dmoss", now=when).cost_usd == pytest.approx(14.2)
+    assert month_total("DMOSS", now=when).cost_usd == pytest.approx(14.2)
+    assert month_total("dmoss", now=when).rows == 2
+
+
+def test_check_limit_blocks_at_the_summed_total_across_spellings():
+    when = datetime(2026, 7, 1)
+    record_usage("dmoss", "standard", "m", 1, 1, 60.0, now=when)
+    record_usage("DMOSS", "standard", "m", 1, 1, 45.0, now=when)  # 105 total, cap 100
+    settings = _settings(default_monthly_limit_usd=100.0)
+
+    # Neither spelling's OWN rows reach the cap (60 and 45 are both under
+    # 100) — only the fold-summed total does, which is the property this
+    # guards: the cap must not be checkable by asking under a different
+    # spelling than the one that pushed the total over.
+    assert check_limit("dmoss", settings, now=when).status == "blocked"
+    assert check_limit("DMOSS", settings, now=when).status == "blocked"
+
+
+def test_month_total_blank_user_never_folds_onto_a_named_row():
+    # Mirrors users.whoami.same_person: "" is not a fold-match for anyone,
+    # including another blank row recorded under a different spelling of
+    # nothing (there isn't one — "" is already folded).
+    when = datetime(2026, 7, 1)
+    record_usage("dmoss", "standard", "m", 1, 1, 5.0, now=when)
+    record_usage("", "standard", "m", 1, 1, 2.0, now=when)
+
+    assert month_total("", now=when).cost_usd == pytest.approx(2.0)
+    assert month_total("dmoss", now=when).cost_usd == pytest.approx(5.0)
+
+
 def test_month_sharding_two_months_do_not_mix():
     record_usage("analyst1", "standard", "m", 10, 10, 1.0, now=datetime(2026, 6, 30, 23, 0))
     record_usage("analyst1", "standard", "m", 10, 10, 2.0, now=datetime(2026, 7, 1, 0, 30))

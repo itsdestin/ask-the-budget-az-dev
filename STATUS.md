@@ -58,7 +58,7 @@ source. When something ships, update only this file.
 | **One-click diagnostic → verification + repair** | ✅ **Rewritten (2026-08-18)**, 3304 pytest green | The old USB diagnostic only wrote a REPORT. The replacement (`packaging/diag/diag.pyw` + `diag.cmd` + new `RUN-DIAGNOSTIC.cmd`) copies the server log (redacted), **compares the network/share copy of the corpus against the USB seed** file-by-file (missing + half-copied files, plain-english verdict), then **offers to repair** — copy the missing files from USB and re-verify with the app's own `ChunkStore` open-check (the exact health-ladder rung). Root cause of the flash-and-close also fixed: every `.cmd` in the repo was LF-only; new/rewritten ones are CRLF. Verified end-to-end against the live corpus (7,932-file manifest; repair closed a 7,930-file gap and the open-check then passed at 83,197 passages). Ships on the USB only — `packaging/` is excluded from the bundle by design. `tests/test_diag_tool.py` pins the manifest/compare/copy logic. See the section below |
 | **Fund identity repair** (catalog + stamps + the analyst's fund list) | ✅ **Built and APPLIED to the corpus 2026-08-23**, evals identical before/after, awaiting Destin's review | Branch `fund-identity` off `easy-wins`. 17 truncated fund names restored, 50 non-fund catalog rows removed, fund stamping bounded to word edges, and 9,454 + 776 junk stamps nulled on both corpora with a verified snapshot + reversal records. Fund list: 187 ids/49 codes → **154 funds, all named**. See "Fund identity repair" below |
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
-| **Central user roster** | 🟡 **Code complete, gates green, browser-verified 2026-08-25/26 — 3 Important defects still open, merge pending a fix pass** | Branch `user-roster`. One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **Final review found three Important defects not yet fixed as of this commit** — see "Central user roster" below before treating this as finished |
+| **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26** | Branch `user-roster`. One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
 
 ## Fund identity repair — catalog, stamps, and the analyst's fund list (2026-08-23)
 
@@ -205,6 +205,14 @@ be stamped with a different name than that same person's AI Mode usage.
   used, the same discipline Invariant 7 already uses for the data-dir
   allowlist — folding is confined to username-handling packages so it
   can't quietly leak into, say, a document-id comparison.
+- **The spend CAP folds too.** `harness/ledger.py::month_total` — the
+  total `check_limit` compares against a person's monthly cap — now sums
+  a user's rows under the same U0 fold `harness/settings.py` already used
+  for the People panel's own total, via a public `fold` (renamed from
+  `_fold`) imported from `harness/settings.py`, not a new `.casefold(` in
+  `ledger.py` (the source guard only admits that in `users/whoami.py` and
+  `harness/settings.py`). The ledger still WRITES the observed spelling
+  verbatim — only the read side that feeds the cap folds.
 - **A shared roster, one small file per person.** `users/registry.py`
   writes `<data_dir>/users/<folded-username>.json` — first seen, last
   seen, and a typed display name if the person or an admin set one.
@@ -351,44 +359,65 @@ correctly excluded; the save bar's **Discard** control rendering as the
 same pill class as every other action, and zero `.adm-link` elements
 anywhere on the page.
 
-### 🔴 Not yet fixed as of this commit — do not read "shipped" as "finished"
+### 🔧 Three Important defects, found by the final review and this session's browser pass, fixed 2026-08-26
 
 A final whole-branch review (`a1a1eb6..b3a3fe8`) found **three Important
-defects**, and this session's browser pass directly reproduced the first
-one live rather than taking the review's word for it:
+defects**, and that review's browser pass directly reproduced the first
+one live rather than taking the review's word for it. A follow-up fix
+pass closed all three before merge:
 
-1. **The People panel's limit dropdown and amount box are bound to the
-   server's row, not to a local draft — the amount cannot actually be
+1. **The People panel's limit dropdown and amount box were bound to the
+   server's row, not to a local draft — the amount could not actually be
    typed into.** Reproduced live: setting the input's value via script and
    dispatching an `input` event left the field reading `25` immediately
-   and again 800ms later — every keystroke a real person would type gets
-   overwritten by the next re-render from the server-shaped props. An
-   admin can pick "A specific amount" from the dropdown but cannot
-   actually enter one through the browser today.
-2. **Hide/unhide compares usernames exactly**, while the roster itself can
+   and again 800ms later — every keystroke a real person would type got
+   overwritten by the next re-render from the server-shaped props. **Fixed**:
+   both controls now read a `draftLimitFor(username, draft)` lookup (exempt
+   beats a custom amount, an exact `user_limits` key beats a folded one —
+   mirroring `Settings.limit_for`'s own resolution order) instead of
+   `p.limit`. Two new specs in `PeoplePanel.test.tsx` render the panel
+   inside a small stateful wrapper (`onLimitChange` feeding back into real
+   `useState`, mirroring `Admin.tsx`) and assert the rendered VALUE changes,
+   not just that the callback fired — a static-`draft`-prop test cannot
+   tell the fixed binding from the broken one, because neither ever
+   re-renders from a changed draft.
+2. **Hide/unhide compared usernames exactly**, while the roster itself can
    re-spell a person's username between visits (`DMOSS` → `dmoss`) — so
-   hiding someone under one spelling may not hide them under the next.
-   The fix is one shared `samePerson` helper reused across
-   `PeoplePanel.tsx`, `Admin.tsx` and `AdvancedPanel.tsx`, matching the
-   server-side U0 rule; it does not exist yet.
-3. **The spend-limit CAP itself is checked with an exact-match total.**
-   `harness/ledger.py::month_total` sums a user's spend by their exact
-   stored key, so if the same person's usage is recorded under two
-   spellings, the enforced cap compares against a SMALLER total than the
-   number the People panel displays (which sums with the fold). The fix
-   is folding `month_total` through `harness.settings.fold` and amending
-   the spec's U0 table to say so.
+   hiding someone under one spelling might not hide them under the next.
+   **Fixed**: a new shared `webapp/src/admin/same-person.ts::samePerson`
+   (mirrors `users.whoami.same_person`) is now used in `PeoplePanel.tsx`
+   (`isHidden`, `hide` — a no-op if already present under the fold, and
+   `unhide` — removes every same-person spelling), `Admin.tsx::setPersonLimit`
+   (replacing its two inline `toLowerCase` folds), and
+   `AdvancedPanel.tsx`'s hand-over-picker self-exclusion. A new spec pins a
+   roster username `PCHEN` hiding under a stored `hidden_users: ["pchen"]`
+   entry, and Unhide clearing it to `[]`; swapping `samePerson` back to
+   `===` turns that spec red (verified, then reverted).
+3. **The spend-limit CAP itself was checked with an exact-match total.**
+   `harness/ledger.py::month_total` summed a user's spend by their exact
+   stored key, so if the same person's usage was recorded under two
+   spellings, the enforced cap compared against a SMALLER total than the
+   number the People panel displayed (which sums with the fold) — a person
+   could spend up to their cap under EACH spelling. **Fixed**: `_fold` in
+   `harness/settings.py` is now the public `fold` (same three-line body,
+   still pinned by test to the same expression as `users/whoami.py`), and
+   `month_total` imports and matches under it (blank user still matches
+   only blank rows, exactly, mirroring `same_person`'s "blank never matches
+   blank"). Two new tests in `tests/test_ledger.py` pin the summed total
+   and that `check_limit` blocks at it even when neither spelling's own
+   rows individually reach the cap. The spec's U0 consumer table now names
+   `harness/ledger.py::month_total` as a fold consumer, with a paragraph
+   explaining why the CAP needed the fold and not only the display.
 
-Three smaller items were flagged "fix before merge": a dead `fold` import
-left in `registry.py`, an orphan-limit test that checks `tmartin`/`ghost`
-but not the `hidden_users` orphan case, and a mirror-expression test that
-should pin itself against `whoami.py` directly rather than a copy.
-
-**None of these were assigned to this task** — Task 11's brief is gates,
-browser pass and this file, explicitly not the merge. They are recorded
-here, unfixed, so the branch is not mistaken for finished. A follow-up
-pass is expected to close all three Important items and re-run the gates
-before `user-roster` merges to master.
+Three smaller items flagged "fix before merge" were also closed: the dead
+`fold` import in `users/registry.py`, an orphan-key test in
+`test_admin_users_route.py` now also asserting the `hidden_users` orphan
+(`"nobody"`) never appears in the response, and a mirror-expression test
+(`test_the_whoami_fold_is_the_same_expression_too`) that pins itself
+against `users/whoami.py`'s own source directly rather than only a copy.
+`Admin.tsx::save` also now refetches `GET /api/admin/users` after a
+successful save, so a saved limit/hidden/collision change is reflected on
+screen without a reload.
 
 ### ⏸ Known residuals (recorded, not fixed, and not blocking by themselves)
 
@@ -400,11 +429,14 @@ before `user-roster` merges to master.
   whenever he next wants the "every action is a pill" rule extended
   app-wide.
 - **The browser-side fold is `toLowerCase()`, not `casefold()`.**
-  JavaScript has no `casefold`, so `PeoplePanel.tsx`'s limit-setting code
-  and the hand-over picker's candidate matching both use `toLowerCase()`.
-  For every Windows username in this office (plain ASCII), the two agree
-  with the server's `casefold()` — but the server is always the authority
-  the panel renders from, never the client's own fold.
+  JavaScript has no `casefold`, so the one shared
+  `webapp/src/admin/same-person.ts::samePerson` — now used by
+  `PeoplePanel.tsx` (hide/unhide, the draft-bound limit lookup),
+  `Admin.tsx::setPersonLimit` and `AdvancedPanel.tsx`'s hand-over picker,
+  consolidated 2026-08-26 — uses `toLowerCase()`. For every Windows
+  username in this office (plain ASCII), the two agree with the server's
+  `casefold()` — but the server is always the authority the panel renders
+  from, never the client's own fold.
 - **A name typed on two different PCs before this shipped** can still
   produce two different roster entries the first time each machine's copy
   reaches the share — the documented fallback, not a bug this branch
@@ -419,10 +451,10 @@ before `user-roster` merges to master.
   same way its sibling (usage-by-month) already did before this branch —
   a transient failure leaves the table showing last month's data with no
   visible error, rather than a stale-data warning.
-- **`registry.py` carries a dead `fold` import and a docstring naming a
-  `_windows_display_name()` helper that actually lives in
-  `app/identity.py`.** Harmless, flagged for the next pass through that
-  file.
+- **`registry.py`'s docstring names a `_windows_display_name()` helper
+  that actually lives in `app/identity.py`.** Harmless, flagged for the
+  next pass through that file. (The dead `fold` import next to it was
+  removed 2026-08-26.)
 - **Risk 1 from the spec — real names now live on a shared, human-readable
   file per person on the office drive — belongs in the Administrator
   Handbook, which still does not exist** (Plan 5 Track 5, unstarted). The

@@ -513,3 +513,13 @@ def test_the_settings_fold_is_the_same_expression_as_whoami():
     from pathlib import Path
     src = (Path(__file__).resolve().parent.parent / "harness" / "settings.py").read_text(encoding="utf-8")
     assert "return user.strip().casefold()" in src
+
+
+def test_the_whoami_fold_is_the_same_expression_too():
+    # The mirror of the pin above, read from users/whoami.py directly —
+    # the first pin only fails when settings.py drifts FROM whoami.py; this
+    # one catches whoami.py drifting away and leaving settings.py's copy
+    # correct but orphaned (found by the 2026-08-26 final review).
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "users" / "whoami.py").read_text(encoding="utf-8")
+    assert "return username.strip().casefold()" in src

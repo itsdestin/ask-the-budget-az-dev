@@ -110,6 +110,7 @@ from. Every consumer below uses this rule and NO other:
 | the ledger ↔ roster ↔ settings join in `GET /api/admin/users` | — | U0 |
 | the "does this stored key belong to someone in the roster?" check (U14) | — | U0 |
 | the transfer picker's "is this the current admin?" | — | U0 |
+| `harness/ledger.py::month_total` (the spend total `check_limit` compares against a cap) | exact | U0 |
 
 **Why one rule and not a fold at each call site:** the CLAUDE.md audit
 lesson — when a field has more than one producer, the defect is the
@@ -137,6 +138,22 @@ writing the observed username verbatim (an accounting record must not
 rewrite what it saw); the fold happens when the People panel groups those
 rows. `harness/settings.py` implements U0 as a self-contained three-line
 fold with no new import — **Invariant 7 unchanged**.
+
+**Amended 2026-08-26 (final review): the fold also has to reach the CAP
+comparison itself, not only the display.** `harness/ledger.py::month_total`
+sums a user's monthly spend by matching rows to the username passed in —
+and originally did that by exact string equality, an EXACT-match consumer
+the table above did not name. `check_limit` calls `month_total` and
+compares the result to a single dollar cap; if the sum is exact-matched
+while the People panel's own total is folded, a person recorded under two
+observed spellings (`dmoss` one day, `DMOSS` the next) could be shown one
+(larger, correct) total on screen while the enforcement path compared the
+cap against a SMALLER, single-spelling total — spending up to the cap
+again under the other spelling. `month_total` now folds via a public
+`fold` in `harness/settings.py` (renamed from `_fold`, still no import of
+`users/`, still pinned to the same expression); the ledger keeps writing
+the observed spelling verbatim, unchanged, since only the READ side that
+feeds the cap needed to fold.
 
 ### U1 — The roster is one small file per person, holding OBSERVATIONS only
 

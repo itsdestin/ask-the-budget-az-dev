@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type * as api from "../api";
+import { samePerson } from "./same-person";
 
 // The People panel (spec 2026-08-25-central-user-roster-design.md, U13).
 //
@@ -79,6 +80,37 @@ const LIMIT_OPTIONS: Array<{ value: api.PersonLimit["kind"]; label: (d: number |
   { value: "exempt", label: () => "No limit" },
 ];
 
+/** What the dropdown + amount box for `p` should show RIGHT NOW.
+ *
+ * Reads the DRAFT, not the server row (`p.limit`). Before this fix the
+ * controls were bound to `p.limit`, which never changes as the admin
+ * types — React re-applies that value on every render, so the dropdown
+ * snapped back to the server's kind and a typed amount was overwritten
+ * mid-keystroke (reproduced live, 2026-08-25 final review). The two
+ * settings fields are mutually exclusive (spec U8: exempt wins over a
+ * custom amount), and a stored key can be spelled two ways (U0), so the
+ * lookup order mirrors `Settings.limit_for` on the server: exempt (folded)
+ * beats a custom amount; an EXACT key match on `user_limits` beats a
+ * folded one, so the row shown before a save agrees with what a save then
+ * reads back. */
+function draftLimitFor(
+  username: string,
+  draft: api.AdminSettings,
+): { kind: api.PersonLimit["kind"]; amount: number | null } {
+  if (draft.exempt_users.some((u) => samePerson(u, username))) {
+    return { kind: "exempt", amount: null };
+  }
+  if (Object.prototype.hasOwnProperty.call(draft.user_limits, username)) {
+    return { kind: "custom", amount: draft.user_limits[username] };
+  }
+  for (const [key, amount] of Object.entries(draft.user_limits)) {
+    if (samePerson(key, username)) {
+      return { kind: "custom", amount };
+    }
+  }
+  return { kind: "default", amount: null };
+}
+
 export function PeoplePanel({
   people,
   loadError,
@@ -101,14 +133,21 @@ export function PeoplePanel({
 
   // `hidden` comes from the DRAFT, not the server row, so a hide shows at
   // once and the save bar lists it; the server's flag is what the draft
-  // started from.
-  const isHidden = (p: api.PersonRow) => draft.hidden_users.includes(p.username);
+  // started from. Compared under U0's fold (`samePerson`, not `.includes`)
+  // — the roster can re-spell a person's username between visits
+  // (`DMOSS` → `dmoss`), and an exact-match `.includes` would let someone
+  // hidden under one spelling reappear under the next (2026-08-26 final
+  // review).
+  const isHidden = (p: api.PersonRow) => draft.hidden_users.some((u) => samePerson(u, p.username));
 
   function hide(p: api.PersonRow) {
+    if (isHidden(p)) return; // already present under the fold — no duplicate entry
     onHiddenChange([...draft.hidden_users, p.username]);
   }
   function unhide(p: api.PersonRow) {
-    onHiddenChange(draft.hidden_users.filter((u) => u !== p.username));
+    // Every spelling, not just the one that matched the visible row — a
+    // legacy hidden_users list can hold both `dmoss` and `DMOSS`.
+    onHiddenChange(draft.hidden_users.filter((u) => !samePerson(u, p.username)));
   }
 
   const rows = people ? sortPeople(people.people, sort.col, sort.dir) : [];
@@ -170,6 +209,9 @@ export function PeoplePanel({
                   const name = nameOf(p);
                   const label = name || p.username;
                   const hiddenRow = isHidden(p);
+                  // The DRAFT's view of this row's limit — see draftLimitFor's
+                  // comment for why this replaced `p.limit` (Fix 1, final review).
+                  const draftLimit = draftLimitFor(p.username, draft);
                   return (
                     <tr key={p.key} className={hiddenRow ? "is-hidden" : undefined}>
                       <th scope="row">
@@ -182,23 +224,23 @@ export function PeoplePanel({
                         <span className="adm-people-limit">
                           <select
                             aria-label={`Monthly limit for ${label}`}
-                            value={p.limit.kind}
+                            value={draftLimit.kind}
                             disabled={hiddenRow}
                             onChange={(e) => {
                               const kind = e.target.value as api.PersonLimit["kind"];
-                              onLimitChange(p.username, kind, kind === "custom" ? (p.limit.amount ?? draft.default_monthly_limit_usd ?? 0) : null);
+                              onLimitChange(p.username, kind, kind === "custom" ? (draftLimit.amount ?? draft.default_monthly_limit_usd ?? 0) : null);
                             }}
                           >
                             {LIMIT_OPTIONS.map((o) => (
                               <option key={o.value} value={o.value}>{o.label(draft.default_monthly_limit_usd)}</option>
                             ))}
                           </select>
-                          {p.limit.kind === "custom" ? (
+                          {draftLimit.kind === "custom" ? (
                             <input
                               type="number"
                               min={0}
                               aria-label={`Monthly amount for ${label}`}
-                              value={p.limit.amount ?? ""}
+                              value={draftLimit.amount ?? ""}
                               disabled={hiddenRow}
                               onChange={(e) => onLimitChange(p.username, "custom", e.target.value === "" ? 0 : Number(e.target.value))}
                             />

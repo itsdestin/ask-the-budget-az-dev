@@ -26,12 +26,22 @@ from typing import Any
 from store.config import data_dir
 
 
-def _fold(user: str) -> str:
+def fold(user: str) -> str:
     """The U0 comparison form. A private copy of `users.whoami.fold`, NOT an
     import — this module is on the harness import allowlist (Invariant 7)
     and `users/registry.py` writes files, so admitting the package would
     admit that too. `tests/test_users_whoami.py` pins this line to the same
-    expression so the two cannot drift."""
+    expression so the two cannot drift.
+
+    PUBLIC (not `_fold`) because `harness/ledger.py::month_total` needs the
+    same fold for the spend total the cap is compared against — found by
+    the 2026-08-26 final review: `month_total` matched rows by an EXACT
+    username, so a person recorded under two spellings (`dmoss`/`DMOSS`)
+    could spend up to their cap under each spelling, twice, while the
+    People panel's own total (which sums under the fold) showed the
+    correct, larger number. `ledger.py` imports this function rather than
+    writing its own `.casefold(` — `tests/test_users_whoami.py`'s source
+    guard allows `.casefold(` only in this file and `users/whoami.py`."""
     return user.strip().casefold()
 
 
@@ -237,12 +247,12 @@ class Settings:
             return None
         if user in self.user_limits:
             return self.user_limits[user]
-        folded = _fold(user)
+        folded = fold(user)
         if folded:
-            if any(_fold(u) == folded for u in self.exempt_users):
+            if any(fold(u) == folded for u in self.exempt_users):
                 return None
             for key, limit in self.user_limits.items():
-                if _fold(key) == folded:
+                if fold(key) == folded:
                     return limit
         return self.default_monthly_limit_usd
 
@@ -250,15 +260,15 @@ class Settings:
         """On the no-limit list, under the same rule `limit_for` uses."""
         if user in self.exempt_users:
             return True
-        folded = _fold(user)
-        return bool(folded) and any(_fold(u) == folded for u in self.exempt_users)
+        folded = fold(user)
+        return bool(folded) and any(fold(u) == folded for u in self.exempt_users)
 
     def is_hidden(self, user: str) -> bool:
         """Hidden by the admin (spec U7), under the same rule."""
         if user in self.hidden_users:
             return True
-        folded = _fold(user)
-        return bool(folded) and any(_fold(u) == folded for u in self.hidden_users)
+        folded = fold(user)
+        return bool(folded) and any(fold(u) == folded for u in self.hidden_users)
 
 
 def ai_available(settings: Settings, tier: str) -> tuple[bool, str | None]:

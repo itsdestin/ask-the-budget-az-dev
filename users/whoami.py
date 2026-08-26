@@ -13,7 +13,9 @@ the same analyst arrives as `DMOSS` one day and `dmoss` the next. Every
 comparison of two usernames in the app goes through `same_person`, and
 every filename derived from one goes through `roster_key`. harness/
 cannot import this package (Invariant 7), so `harness/settings.py`
-carries a three-line `_fold` pinned by test to the same expression.
+carries a three-line public `fold` pinned by test to the same expression
+— `harness/ledger.py` imports THAT copy (not this module) to fold the
+spend total a monthly cap is compared against.
 """
 from __future__ import annotations
 

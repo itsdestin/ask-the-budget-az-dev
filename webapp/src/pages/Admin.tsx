@@ -15,6 +15,7 @@ import { PeoplePanel } from "../admin/PeoplePanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
 import { describeChanges } from "../admin/changes";
+import { samePerson } from "../admin/same-person";
 
 // The admin surface (Plan 5 Track 1; regrouped for spec E6).
 //
@@ -215,6 +216,13 @@ export function Admin() {
       const next = await api.saveAdminSettings(body);
       setSettings(next);
       setDraft(next);
+      // A saved limit/exempt/hidden edit changes what the People panel's
+      // own fetch would now return (a new collision cleared, a person's
+      // spend now counted under the limit that applies) — without this the
+      // panel keeps showing the PRE-save numbers until the next reload.
+      // Allowed to fail silently, like every other people-panel refresh on
+      // this page: it is a nicety, not something the save itself depends on.
+      api.adminUsers(month).then((p) => setPeople(p)).catch(() => {});
       setApiKey(null);
       setTransferTo(null);
       setSaved(true);
@@ -247,15 +255,13 @@ export function Admin() {
     const user_limits = { ...draft.user_limits };
     // Every spelling of this person, not just the exact key — a legacy file
     // can hold DMOSS and dmoss, and choosing "office default" must clear both.
-    // JS has no casefold, so `toLowerCase()` is the nearest match to the
-    // server's `strip().casefold()` — the server is the authority and this
-    // fold only decides what the PeoplePanel row shows before a save.
+    // `samePerson` is the one shared fold (webapp/src/admin/same-person.ts) —
+    // the server is the authority and this fold only decides what the
+    // PeoplePanel row shows before a save.
     for (const k of Object.keys(user_limits)) {
-      if (k.trim().toLowerCase() === username.trim().toLowerCase()) delete user_limits[k];
+      if (samePerson(k, username)) delete user_limits[k];
     }
-    const exempt_users = draft.exempt_users.filter(
-      (u) => u.trim().toLowerCase() !== username.trim().toLowerCase(),
-    );
+    const exempt_users = draft.exempt_users.filter((u) => !samePerson(u, username));
     if (kind === "custom") user_limits[username] = amount ?? 0;
     if (kind === "exempt") exempt_users.push(username);
     setDraft({ ...draft, user_limits, exempt_users });
