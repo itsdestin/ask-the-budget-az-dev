@@ -1210,6 +1210,65 @@ describe("the page's shape", () => {
   });
 });
 
+// --- handing over admin -----------------------------------------------------
+
+describe("handing over admin", () => {
+  const someone = (username: string, display_name: string, hidden = false): api.PersonRow => ({
+    key: username, username, display_name, name_source: "windows", first_seen: "", last_seen: "",
+    hidden, spent_usd: 0, limit: { kind: "default", amount: null, collision: [] },
+  });
+
+  it("offers a dropdown of people who have opened the app, minus hidden people and me", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      someone("Destin", "Destin Jarrett"), someone("gpaulsen", "Geoff Paulsen"), someone("bjw2", ""), someone("pchen", "Pat Chen", true),
+    ] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    const labels = within(picker).getAllByRole("option").map((o) => o.textContent);
+    expect(labels).toEqual(["Choose a person…", "Geoff Paulsen (gpaulsen)", "bjw2"]);
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+  });
+
+  it("says nobody else has opened the app yet on day one — not an empty select, not a typed box", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [someone("Destin", "Destin Jarrett")] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveTextContent(/Nobody else has opened the app yet/);
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Hand over admin/ })).toBeDisabled();
+  });
+
+  it("falls back to the typed box, with a reason, when the people list cannot be read", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: true, unreadable: 0, people: [] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer")).toHaveTextContent(/couldn't be read from the shared folder/);
+    expect(screen.getByPlaceholderText(/their Windows username/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Hand admin to someone else/ })).toBeNull();
+  });
+
+  it("transfers to the picked username and confirms first", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [someone("Destin", "D"), someone("gpaulsen", "Geoff Paulsen")] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    fireEvent.change(screen.getByRole("combobox", { name: /Hand admin to someone else/ }), { target: { value: "gpaulsen" } });
+    fireEvent.click(screen.getByRole("button", { name: /Hand over admin/ }));
+    expect(screen.getByTestId("admin-transfer-confirm")).toHaveTextContent("Geoff Paulsen");
+    fireEvent.click(screen.getByRole("button", { name: /Yes, hand over admin/ }));
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/admin handed to gpaulsen/);
+  });
+
+  it("uses no bare link anywhere in the card", async () => {
+    mockAll();
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer").querySelector(".adm-link")).toBeNull();
+  });
+});
+
 // --- the AI Mode toggle chain -----------------------------------------------
 // AI Mode [off] → nothing · [on] → Key · key added → per-mode switches →
 // each switch → its model picker. Everything below a switch is genuinely
