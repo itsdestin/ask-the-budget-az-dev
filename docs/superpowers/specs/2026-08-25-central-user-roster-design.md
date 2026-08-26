@@ -1,9 +1,11 @@
 # Central user roster — design
 
 **Date:** 2026-08-25 (revised same day after review)
-**Status:** design approved by Destin; spec revised after review; **UI shape
-approved from the mockup 2026-08-25 (G-U0 passed)** — ready for an
-implementation plan
+**Status:** **SHIPPED 2026-08-26** (branch `user-roster`; merge pending a
+fix pass on three Important defects found at final review — see
+STATUS.md → "Central user roster"). Design approved by Destin; spec
+revised after review; UI shape approved from the mockup 2026-08-25
+(G-U0 passed); G-U1–G-U3 executed live and passed.
 **Decisions:** U0–U16 · **Gates:** G-U0, G-U1, G-U2, G-U3
 
 **Revision note (2026-08-25).** The first draft had two design defects and
