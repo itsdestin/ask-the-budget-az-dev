@@ -430,6 +430,15 @@ sketched code and its first-pass implementation didn't, every time:
 **Suites (commit `b3a3fe8`):** pytest **3407 passed / 5 skipped**; vitest
 **1187 passed (97 files)**; `tsc -b` and `npm run build` both exit 0.
 
+**Suites on the merged tree** (after `origin/master`'s 34-commit "windows
+beta fixes" work merged in, `ab686d3`): **pytest 3488 passed / 5 skipped**;
+targeted guards (`test_users_whoami`, `test_harness_settings`,
+`test_ingest_jobs`, `test_ingest_lock`, `test_packaging_manifest`) **135
+passed**; vitest **1196 passed (97 files)**; `tsc -b` and `npm run build`
+both exit 0. Layer 1 eval on the merged tree is byte-identical to both
+branches' own pre-merge controls — see "Windows beta fixes" above for the
+merge record.
+
 **G-U1 — Layer 1 eval, same-day control.** `ingest/` was touched (the
 `same_person` swap), which is the CLAUDE.md rule for re-running the eval.
 Both runs against the same corpus, same 47-query set, minutes apart: a
