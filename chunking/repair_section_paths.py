@@ -55,7 +55,27 @@ UNCHANGED_SAMPLE_SIZE = 200
 # concurrent re-ingest and is exactly what the drop is for; more than 20 of 200
 # is not that coincidence -- it is the read itself having stopped working (a
 # predicate that no longer matches, a projection change, a store answering []).
+# The line itself is `_missing_tolerance`, which puts a FLOOR of one row under
+# the fraction -- see its docstring for why a bare tenth was wrong on a small
+# sample.
 UNCHANGED_SAMPLE_MISSING_LIMIT = 0.10
+
+
+def _missing_tolerance(sample_size: int) -> float:
+    """How many sampled rows may be gone before this pass refuses.
+
+    WHY a floor of one and not a bare `UNCHANGED_SAMPLE_MISSING_LIMIT *
+    sample_size`: on a sample of 1-9 rows a tenth is less than one, so ANY
+    single row lost aborted the run -- refusing the exact benign case the
+    drop exists for (a document this pass never touches, re-ingested during
+    the tens of minutes of planning) purely because the sample was small.
+    That shape is reachable on a `--only` run over a couple of documents and
+    on every small test corpus.
+
+    The live 200-row sample is unaffected: `max(1, 20.0)` is 20, so 20 of 200
+    is still tolerated and 21 still refuses.
+    """
+    return max(1.0, UNCHANGED_SAMPLE_MISSING_LIMIT * sample_size)
 
 
 class ChunkStoreLike(Protocol):
@@ -325,40 +345,108 @@ class _WriteState:
     it did. Without it the hint would say "was NOT rebuilt" and leave the
     operator with no idea WHY, on the one failure where the next step is to fix
     the share and re-run `build_fts_index` by hand rather than restore anything.
+
+    WHY `batches_attempted` exists and `rows_written` cannot stand in for it:
+    `rows_written` is assigned only AFTER `upsert_chunks` RETURNS, and that
+    call is a delete commit followed by a SEPARATE add commit -- "CAUTION: the
+    delete and the add are two separate commits, so this is NOT atomic -- an
+    interruption between them leaves those chunk_ids deleted"
+    (`store/chunk_store.py`, the comment above `tbl.delete`). So a batch whose
+    add half fails has taken up to `batch_size` rows OUT of the corpus while
+    `rows_written` is still 0. Reading that 0 as "nothing moved" produced two
+    dangerous outputs: a hint telling the operator the corpus was unchanged and
+    that both restore points could be DELETED, and a skipped index rebuild.
+    `batches_attempted` is recorded BEFORE the call, so "unchanged" is claimed
+    only when no write was ever started.
+
+    `optimize_error` is kept apart from `rebuild_error` because the two mean
+    opposite things to whoever reads them. `build_fts_index` is what makes
+    re-added rows visible to BM25; `optimize` only prunes old table versions.
+    Reporting a failed `optimize` as "the index was NOT rebuilt" (which one
+    shared flag did) sends an operator hunting a search-correctness problem
+    that does not exist, and towards a restore that would throw away a
+    perfectly good write.
     """
 
     snapshot: str | None
     reversal_path: Path
     rows_written: int = 0
     batches_written: int = 0
+    batches_attempted: int = 0
+    ids_in_flight: int = 0
     index_rebuilt: bool = False
-    rebuild_error: Exception | None = None
+    rebuild_error: BaseException | None = None
+    optimize_error: BaseException | None = None
+
+    def _index_phrase(self) -> str:
+        if self.index_rebuilt:
+            phrase = "WAS rebuilt over them"
+            if self.optimize_error is not None:
+                # NEVER "NOT rebuilt" on this path: the index really was
+                # rebuilt, so keyword search sees every written row and there
+                # is nothing to restore. All that failed is the pruning of old
+                # table versions, which costs disk and nothing else.
+                phrase += (
+                    f"; optimize failed: {self.optimize_error} -- old versions were "
+                    "not pruned, search is correct; re-run optimize by hand"
+                )
+            return phrase
+        phrase = "was NOT rebuilt"
+        if self.rebuild_error is not None:
+            phrase += f" (the rebuild was attempted and FAILED: {self.rebuild_error})"
+        return phrase
+
+    def state_sentence(self) -> str:
+        """What is in the corpus, and what search knows about it.
+
+        Split out of `hint()` so the two callers that must NOT offer a restore
+        -- the clean-write rebuild failure and the clean-write optimize failure
+        -- can state the same facts and then give their own remedy.
+        """
+        if self.batches_written < self.batches_attempted:
+            # The attempted-but-unconfirmed batch. See the class docstring:
+            # `upsert_chunks` deletes and adds in two commits, so a batch that
+            # raised may have committed the delete alone.
+            state = (
+                f"{self.rows_written} row(s) in {self.batches_written} batch(es) are "
+                f"ALREADY written and batch {self.batches_attempted} FAILED PART-WAY: "
+                "its delete and its add are two separate commits, so that batch's "
+                f"{self.ids_in_flight} row(s) may now be DELETED from the corpus with "
+                "no replacement. The corpus is NOT known to be unchanged"
+            )
+        else:
+            state = (
+                f"{self.rows_written} row(s) in {self.batches_written} batch(es) are "
+                "ALREADY written"
+            )
+        return f"{state} and the full-text index {self._index_phrase()}"
 
     def hint(self) -> str:
-        if not self.rows_written:
+        if not self.batches_attempted:
             # WHY this branch does not offer the snapshot: restoring it rolls
             # the whole corpus back to the moment this pass started, discarding
             # every upload since -- an enormous, silent loss to undo a write
-            # that never happened. Nothing moved, so there is nothing to undo,
-            # and both artefacts are just litter on the share.
+            # that never happened. No `upsert_chunks` was ever CALLED, so
+            # nothing moved and there is nothing to undo.
+            #
+            # WHY it no longer says the two artefacts "can be deleted": that
+            # was a destructive instruction resting on a premise the old
+            # `rows_written` test got wrong (see the class docstring). Litter
+            # on the share is cheap; a deleted snapshot is not recoverable.
             snapshot = (
                 f"the snapshot at {self.snapshot}" if self.snapshot
                 else "no snapshot was taken"
             )
             return (
-                "No rows were written, so the corpus is unchanged -- there is nothing "
-                f"to undo; {snapshot} and the reversal record at {self.reversal_path} "
-                "can be deleted."
+                "No write was ever attempted, so the corpus is unchanged -- there is "
+                f"nothing to undo; {snapshot} and the reversal record at "
+                f"{self.reversal_path} are unneeded but harmless. Leave them in place."
             )
-        index = "WAS rebuilt over them" if self.index_rebuilt else "was NOT rebuilt"
-        state = (
-            f"{self.rows_written} row(s) in {self.batches_written} batch(es) are "
-            f"ALREADY written and the full-text index {index}"
-        )
-        if self.rebuild_error is not None:
-            state += f" (the rebuild was attempted and FAILED: {self.rebuild_error})"
         snapshot = self.snapshot or "(no snapshot -- the corpus was empty)"
-        return f"{state}. Restore from {snapshot} or replay {self.reversal_path}."
+        return (
+            f"{self.state_sentence()}. Restore from {snapshot} or replay "
+            f"{self.reversal_path}."
+        )
 
 
 def _write_changed_rows(
@@ -434,6 +522,16 @@ def _write_changed_rows(
         vectors = embedder.embed_batch([r["text"] for r in pending], input_type="document")
         for row, vector in zip(pending, vectors):
             row["vector"] = vector
+        # WHY the ATTEMPT is recorded before the call and not only its success
+        # after it: `upsert_chunks` deletes this batch's chunk_ids and adds the
+        # replacements in a second, separate commit (`store/chunk_store.py`'s
+        # CAUTION comment), so a failure between the two leaves these rows
+        # DELETED. A counter incremented only on return reports "no rows were
+        # written" over a corpus that just lost `len(pending)` rows -- and the
+        # hint built on it told the operator to delete both restore points and
+        # skipped the index rebuild.
+        state.batches_attempted = batch_num
+        state.ids_in_flight = len(pending)
         store.upsert_chunks(table, pending)
         written.extend(pending)
         state.rows_written = len(written)
@@ -479,6 +577,14 @@ def _passthrough_mismatch(now: Mapping[str, Any], sent: Mapping[str, Any]) -> st
     return None
 
 
+def _untouched_sample_ids(
+    before_by_id: Mapping[str, Mapping[str, Any]], changed_ids: set[str]
+) -> list[str]:
+    """WHICH rows the untouched sample watches -- deterministic, and taken
+    from the plan-time scan so it does not depend on when the lock was won."""
+    return sorted(set(before_by_id) - changed_ids)[:UNCHANGED_SAMPLE_SIZE]
+
+
 def _untouched_baseline(
     store: ChunkStoreLike,
     table: str,
@@ -501,7 +607,28 @@ def _untouched_baseline(
     The sample ids still come from the plan-time scan, so WHICH rows are
     watched is deterministic and does not depend on when the lock was won.
     """
-    untouched = sorted(set(before_by_id) - changed_ids)[:UNCHANGED_SAMPLE_SIZE]
+    untouched = _untouched_sample_ids(before_by_id, changed_ids)
+    if not untouched and len(before_by_id) > len(changed_ids):
+        # The sample SHOULD have existed: the plan scan saw more ids than the
+        # change set holds, so at least one of them is a row this pass never
+        # touches. An empty sample makes every later comparison iterate
+        # nothing, so spec G-T3's untouched-row half reports success having
+        # compared zero rows -- the same silent no-op the EMPTY-read branch
+        # below refuses, arriving from the other side.
+        #
+        # WHY this cannot fire through today's `_untouched_sample_ids` (and is
+        # here anyway): a set difference that empties out implies the change
+        # set covers every scanned id, which makes the count test false. It is
+        # a tripwire on the DERIVATION, which is the part a later edit breaks
+        # -- and the failure it would cause is invisible, because the check it
+        # disables still passes.
+        raise RuntimeError(
+            f"the untouched-row sample is EMPTY even though the plan scan saw "
+            f"{len(before_by_id)} rows against a change set of {len(changed_ids)} -- "
+            "rows this pass never touches exist but none was sampled, and an empty "
+            "sample would make spec G-T3's untouched-row check pass without comparing "
+            "anything. Nothing has been written; re-run the dry run"
+        )
     baseline: dict[str, Mapping[str, Any]] = {}
     for start in range(0, len(untouched), batch_size):
         ids = untouched[start:start + batch_size]
@@ -526,11 +653,16 @@ def _untouched_baseline(
                 "check pass without comparing anything. Nothing has been written; "
                 "re-run the dry run"
             )
-        if missing > UNCHANGED_SAMPLE_MISSING_LIMIT * len(untouched):
+        # `_missing_tolerance` and not a bare fraction: on a sample of fewer
+        # than ten rows a tenth is under one row, so a single benign
+        # concurrent re-ingest -- the exact case the drop below exists for --
+        # aborted the run. One row is always tolerated; 21 of the live 200
+        # still refuses.
+        if missing > _missing_tolerance(len(untouched)):
             raise RuntimeError(
                 f"{missing} of {len(untouched)} sampled untouched rows could not be "
                 f"re-read under the lock, over the "
-                f"{UNCHANGED_SAMPLE_MISSING_LIMIT:.0%} this pass tolerates as a "
+                f"{_missing_tolerance(len(untouched)):.4g} this pass tolerates as a "
                 "concurrent re-ingest -- far likelier that the sample read stopped "
                 "working than that this many rows really vanished. Nothing has been "
                 "written; re-run the dry run"
@@ -664,11 +796,12 @@ def repair_section_paths(
     wants before an apply is approved.
 
     Note for any caller that wants to tell one failure from another: EVERY
-    failure after the first row moves is re-raised as a `RuntimeError` carrying
-    `_WriteState.hint()`, with the real exception on `__cause__` (and, when the
-    index rebuild also failed, its exception one further down the `__cause__`
-    chain). A future CLI wanting distinct exit codes must read `__cause__`, not
-    the type of what it caught.
+    failure after the first write is ATTEMPTED is re-raised as a `RuntimeError`
+    carrying `_WriteState.hint()`, with the real exception on `__cause__` (and,
+    when the index rebuild or the optimize also failed, that exception one
+    further down the `__cause__` chain -- including a `KeyboardInterrupt`
+    raised inside the rebuild). A future CLI wanting distinct exit codes must
+    read `__cause__`, not the type of what it caught.
     """
     progress = progress or _default_progress
     changes, result, before_by_id = _plan_corpus(store, root, table, progress, only)
@@ -760,31 +893,68 @@ def repair_section_paths(
             # verification had failed, how many rows had landed, or either
             # restore path. It is recorded instead, and re-raised below in a
             # form that keeps both.
-            if state.rows_written:
+            #
+            # WHY this gates on `batches_attempted` and not `rows_written`:
+            # a batch that raised between its delete commit and its add commit
+            # has already removed rows from the table while `rows_written` is
+            # still 0, and skipping the rebuild there leaves the index
+            # describing rows that no longer exist. The attempt is what makes
+            # the index stale, not the return value.
+            if state.batches_attempted:
                 try:
                     store.build_fts_index(table)
-                    store.optimize(table)
+                    # WHY the flag is set HERE and not after `optimize`: the
+                    # index IS rebuilt the moment this call returns. Setting it
+                    # after both calls meant an `optimize` failure -- which
+                    # only leaves old table versions unpruned -- was reported
+                    # as "the index was NOT rebuilt", i.e. as keyword search
+                    # missing every written row, pointing an operator at a
+                    # restore that would discard a correct write.
                     state.index_rebuilt = True
-                    progress("full-text index rebuilt and table optimized")
-                except Exception as rebuild_exc:  # noqa: BLE001 -- re-raised below
+                except BaseException as rebuild_exc:  # noqa: BLE001 -- re-raised below
+                    # WHY BaseException and not Exception: a Ctrl-C landing
+                    # inside the rebuild is not an `Exception`, so it escaped
+                    # this handler, escaped the `finally`, and REPLACED the
+                    # propagating verification failure and its hint -- the
+                    # exact loss this try/except was added to stop, on the one
+                    # interruption an operator produces deliberately. It is
+                    # recorded and chained into the raise below, so the run
+                    # still terminates and the interrupt is still on the
+                    # `__cause__` chain rather than swallowed.
                     state.rebuild_error = rebuild_exc
                     progress(
                         f"FULL-TEXT INDEX REBUILD FAILED: {rebuild_exc} -- the rows are "
                         "written and keyword search will MISS them until it is rebuilt"
                     )
+                else:
+                    try:
+                        store.optimize(table)
+                        progress("full-text index rebuilt and table optimized")
+                    except BaseException as optimize_exc:  # noqa: BLE001 -- re-raised
+                        # Recorded as its OWN fact. Same BaseException reason
+                        # as above, and the wording never says "NOT rebuilt":
+                        # search is correct, only the version pruning failed.
+                        state.optimize_error = optimize_exc
+                        progress(
+                            "the full-text index WAS rebuilt; optimize FAILED: "
+                            f"{optimize_exc} -- old versions were not pruned, search "
+                            "is correct; re-run optimize by hand"
+                        )
         if failure is not None:
             # Composed HERE, after the `finally`, so it can state whether the
             # index really was rebuilt rather than what was true when the
             # error was raised. Every failure past this point reaches the
             # operator carrying both restore points and how much landed.
-            if state.rebuild_error is not None:
-                # Both failures survive, in the order the operator needs them:
-                # the RuntimeError says what went wrong with the WRITE, its
-                # `__cause__` is that original failure, and ITS `__cause__` is
-                # the rebuild error the hint also names in prose. Chaining the
-                # rebuild error onto the original (rather than raising it) is
-                # what stops the second failure eating the first.
-                failure.__cause__ = state.rebuild_error
+            # Both failures survive, in the order the operator needs them:
+            # the RuntimeError says what went wrong with the WRITE, its
+            # `__cause__` is that original failure, and ITS `__cause__` is
+            # the index error the hint also names in prose. Chaining the
+            # second error onto the original (rather than raising it) is
+            # what stops the second failure eating the first. `rebuild_error`
+            # first because it is the one that costs search correctness.
+            secondary = state.rebuild_error or state.optimize_error
+            if secondary is not None:
+                failure.__cause__ = secondary
             raise RuntimeError(f"{failure} -- {state.hint()}") from failure
         if state.rebuild_error is not None:
             # The write and the verification both passed and the rebuild did
@@ -792,9 +962,36 @@ def repair_section_paths(
             # exception escape with no hint at all -- 10,200 rows live behind a
             # stale BM25 index, which is the most dangerous state this module
             # can produce, and no count, no "NOT rebuilt", no restore paths.
+            #
+            # WHY this no longer routes through `hint()`: hint's second half is
+            # "Restore from X or replay Y", and on THIS path every row was
+            # written and then verified column by column, so the corpus is
+            # correct. Restoring would roll back a good write plus every upload
+            # since, to fix an index. `rebuild_error`'s own docstring already
+            # names the remedy -- fix the share and re-run `build_fts_index` by
+            # hand -- and that is what the sentence says now. Both artefacts are
+            # still NAMED, as facts an operator may want later, never as the
+            # instruction.
             raise RuntimeError(
                 "the full-text index rebuild failed AFTER the rows were written "
-                f"-- {state.hint()}"
+                f"-- {state.state_sentence()}. The rows are correct and verified, so "
+                "do NOT roll the corpus back: fix whatever the rebuild could not reach "
+                f"and re-run build_fts_index on {table} by hand. The snapshot at "
+                f"{state.snapshot or '(none -- the corpus was empty)'} and the reversal "
+                f"record at {state.reversal_path} are still in place if the rows ever "
+                "do need undoing."
             ) from state.rebuild_error
+        if state.optimize_error is not None:
+            # The rows landed, verified, and the index WAS rebuilt -- only the
+            # version pruning failed. It still has to reach the operator (a
+            # bare escape would carry no context at all), but it must never
+            # read as a search problem or invite a restore: the corpus and the
+            # index are both correct and the only cost is disk.
+            raise RuntimeError(
+                "the table optimize failed after a clean, verified write "
+                f"-- {state.state_sentence()}. Nothing needs restoring and search is "
+                f"correct; re-run optimize on {table} by hand to prune the old "
+                "table versions."
+            ) from state.optimize_error
 
     return result

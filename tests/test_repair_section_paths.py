@@ -9,6 +9,7 @@ import pytest
 from chunking.repair_section_paths import (
     PLAN_COLUMNS,
     RowChange,
+    _missing_tolerance,
     plan_document,
     repair_section_paths,
 )
@@ -726,26 +727,173 @@ def test_a_rebuild_failure_after_a_clean_write_still_reaches_the_operator(
     assert "the index rebuild could not open the table" in str(caught.value.__cause__)
     # The rows really did land -- this is not a "nothing happened" failure.
     assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
+    # ...and the remedy is the one this failure actually has. Every row was
+    # written AND verified column by column, so a snapshot restore would roll
+    # back a correct write plus every upload since, to fix an INDEX. The
+    # sentence used to route through `hint()` and offer exactly that.
+    assert "Restore from" not in message
+    assert "do NOT roll the corpus back" in message
+    assert "re-run build_fts_index on budget_chunks by hand" in message
+    # The two artefacts are still NAMED (asserted above) as facts, never as
+    # the instruction -- and nothing here tells anyone to delete them.
+    assert "can be deleted" not in message
 
 
-def test_a_failure_before_any_row_moved_never_tells_the_operator_to_restore(
+def test_a_failure_before_any_upsert_was_attempted_never_tells_the_operator_to_restore(
     root: Path, tmp_path: Path
 ):
     """A snapshot restore rolls the whole corpus back to the start of this
     pass and discards every upload since. Offering it to undo a write that
     never happened (the first version's wording did) is an enormous, silent
-    loss for nothing."""
-    store = _ExplodingStore(_full_rows())
+    loss for nothing.
+
+    The store here fails the "rows vanished under the plan" check, which runs
+    BEFORE this batch's `upsert_chunks` -- the only shape that really proves
+    nothing moved. A store that raises INSIDE `upsert_chunks` does not (see
+    `test_a_batch_that_deleted_its_rows_then_failed_...` below): the delete
+    and the add are two separate commits."""
+    store = _VanishedStore(_full_rows())
     with pytest.raises(RuntimeError) as caught:
         repair_section_paths(
             store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
             lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
         )
     message = str(caught.value)
+    assert "No write was ever attempted" in message
     assert "the corpus is unchanged" in message
     assert "nothing to undo" in message
-    assert "can be deleted" in message
     assert "Restore from" not in message
+    # ...and it does NOT tell anyone to delete a restore point. That
+    # instruction is destructive and irreversible, and the premise it rested
+    # on (`rows_written == 0`) was wrong on the half-committed batch below.
+    assert "can be deleted" not in message
+    assert "unneeded but harmless" in message
+    assert store.written == []
+
+
+class _DeletingThenExplodingStore(_FakeStore):
+    """The delete half of `upsert_chunks` commits and the add half never runs.
+
+    This is not a hypothetical: `store/chunk_store.py::upsert_chunks` deletes
+    the batch's chunk_ids and then adds the replacements as a SECOND LanceDB
+    commit, and says so in a CAUTION comment -- "an interruption between them
+    leaves those chunk_ids deleted". A share dropping mid-batch does exactly
+    this, and it happens while `rows_written` is still 0.
+    """
+
+    def upsert_chunks(self, name, rows):
+        gone = {r["chunk_id"] for r in rows}
+        self.rows = [r for r in self.rows if r["chunk_id"] not in gone]
+        raise RuntimeError("the share went away between the delete and the add")
+
+
+def test_a_batch_that_deleted_its_rows_then_failed_is_never_reported_as_unchanged(
+    root: Path, tmp_path: Path
+):
+    """`rows_written` is incremented only AFTER `upsert_chunks` RETURNS, so a
+    batch that lost its add half leaves rows DELETED from the corpus with the
+    counter still reading 0. Treating that 0 as proof of an untouched corpus
+    produced two dangerous outputs: a hint telling the operator both restore
+    points "can be deleted" -- over a corpus that had just silently lost rows
+    -- and a skipped index rebuild, leaving the BM25 index describing rows
+    that no longer exist."""
+    store = _DeletingThenExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    # The damage is real: the row is gone from the corpus with no replacement.
+    assert "doc-a-0001" not in {r["chunk_id"] for r in store.rows}
+    # So the operator is NEVER told the corpus is untouched, and NEVER told to
+    # throw away the two things that can put it back.
+    assert "the corpus is unchanged" not in message
+    assert "can be deleted" not in message
+    assert "FAILED PART-WAY" in message
+    assert "The corpus is NOT known to be unchanged" in message
+    # ...and both restore paths are named.
+    assert "snap.zip" in message
+    assert "section-path-reversal-budget_chunks-" in message
+    # The index is rebuilt on this path too: rows left the table, so the old
+    # index describes a corpus that no longer exists.
+    assert store.fts_built == ["budget_chunks"]
+
+
+class _OptimizeExplodingStore(_FakeStore):
+    """`build_fts_index` succeeds and `optimize` does not -- old table versions
+    stay unpruned, which costs disk and nothing else."""
+
+    def optimize(self, name, *, retention=None):
+        raise RuntimeError("optimize could not prune the old versions")
+
+
+def test_an_optimize_failure_after_a_clean_write_says_the_index_WAS_rebuilt(
+    root: Path, tmp_path: Path
+):
+    """One flag used to be set after BOTH calls, so a failed `optimize` was
+    reported as "the index was NOT rebuilt" -- which reads as keyword search
+    missing every row this pass wrote, and points at a restore. The index was
+    rebuilt; search is correct; only the version pruning failed."""
+    store = _OptimizeExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    assert store.fts_built == ["budget_chunks"]
+    assert "WAS rebuilt over them" in message
+    assert "NOT rebuilt" not in message
+    # The optimize failure is its own named fact, with its own remedy.
+    assert "optimize could not prune the old versions" in message
+    assert "re-run optimize on budget_chunks by hand" in message
+    # Never a restore: the rows are written AND verified, and the index is
+    # current.
+    assert "Restore from" not in message
+    assert "Nothing needs restoring" in message
+    assert "the table optimize failed after a clean, verified write" in message
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "optimize could not prune" in str(caught.value.__cause__)
+    # The rows really did land.
+    assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
+
+
+class _CorruptingCtrlCStore(_CorruptingStore):
+    """Verification fails, and then the operator hits Ctrl-C during the index
+    rebuild that runs in the `finally`."""
+
+    def build_fts_index(self, name):
+        raise KeyboardInterrupt("ctrl-c during the rebuild")
+
+
+def test_a_ctrl_c_inside_the_rebuild_does_not_replace_the_verification_failure(
+    root: Path, tmp_path: Path
+):
+    """`except Exception` does not catch `KeyboardInterrupt`, so a Ctrl-C in
+    the rebuild escaped the handler, escaped the `finally`, and REPLACED the
+    propagating verification failure and its hint -- the exact loss that
+    try/except exists to stop, arriving on the one interruption an operator
+    produces deliberately, at the moment they are most likely to reach for it
+    (a long write that has just started printing errors).
+
+    It must not be swallowed either: the run still ends in a raise, and the
+    interrupt is on the `__cause__` chain."""
+    store = _CorruptingCtrlCStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    # The failure that matters survived, with the state of the corpus.
+    assert "section_path did not land" in message
+    assert "1 row(s) in 1 batch(es) are ALREADY written" in message
+    assert "was NOT rebuilt" in message
+    assert "ctrl-c during the rebuild" in message
+    assert "snap.zip" in message
+    # ...and the interrupt is chained, not lost.
+    assert isinstance(caught.value.__cause__.__cause__, KeyboardInterrupt)
 
 
 def _rows_with_many_untouched(count: int = 20) -> list[dict]:
@@ -812,6 +960,61 @@ def test_a_sample_missing_more_than_a_tenth_of_its_rows_refuses_before_any_write
             store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
             lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
         )
+    assert store.written == []
+    assert store.fts_built == []
+
+
+def test_the_missing_row_tolerance_floors_at_one_and_keeps_the_live_200_row_line():
+    """A bare tenth is under one row on any sample smaller than ten, so a
+    single benign concurrent re-ingest -- the exact case the drop exists for
+    -- aborted the run purely because the sample was small. That is reachable
+    on a `--only` run over a couple of documents. The live 200-row sample is
+    unaffected: 20 of 200 is still tolerated and 21 still refuses."""
+    assert _missing_tolerance(200) == 20.0
+    assert _missing_tolerance(9) == 1.0
+    assert _missing_tolerance(3) == 1.0
+    assert _missing_tolerance(1) == 1.0
+
+
+def test_a_tiny_untouched_sample_still_tolerates_one_missing_row(
+    root: Path, tmp_path: Path
+):
+    """Three sampled rows, one gone before the first write. Under a bare tenth
+    (0.3) that refused; the write is correct and must happen."""
+    store = _SampleReadLosesRowsStore(_rows_with_many_untouched(count=2), keep=2)
+    result = repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    assert result.changed == 1
+    assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
+    assert store.fts_built == ["budget_chunks"]
+
+
+def test_an_empty_untouched_sample_that_should_have_existed_refuses_before_any_write(
+    root: Path, tmp_path: Path, monkeypatch
+):
+    """The other way an empty sample arrives: not a read that lost its rows,
+    but a DERIVATION that never selected any. The plan scan saw more ids than
+    the change set holds, so rows this pass never touches exist -- and an
+    empty sample turns spec G-T3's untouched-row half into a check that passes
+    having compared nothing.
+
+    Driven by replacing the derivation, because that is precisely what the
+    guard protects: today's set difference cannot empty out while the counts
+    disagree, and the failure a future edit would introduce is invisible --
+    the check it disables still reports success."""
+    store = _FakeStore(_full_rows())
+    monkeypatch.setattr(
+        "chunking.repair_section_paths._untouched_sample_ids",
+        lambda before_by_id, changed_ids: [],
+    )
+    with pytest.raises(RuntimeError, match="EMPTY even though the plan scan saw"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    # Refused BEFORE the first upsert, so the corpus is untouched.
     assert store.written == []
     assert store.fts_built == []
 
