@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-25
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -55,9 +55,172 @@ source. When something ships, update only this file.
 | **Citation highlight locate** (spec L1–L4) | ✓ **Shipped + browser-approved 2026-08-18** | 44% of correctly linked figure chips rendered "couldn't pinpoint" or the wrong page (measured on a live run). Narrative chunks now store a union bbox + per-paragraph line map; a locate endpoint resolves a cited value to exact PDF rects at click time; the viewer trusts it and falls back to the old chain otherwise; load failures are a recoverable panel with Open document + Retry. The browser pass caught ONE defect the suite missed — a vertical mirror — fixed in `1423734`. See the section below |
 | **Consolidated eval pipeline** | ✅ **Shipped — merged to master (2026-08-18), 3265 pytest green** | Replaced the smoke/full/dr-probe Layer-2 organization with three `set:`s (quick 45 / deep 3 / refusal 5; **multi deferred**), a tokens/turns-to-accurate headline (wall-clock dropped), a `document_correctness` doc-type axis, a tool-error ledger, an over-time archive, a free corpus-verification script, and a **resumable judge** (partial writes + resume-skip). 53 queries, all **solvable** (0 presence misses). **deepseek-v4-flash-0731 full-45 quick rerun: 0.711 accurate (32/45), $0.21 — beats glm-5.2 (0.667) at ~1/10 cost.** Report bundle auto-opens at end of every run. See "Consolidated eval pipeline" below |
 | **Product rename — JLBC Search** | ✅ **Shipped (2026-08-18), all suites + Layer 1 gate green** | Every user-facing and internal reference to "JLBC Insight" / "Ask the Budget AZ" became **JLBC Search** — SPA title, home hero, repair/health screens, launcher, installers, shortcuts, bundle names, state dirs (`%LOCALAPPDATA%\JLBC-Search`), OpenRouter `X-Title`, system-prompt lead, QUICKSTART + PREVIEW-BRIEFING, pyproject/package names. Old MCP-namespaced tool aliases kept in `citation-extract` so saved transcripts still render. Historical docs/plans/specs untouched (record of design intent). 3299 pytest / 1149 vitest / tsc / build green; **Layer 1 eval identical to baseline** (recall@5 85.71%, @15 97.62%, @20 100.00%, refusal 60%). "JLBC Agentic Search" (memo footer) deliberately kept per Destin's call. See "Product rename" section below |
-| **One-click diagnostic → verification + repair** | ✅ **Rewritten (2026-08-18)**, 3304 pytest green | The old USB diagnostic only wrote a REPORT. The replacement (`packaging/diag/diag.pyw` + `diag.cmd` + new `RUN-DIAGNOSTIC.cmd`) copies the server log (redacted), **compares the network/share copy of the corpus against the USB seed** file-by-file (missing + half-copied files, plain-english verdict), then **offers to repair** — copy the missing files from USB and re-verify with the app's own `ChunkStore` open-check (the exact health-ladder rung). Root cause of the flash-and-close also fixed: every `.cmd` in the repo was LF-only; new/rewritten ones are CRLF. Verified end-to-end against the live corpus (7,932-file manifest; repair closed a 7,930-file gap and the open-check then passed at 83,197 passages). Ships on the USB only — `packaging/` is excluded from the bundle by design. `tests/test_diag_tool.py` pins the manifest/compare/copy logic. See the section below |
+| **One-click diagnostic → verification + repair** | ⬛ **Deleted 2026-08-25** (spec D1) | The USB tool that verified and repaired the share copy of the corpus is gone; the in-app repair screen is the one recovery path. See "Windows beta fixes" below |
 | **Fund identity repair** (catalog + stamps + the analyst's fund list) | ✅ **Built and APPLIED to the corpus 2026-08-23**, evals identical before/after, awaiting Destin's review | Branch `fund-identity` off `easy-wins`. 17 truncated fund names restored, 50 non-fund catalog rows removed, fund stamping bounded to word edges, and 9,454 + 776 junk stamps nulled on both corpora with a verified snapshot + reversal records. Fund list: 187 ids/49 codes → **154 funds, all named**. See "Fund identity repair" below |
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
+| **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3416 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
+
+## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
+
+Branch `windows-beta-fixes`, 17 tasks + one added at the checkpoint, each
+implemented by a fresh subagent and reviewed by a second before the next
+began. Spec: `docs/superpowers/specs/2026-08-25-windows-beta-fixes-design.md`
+(§1–§5, decisions D1–D4 and §S, §2.5 added at the checkpoint, §W deferred
+findings). Plan: `docs/superpowers/plans/2026-08-25-windows-beta-fixes.md`.
+The one real beta failure, verified from the laptop's own log:
+`docs/superpowers/investigations/2026-08-25-windows-launch-failure.md`.
+
+**Why.** The app had only ever run on this Linux box against a local corpus.
+The single Windows beta install (2026-08-18) failed three ways in fourteen
+minutes and served **fake fixture rows the whole time** with nothing on
+screen saying so. A read-only audit of the bundle then found that even with
+a correct pointer it could not have worked: MinerU was unlaunchable
+(`resolve_mineru_exe` fell through to `uv run mineru`, which the bundle does
+not have) and Budget Documents lost every title and "Open" link (the bundle
+excluded `webapp/reference/assets/search/index-lite.js`, which
+`app/search_provider.py` reads at runtime).
+
+### Decisions (Destin, 2026-08-25 — do not re-litigate)
+
+- **D1** The USB diagnostic tool is DELETED (`packaging/diag/`,
+  `RUN-DIAGNOSTIC.cmd`, `tests/test_diag_tool.py`). The in-app repair screen
+  is the one recovery path.
+- **D2 / S2** Program files live in **`%LOCALAPPDATA%\JLBC-Search\program\`**;
+  `%LOCALAPPDATA%\JLBC-Search\` itself holds only per-machine data
+  (`machine.json`, `logs\`, `running.json`, `mineru.json`, `conversations\`,
+  `documents\`). Named `program`, not `app` — the bundle already has a Python
+  package called `app/`.
+- **D3** The launcher tries **port 9300** first, a random port only if 9300
+  is held.
+- **D4** Scope = Tier 1 bundle-breakers + the launch/repair chain + the three
+  Tier 2 app bugs + the one-line share-locking retries. Tier 3/4 is §W.
+- **S1** `install.cmd` (unzip-it-yourself) is DELETED; `Install-JLBC-Search.cmd`
+  is the only installer.
+- **S3** Launcher start-up timeout **180 s** (was 60 — a cold laptop under
+  Defender imports ~36k files, then opens LanceDB over the share; at 60 s it
+  said "failed" while the server finished a minute later with no window).
+- **S5** On the stub provider the app re-probes the corpus at most every 30 s.
+- **§2.5** At the rendered checkpoint Destin said the screens were "too
+  complicated for no reason" and asked for a **folder picker** and fewer
+  words. Every repair-screen, launcher and installer sentence now comes from
+  the §2.5 table; the repair page has a **Choose folder…** button (a real
+  Windows dialog, `app/folder_picker.py`, PowerShell `FolderBrowserDialog`)
+  beside the text box.
+
+### What shipped, by spec section
+
+| § | change |
+|---|---|
+| 1.1 | `resolve_mineru_exe` gains the rung `[sys.executable, "-m", "mineru.cli.client"]` when importable; `CREATE_NO_WINDOW` on the child |
+| 1.2 | `build_bundle.py` ships `index-lite.js` (`INCLUDED_FILES`), drops `site-packages/bin/`, `mockups/`, `PROMPT-*.md` (`FORBIDDEN_ROOT_PREFIXES`); the installer is copied into `dist/` beside the zip |
+| 1.3 | `.gitattributes` `*.cmd text eol=crlf` + `tests/test_cmd_line_endings.py` — every `.cmd` in the repo was LF-only, which is the "flashes and closes" installer |
+| 1.4 | Installer rewritten: `program\` subfolder; refuses to install into `%LOCALAPPDATA%\JLBC-Search` itself; **stops a running server first** (pid from `running.json` via a temp file, `tasklist` image-name check so a recycled pid never kills a stranger, `taskkill /T`); deletes the old program folder **only when it is recognisably ours** (`launcher.pyw` + `VERSION`); one-time cleanup of the 0.9.1 root layout; a locked folder says "JLBC Search is still open. Close it, then run this installer again." rather than blaming the USB |
+| 1.5 | `python -m app.machine_config --default-ingest-enabled false` — written only when the key is absent, so an upgrade never overrides a PC's ingest choice |
+| 1.6 | `mineru.json` is written by the **launcher** into the state dir on every start from the real install dir (the installer's silent `2>nul` rewrite stranded MinerU on a stale absolute path after a move). The bundle ships no template |
+| 1.7 | Launcher: `try_bind(9300)` is the single-instance lock; a healthy recorded instance is reused on whatever port it recorded; a sibling mid-start is waited on only when its record is younger than 2×180 s (a stale record after power loss is not a sibling); `health_json` accepts only OUR body (`ok: true` AND `provider`); 180 s; a top-level catch so `pythonw.exe` never dies silently; a **crashed** server shows "could not start — send this file", a **slow** one shows "still starting — wait a minute, click the icon again"; provider name logged at start |
+| 1.8 | D1 + S1 deletions; `packaging/README.md`, `docs/QUICKSTART.md` rewritten for the layout; `README.md` marked developer-only |
+| 2.1 | `normalize_data_dir`: trims, strips quotes, `E:` → `E:\`, and on Windows `/` → `\` and `\host\share` → `\\host\share`. The laptop's pointer was `//bcpool/JLBCSearch`, which every `Path` check accepts and LanceDB's Rust URL parser refuses |
+| 2.2 | `validate_data_dir` opens the folder **the way LanceDB does** (`ChunkStore(root, create=False).count(...)`) — "a different index" on a dim mismatch, "can't open" otherwise, "no documents yet" on 0 rows. `Path.exists()` cannot catch the class of failure that hit the laptop |
+| 2.3 | **A bundle is detected by a `VERSION` file at the install root.** With no env var and no pointer, a bundle raises `DataDirNotConfigured` instead of inventing `data/insight-data` under the program folder; a dev checkout (no `VERSION`) keeps the repo default. `tests/test_store_config.py::test_no_bundle_marker_in_a_checkout` guards it — **never leave a `VERSION` file in a checkout**. The repair box now appears for EVERY failure the pointer can cause (corrupt `machine.json`, unreachable folder, wrong folder, no data) — `can_repair` used to be `first_failure == "share"` only, so the laptop's corrupt-pointer failure rendered the "can't start" page with no control on it |
+| 2.4 | `app.state.reprobe(force=)`: saving a folder swaps the search provider in place and resets the retrieval collaborators — no restart. `restart_required` is gone from the repair route |
+| 2.5 | `POST /api/config/pick-folder` (409 while a dialog is already open; never saves — the page saves through `/api/config/data-dir`); `can_pick` on `/api/health/detail`; the wording table |
+| 3.1 | `_locate_doc_cache` is an `OrderedDict` — it was a plain `dict` evicted with `popitem(last=False)`, a `TypeError`, so the **9th distinct PDF crashed `/locate` and leaked eight handles** (on Windows an open handle blocks re-ingest from overwriting the file); `close_locate_cache()` runs at lifespan shutdown on every path |
+| 3.2 | `store/documents.py` and `harness/settings.py`: one `OSError` used to cache `{}` / defaults **under the good file's stamp** — blank titles and "no API key configured" until the file next changed. Now the last good value is kept and the stamp forgotten, so the next call re-reads. (`search_provider` already did this.) |
+| 3.3 | Budget Documents says **"Sample results only — JLBC Search can't reach the budget folder right now."** while on the stub provider; `/api/search` and the health poll re-probe at most every 30 s, so the page recovers on its own when the share comes back |
+| 3.4 | `store/fs.py` — one `replace_with_retry` / `unlink_with_retry` (transient = `PermissionError`, winerror 5/32, `EACCES`) replacing two ad-hoc copies; `documents.json`, the fiscal-note directory and the ingest lock's release now retry. The sidecar write sits AFTER the LanceDB commit, so a sharing violation there failed the job over a document that was already searchable |
+
+### 🔴 Findings on the way that nobody had noticed
+
+- **The repair route never worked on master.** `DataDirBody` was declared
+  *inside* `create_app`, so FastAPI could not resolve it and
+  `POST /api/config/data-dir` returned **422 on every call** — verified
+  against the base commit, not inferred. Every earlier "repair screen"
+  claim in this file was of a form that could not submit.
+- **The health probe manufactured the folder it was checking for.** A bare
+  `ChunkStore(create=False)` still went through `data_dir()`, which
+  `mkdir`s. That is why the laptop's wrong pointer read as "index can't be
+  opened" rather than "wrong folder". Principle 3 of the spec — **no probe,
+  health check or validation may create a directory at the pointer** — is
+  now `root=resolve_data_dir()` everywhere on the check path.
+- The repair page's UNC placeholder rendered **four** backslashes (a JSX
+  attribute-string escaping bug, pre-existing). Found by a screenshot, not a
+  test; pinned by an exact-string test now.
+- `build_bundle.py` shipped a `models/mineru.json` containing the literal
+  `__INSTALL_DIR__` under a comment claiming the installer rewrote it (it
+  did, silently, until Task 14 deleted that step). Inert — nothing sets
+  `JLBC_MINERU_MODELS` — but a trap; removed.
+
+### 🔴 What the reviews caught in the plan's own code
+
+The plan's prose held; its sketches did not — the pattern this file has
+recorded seven times. In Task 14 alone, three review rounds found: a crashed
+server took the *timeout* box ("wait a minute, click again"), a loop the
+user could never leave; the sibling-wait had no freshness bound, so a
+recycled pid after power loss meant three silent minutes with no window;
+the "still open" installer check tested a file's *presence*, not a lock, so
+after the user closed the app it said "still open" forever — and its guard
+files had been deleted by the first attempt, so nothing could ever clear
+the folder. The fix for THAT then rested on a false belief about Windows —
+that `rmdir /s /q` stops at the first locked file. It does not: it deletes
+every unlocked file and fails only on the ancestors of locked ones, so the
+"ours" marker chosen to survive a half-deletion was itself deleted and the
+retry could never fire. Now the installer remembers ours-ness within a run
+and, across runs, recognises the embeddable Python by shape
+(`python\pythonw.exe` present, `python\Lib\` absent — a real Python install
+always has `Lib\`). All fixed, each pinned. Earlier tasks: the `machine_config`
+rung must fail only when *nothing* resolves (an env var must still win);
+a force reprobe must bypass the stub gate; `os.name` patched to `"nt"` makes
+`Path()` build `WindowsPath` on Linux (`_LocalPath` bound at import).
+
+### Gates
+
+**pytest 3416 passed / 5 skipped** (baseline 3342 on `7329973`; 5 `test_diag_tool`
+specs deleted) · **vitest 1164 / 94 files** · `tsc -b` 0 · `npm run build` 0.
+**Layer 1 eval identical to the 2026-08-18 baseline** — recall@5 85.71%,
+@15 97.62%, @20 100.00%, refusal precision 60% (`eval/results/2026-08-26T0150Z-b60d2bd.*`
+vs `2026-08-18T1813Z-1423734.*`). Owed because `ingest/mineru_runner.py`
+changed; the change is argv resolution and a creation flag, and the numbers
+say so. p95 read 1390 ms because the eval ran beside the full test suite —
+a control-conditions artefact, not a regression.
+
+### ⏸ NOTHING HERE HAS RUN ON WINDOWS
+
+Every batch construct, the `taskkill` step, `_pid_alive` via `OpenProcess`,
+the PowerShell folder dialog and its stacking above the browser, and
+`try_bind(9300)` holding against our own uvicorn are verified by reading
+and by exec'd pure functions only. The two Linux checkpoints rendered the
+repair screens in headless Chrome; the four Windows-only strings (launcher
+still-starting / could-not-start, installer still-open / didn't-finish) have
+never been seen rendered.
+
+**Acceptance is on Destin's laptop, and the installer gets exactly two
+runs before any beta PC sees it:** rebuild
+(`uv run python packaging/build_bundle.py --version 0.9.2`), copy the zip
+and `dist/Install-JLBC-Search.cmd` to the USB, run the installer **over the
+existing 0.9.1 install** (upgrade path: server stopped, old root layout
+cleaned, chats intact) and then **again over the result** (re-install
+path: `program\` replaced, `machine.json` untouched). Then spec §5: the
+`program\` layout and shortcuts; Budget Documents showing titles, Open
+links **and real rows through the normalised UNC pointer** (if LanceDB
+refuses `\\bcpool\…`, the fallback is a mapped drive letter — record it);
+upload one JLBC agency page and watch it reach `live` with no console
+window; corrupt `machine.json` on purpose and confirm the folder box and
+the Choose folder… dialog appear; type `//bcpool/…` and confirm it is
+stored as `\\bcpool\…` and search works after **Try again** with no
+relaunch; type a folder with an empty `lancedb/` and confirm the refusal
+sentence.
+
+### Next batch — §W of the spec
+
+Tier 3 (share file-locking that needs a Windows box to confirm — admin
+restore still `rmtree`s the live corpus and returns `restart_required`,
+`app/routes/admin.py:1213`; MinerU's orphaned model-server on cancel; the
+Java child with no `CREATE_NO_WINDOW`; per-upload snapshot over SMB) and
+Tier 4 (annoyances: case-sensitive admin username, `.txt.txt`, raw proxy
+errors, the Python-snake icon, unrotated logs, memos saved twice) are
+listed in full there with the "verified clean, do not re-audit" list.
+
+---
 
 ## Fund identity repair — catalog, stamps, and the analyst's fund list (2026-08-23)
 
