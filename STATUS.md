@@ -58,7 +58,7 @@ source. When something ships, update only this file.
 | **One-click diagnostic → verification + repair** | ⬛ **Deleted 2026-08-25** (spec D1) | The USB tool that verified and repaired the share copy of the corpus is gone; the in-app repair screen is the one recovery path. See "Windows beta fixes" below |
 | **Fund identity repair** (catalog + stamps + the analyst's fund list) | ✅ **Built and APPLIED to the corpus 2026-08-23**, evals identical before/after, awaiting Destin's review | Branch `fund-identity` off `easy-wins`. 17 truncated fund names restored, 50 non-fund catalog rows removed, fund stamping bounded to word edges, and 9,454 + 776 junk stamps nulled on both corpora with a verified snapshot + reversal records. Fund list: 187 ids/49 codes → **154 funds, all named**. See "Fund identity repair" below |
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
-| **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3416 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
+| **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 
 ## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
 
@@ -174,7 +174,7 @@ a force reprobe must bypass the stub gate; `os.name` patched to `"nt"` makes
 
 ### Gates
 
-**pytest 3416 passed / 5 skipped** (baseline 3342 on `7329973`; 5 `test_diag_tool`
+**pytest 3419 passed / 5 skipped** (baseline 3342 on `7329973`; 5 `test_diag_tool`
 specs deleted) · **vitest 1164 / 94 files** · `tsc -b` 0 · `npm run build` 0.
 **Layer 1 eval identical to the 2026-08-18 baseline** — recall@5 85.71%,
 @15 97.62%, @20 100.00%, refusal precision 60% (`eval/results/2026-08-26T0150Z-b60d2bd.*`
@@ -209,6 +209,71 @@ the Choose folder… dialog appear; type `//bcpool/…` and confirm it is
 stored as `\\bcpool\…` and search works after **Try again** with no
 relaunch; type a folder with an empty `lancedb/` and confirm the refusal
 sentence.
+
+### What the final whole-branch review caught that eighteen task reviews did not
+
+Three things, all outside the file sets any single task owned:
+
+- **`docs/PREVIEW-BRIEFING.md` still told the three beta users to extract
+  into `%LOCALAPPDATA%\JLBC-Search` and double-click `install.cmd`** — a
+  deleted installer, into the one folder the new installer refuses. Spec §4
+  named three docs and missed the fourth. Rewritten to match QUICKSTART.
+- **`packaging/README.md` named the retired `--set-ingest-enabled false`**
+  as what the installer calls, inside the section that exists to record
+  cross-file duplication. It is `--default-ingest-enabled false`, and the
+  difference is §1.5's whole point.
+- **The installer deleted `running.json` before it had installed
+  anything**, so every abort path ("still open", a locked folder, a failed
+  extract) exited with the record gone while the server was still up. The
+  next icon click could not reuse it, found 9300 held, and started a
+  **second server** on a fallback port. The delete now runs only inside
+  the block that actually killed the pid, and its position is pinned.
+
+Also folded in from the review's minors: `read_data_dir` now normalises
+on read, so an upgrade with the data-folder question skipped repairs the
+laptop's own `//bcpool/JLBCSearch` pointer with no screen at all; three
+save-rejection sentences that still said "corpus" now use §2.5's words;
+the strict-path sidecar error no longer tells an admin to restore a
+snapshot over a sharing violation.
+
+**Let ride, by the reviewer's call:** the 0.9.1 root cleanup has no retry
+(cosmetic — nothing installs there, and its gate is the locked file that
+survives, so it self-heals next run); the embeddable fingerprint would
+also match a stranger's *embeddable* Python (only on a folder the user
+typed as the install target); a picker left open five minutes surfaces
+as a generic 500; share permission-denied reads as "not connected" (by
+spec); admin restore still returns `restart_required` (§W — it `rmtree`s
+the live corpus, which the reprobe does not address); a vitest flake seen
+once in four runs at HEAD (2 failed / 1162, three clean reruns, file not
+captured — same shape as the easy-wins health-ladder flake).
+
+### Seven more things only the laptop can prove
+
+1. **Upgrade over 0.9.1 with the server NOT running** — the pid path is
+   skipped but the root cleanup still runs and deletes `%ROOT%\python`;
+   confirm `conversations\`, `documents\`, `logs\`, `machine.json` survive
+   (the delete list is hand-maintained; this is its only proof).
+2. **Abort the installer at "still open", then click the icon** — one
+   server, not two (`netstat -ano | findstr 9300`; count `pythonw.exe`).
+3. **`--set-data-dir` from the USB's cwd under the `program\` layout** —
+   `python312._pth`'s `..` was verified for the OLD root layout; it now
+   has to resolve `program\app\` from `program\python\`, and
+   `validate_data_dir` imports `lancedb` at install time. A failure is a
+   silent "WARNING: could not record the shared folder" a user scrolls past.
+4. **MinerU actually extracting** — the new `-m mineru.cli.client` rung has
+   never run; confirm output, no console window, and the child reading
+   `%LOCALAPPDATA%\JLBC-Search\mineru.json` (the bundle ships no template,
+   so a wrong path fails to *local weights*, not to a download).
+5. **The picker's z-order** — the `TopMost` owner form is the only thing
+   keeping the dialog above the browser, and it cannot be tested anywhere
+   else. A UNC folder chosen through it must come back as `\\server\share`,
+   not a mapped letter.
+6. **The repair against a REAL corpus over SMB** — every test uses a fake
+   provider. Disconnect the share first so the "Sample results only" note
+   and its 30 s self-recovery are witnessed in the same sitting.
+7. **Two clicks during a real cold start** — ~30 s apart: one `pythonw.exe`;
+   then again after the "still starting" box: still one (that is what the
+   2×180 s window buys).
 
 ### Next batch — §W of the spec
 
