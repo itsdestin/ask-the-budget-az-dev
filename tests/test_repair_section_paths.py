@@ -649,3 +649,185 @@ def test_an_untouched_row_reingested_before_the_lock_does_not_fail_the_write(
     assert store._drifted
     assert result.changed == 1
     assert store.fts_built == ["budget_chunks"]
+
+
+class _FtsExplodingStore(_FakeStore):
+    """The rows land, and then the index rebuild itself fails -- an unreachable
+    share, or a table another process has open."""
+
+    def build_fts_index(self, name):
+        raise RuntimeError("the index rebuild could not open the table")
+
+
+class _CorruptingFtsExplodingStore(_CorruptingStore):
+    """Both at once: verification fails AND the rebuild that runs in the
+    `finally` fails too."""
+
+    def build_fts_index(self, name):
+        raise RuntimeError("the index rebuild could not open the table")
+
+
+def test_a_rebuild_failure_does_not_destroy_the_verification_failure_it_ran_after(
+    root: Path, tmp_path: Path
+):
+    """An exception raised inside a `finally` REPLACES whatever was
+    propagating. The first version called `build_fts_index` bare in the
+    `finally`, so a rebuild failure on the failure path threw the original
+    away unchained: the operator saw an FTS error and never learned that
+    verification had failed, how many rows had landed, or either restore
+    path. Both failures must survive, and so must the hint."""
+    store = _CorruptingFtsExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    # The original failure, not the one the rebuild raised on top of it.
+    assert "section_path did not land" in message
+    # ...the state of the corpus, which is the dangerous half.
+    assert "1 row(s) in 1 batch(es) are ALREADY written" in message
+    assert "was NOT rebuilt" in message
+    # ...why it was not rebuilt, so the next step is fix-and-rebuild rather
+    # than a guess.
+    assert "the index rebuild could not open the table" in message
+    # ...and both restore points.
+    assert "snap.zip" in message
+    assert "section-path-reversal-budget_chunks-" in message
+    # The chain keeps both exceptions in the order a caller needs them.
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "section_path did not land" in str(caught.value.__cause__)
+    assert "the index rebuild could not open the table" in str(
+        caught.value.__cause__.__cause__
+    )
+    assert store.optimized == []
+
+
+def test_a_rebuild_failure_after_a_clean_write_still_reaches_the_operator(
+    root: Path, tmp_path: Path
+):
+    """Write and verify pass, then the rebuild fails. Nothing else raises on
+    that path, so the first version let the bare exception escape with no
+    hint at all -- the rows are live behind a stale BM25 index, which is the
+    most dangerous state this module can produce, and the operator got no row
+    count, no "NOT rebuilt", and neither restore path."""
+    store = _FtsExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    assert "full-text index rebuild failed" in message
+    assert "1 row(s) in 1 batch(es) are ALREADY written" in message
+    assert "was NOT rebuilt" in message
+    assert "snap.zip" in message
+    assert "section-path-reversal-budget_chunks-" in message
+    assert "the index rebuild could not open the table" in str(caught.value.__cause__)
+    # The rows really did land -- this is not a "nothing happened" failure.
+    assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
+
+
+def test_a_failure_before_any_row_moved_never_tells_the_operator_to_restore(
+    root: Path, tmp_path: Path
+):
+    """A snapshot restore rolls the whole corpus back to the start of this
+    pass and discards every upload since. Offering it to undo a write that
+    never happened (the first version's wording did) is an enormous, silent
+    loss for nothing."""
+    store = _ExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    assert "the corpus is unchanged" in message
+    assert "nothing to undo" in message
+    assert "can be deleted" in message
+    assert "Restore from" not in message
+
+
+def _rows_with_many_untouched(count: int = 20) -> list[dict]:
+    """`_full_rows()` plus `count` rows of a document the plan skips (no
+    cached extractor output), so the untouched sample is big enough for a
+    single missing row to sit under the 10% line."""
+    rows = _full_rows()
+    base = dict(rows[0])
+    for i in range(count):
+        extra = dict(base)
+        extra.update({
+            "chunk_id": f"doc-z-{i:04d}", "doc_id": "doc-z", "is_table": False,
+            "section_path": ["Z"], "text": f"Z\nrow {i}",
+        })
+        rows.append(extra)
+    return rows
+
+
+class _SampleReadLosesRowsStore(_FakeStore):
+    """The under-lock re-read of the untouched sample loses rows the plan scan
+    had seen. Only the FIRST predicate-bearing PLAN_COLUMNS scan is affected --
+    that is the baseline read; the full-column fetches and the post-write
+    re-read answer normally."""
+
+    def __init__(self, rows: list[dict], *, keep: int | None):
+        super().__init__(rows)
+        self.keep = keep  # None = drop the lot
+        self._baseline_read = False
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        out = super().scan(name, columns, where=where, limit=limit)
+        if where is not None and "vector" not in columns and not self._baseline_read:
+            self._baseline_read = True
+            return [] if self.keep is None else out[:self.keep]
+        return out
+
+
+def test_an_untouched_sample_that_came_back_empty_refuses_before_any_write(
+    root: Path, tmp_path: Path
+):
+    """`_untouched_baseline` DROPS rows it cannot re-read, and every later
+    comparison iterates the baseline -- so a read that returns nothing leaves
+    zero rows to compare and G-T3's second half reports success having looked
+    at nothing. A silent no-op that passes is worse than a failure."""
+    store = _SampleReadLosesRowsStore(_rows_with_many_untouched(), keep=None)
+    with pytest.raises(RuntimeError, match="came back EMPTY"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    # Refused BEFORE the first upsert, so the corpus is untouched.
+    assert store.written == []
+    assert store.fts_built == []
+
+
+def test_a_sample_missing_more_than_a_tenth_of_its_rows_refuses_before_any_write(
+    root: Path, tmp_path: Path
+):
+    """21 sampled rows, 3 read back: not a concurrent re-ingest, a read that
+    stopped working."""
+    store = _SampleReadLosesRowsStore(_rows_with_many_untouched(), keep=3)
+    with pytest.raises(RuntimeError, match="could not be re-read under the lock"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    assert store.written == []
+    assert store.fts_built == []
+
+
+def test_one_untouched_row_gone_before_the_write_is_still_tolerated(
+    root: Path, tmp_path: Path
+):
+    """The drop exists for a real case -- a document this pass never touches,
+    re-ingested during the tens of minutes of planning. One row of 21 must
+    still be dropped and the write must still happen; the floor above only
+    refuses a sample that has effectively disappeared."""
+    store = _SampleReadLosesRowsStore(_rows_with_many_untouched(), keep=20)
+    result = repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    assert result.changed == 1
+    assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
+    assert store.fts_built == ["budget_chunks"]
