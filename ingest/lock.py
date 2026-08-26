@@ -35,7 +35,6 @@ exactly as it always has.
 """
 from __future__ import annotations
 
-import getpass
 import json
 import os
 import socket
@@ -45,6 +44,7 @@ from pathlib import Path
 from types import TracebackType
 
 from store.config import data_dir
+from users.whoami import current_user
 
 LOCK_FILENAME = "ingest.lock"
 
@@ -367,7 +367,7 @@ class IngestLock:
         return {
             "machine": socket.gethostname(),
             "pid": os.getpid(),
-            "user": _current_user(),
+            "user": current_user() or "unknown",
             "heartbeat_at": time.time(),
         }
 
@@ -405,10 +405,3 @@ class IngestLock:
             pass
 
 
-def _current_user() -> str:
-    try:
-        return getpass.getuser()
-    except Exception:
-        # getuser() raises when no USERNAME/LOGNAME is set (service contexts).
-        # The owner string is diagnostic only — never worth failing an ingest.
-        return "unknown"

@@ -40,7 +40,6 @@ holder is dead.
 """
 from __future__ import annotations
 
-import getpass
 import hashlib
 import json
 import os
@@ -52,6 +51,7 @@ from pathlib import Path
 from types import TracebackType
 
 from store.config import data_dir
+from users.whoami import current_user
 
 # Sibling of `jobs/`, not inside it. The jobs directory is meant to be
 # readable in Notepad by whoever inherits this system; machine bookkeeping
@@ -224,7 +224,7 @@ class JobClaim:
         return {
             "machine": socket.gethostname(),
             "pid": os.getpid(),
-            "user": _current_user(),
+            "user": current_user() or "unknown",
             "token": self._token,
             "job_id": self._job_id,
             "doc_id": self._doc_id,
@@ -363,8 +363,3 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _current_user() -> str:
-    try:
-        return getpass.getuser()
-    except Exception:
-        return "unknown"

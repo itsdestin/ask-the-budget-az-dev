@@ -13,7 +13,6 @@ that would be harmful if bypassed.
 """
 from __future__ import annotations
 
-import getpass
 import os
 import sys
 from dataclasses import replace
@@ -30,9 +29,11 @@ from harness.settings import (
 )
 from store.config import data_dir
 
-# Overrides the OS username. Exists for tests and for a dev running two
-# "analysts" side by side — NOT as an auth mechanism.
-USER_ENV_VAR = "JLBC_USER"
+from users.whoami import USER_ENV_VAR, current_user  # noqa: F401 — re-exported
+
+# `current_user` MOVED to users/whoami.py (2026-08-25, spec U0) so that
+# ingest/ can share it without importing app/. Re-exported here because ~16
+# test modules and every route import it from this module.
 
 # Tier 2 of the lockout recovery (Task 13) and the primary one: an empty
 # file with this name in the shared data folder makes admin claimable
@@ -40,31 +41,6 @@ USER_ENV_VAR = "JLBC_USER"
 # the only mechanism a non-technical person can execute on a locked-down
 # Windows PC with nothing but File Explorer.
 RESET_FILENAME = "RESET-ADMIN.txt"
-
-
-def current_user() -> str:
-    """Who is asking, per spec S11: the Windows username of this process.
-
-    There is no authentication and this is not pretending to be any. S11 is
-    explicit that per-user cost tracking is "not real security" — the app is
-    installed per machine (S7) and launched by the person sitting at it (S8),
-    so the process owner IS the analyst. Anyone who can set an environment
-    variable can call themselves someone else; the ledger is an accounting
-    tool for a single office, not an access-control boundary, and building a
-    login screen on top of a local-only app would be theater that makes it
-    LOOK like one.
-
-    Falls back to "" (which `Settings.limit_for` resolves to the org default)
-    rather than raising: an unnameable user should lose accurate accounting,
-    not the ability to ask a question.
-    """
-    override = os.environ.get(USER_ENV_VAR)
-    if override:
-        return override
-    try:
-        return getpass.getuser()
-    except Exception:  # noqa: BLE001 — no username source on this host
-        return ""
 
 
 def _windows_display_name() -> str:
