@@ -270,7 +270,7 @@ map by identity instead of searching it by text."
 
 Run: `grep -rn "outline_path" --include='*.py' . | grep -v __pycache__`
 
-Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), three comments (`narrative_chunk.py:27`, `mineru_reader.py`, `odl_reader.py`), and **four tests** — one in `tests/test_mineru_reader.py` (line ~86) and three in `tests/test_odl_reader.py` (lines ~92, ~108, ~115; verified 2026-08-26). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
+Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), **five comment mentions** (`narrative_chunk.py:27` and `:145`, `mineru_reader.py:234`, `odl_reader.py:220` and `:248` — verified on the branch 2026-08-26; the two at `:145` / `:248` are passing references and need no edit beyond reading them), and **four tests** — one in `tests/test_mineru_reader.py` (line ~86) and three in `tests/test_odl_reader.py` (lines ~92, ~108, ~115; verified 2026-08-26). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -2385,8 +2385,11 @@ uv run pytest -q 2>&1 | tail -3
 cd webapp && npx tsc -b && npm run build && npx vitest run 2>&1 | tail -3
 ```
 
-Expected: no new failures. The webapp is untouched by this plan, so its
-counts must be unchanged. Delete `$SCRATCH/rehearsal-data/` — it holds a
+The worktree has no `webapp/node_modules` (the venv is symlinked, npm
+packages are not) — run the three webapp commands from the MAIN repo after
+the merge below, or `npm ci` in the worktree first. Expected: no new
+failures. The webapp is untouched by this plan, so its counts must be
+unchanged. Delete `$SCRATCH/rehearsal-data/` — it holds a
 second copy of the corpus plus its snapshot, ~2 GB, and nothing points at
 it once the live write is done.
 
