@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-26
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -59,6 +59,7 @@ source. When something ships, update only this file.
 | **Fund identity repair** (catalog + stamps + the analyst's fund list) | ✅ **Built and APPLIED to the corpus 2026-08-23**, evals identical before/after, awaiting Destin's review | Branch `fund-identity` off `easy-wins`. 17 truncated fund names restored, 50 non-fund catalog rows removed, fund stamping bounded to word edges, and 9,454 + 776 junk stamps nulled on both corpora with a verified snapshot + reversal records. Fund list: 187 ids/49 codes → **154 funds, all named**. See "Fund identity repair" below |
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
+| **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26** | Branch `user-roster`. One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
 
 ## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
 
@@ -284,6 +285,324 @@ Java child with no `CREATE_NO_WINDOW`; per-upload snapshot over SMB) and
 Tier 4 (annoyances: case-sensitive admin username, `.txt.txt`, raw proxy
 errors, the Python-snake icon, unrotated logs, memos saved twice) are
 listed in full there with the "verified clean, do not re-audit" list.
+
+---
+
+## Central user roster (2026-08-25/26)
+
+Branch `user-roster` (off `easy-wins`, base `a1a1eb6`). Spec:
+`docs/superpowers/specs/2026-08-25-central-user-roster-design.md` (U0–U16,
+gates G-U0–G-U3). Plan: `docs/superpowers/plans/2026-08-25-central-user-roster.md`
+(11 tasks). Mockup:
+`docs/superpowers/specs/assets/2026-08-25-user-roster-mockup/people-panel.html`.
+
+### The problem, as measured
+
+The app had never recorded that a person exists. Every request just asked
+Windows "who is running me right now" and forgot the answer immediately —
+nothing on the share, in the corpus, or in settings remembered anyone.
+Five admin screens needed a username and **three made the administrator
+type it by hand**, after first asking the person what Windows called them:
+who can open Admin, each person's spending limit, and the no-limit list.
+Typing it wrong didn't error — it saved cleanly and matched nobody,
+silently. Two of those screens compared usernames **exactly**, so `dmoss`
+and `DMOSS` were two different people to the app — and Windows itself
+doesn't keep the casing stable (`%USERNAME%` reflects how someone typed
+their name at THAT logon), so the same analyst could arrive as `DMOSS` one
+day and `dmoss` the next and silently split their own spending history.
+Real names existed (`machine_config.json`'s `display_names`) but were
+stranded on each person's own PC, which is the direct cause of "go ask
+them their username" — the admin had no way to see anyone's real name.
+And underneath all of it, **four separate places in the code each decided
+"who is this?" on their own** (`app/identity.py::current_user`, plus a
+private copy in each of `ingest/jobs.py`, `ingest/claim.py` and
+`ingest/lock.py`) — three of the four ignored the `JLBC_USER` override and
+fell back to the literal string `"unknown"`, so an uploaded document could
+be stamped with a different name than that same person's AI Mode usage.
+
+### What shipped
+
+- **U0 — one identity rule.** A single case-folding comparison
+  (`users/whoami.py::same_person`, backed by Python's `casefold()`) is now
+  the ONLY thing anywhere in the app that decides whether two usernames
+  are the same person. `harness/settings.py` (spend limits, exemptions,
+  the admin seat) and `app/identity.py` (the admin gate) both route
+  through it. An AST-based source guard scopes WHERE the fold may be
+  used, the same discipline Invariant 7 already uses for the data-dir
+  allowlist — folding is confined to username-handling packages so it
+  can't quietly leak into, say, a document-id comparison.
+- **The spend CAP folds too.** `harness/ledger.py::month_total` — the
+  total `check_limit` compares against a person's monthly cap — now sums
+  a user's rows under the same U0 fold `harness/settings.py` already used
+  for the People panel's own total, via a public `fold` (renamed from
+  `_fold`) imported from `harness/settings.py`, not a new `.casefold(` in
+  `ledger.py` (the source guard only admits that in `users/whoami.py` and
+  `harness/settings.py`). The ledger still WRITES the observed spelling
+  verbatim — only the read side that feeds the cap folds.
+- **A shared roster, one small file per person.** `users/registry.py`
+  writes `<data_dir>/users/<folded-username>.json` — first seen, last
+  seen, and a typed display name if the person or an admin set one.
+  Single-writer per file (mirrors the fund-identity and identity-repair
+  work's locking discipline), reads are cached, and every request that
+  hits `GET /api/me` touches its own roster row in the background so
+  opening the app is what registers you — no separate "sign up" step.
+- **`hidden_users` joins `user_limits`/`exempt_users` in `settings.json`.**
+  Hiding someone takes them off the People table; their past spending
+  still counts and nothing is deleted.
+- **The People panel — built to the approved mockup, not a redesign.**
+  `GET /api/admin/users` joins the roster, this month's ledger and the
+  settings limits into ONE payload so the three sources can't disagree on
+  screen. One table: name (or "No name yet") with the raw username in
+  small type beneath, last seen, spend this month (sortable, defaults
+  highest-first), a monthly-limit dropdown per row, one **Hide** pill per
+  row — never bare link text, a standing rule this branch also finished
+  enforcing everywhere else on `/admin` (Task 10: `.adm-link` is gone from
+  the whole page). Hidden people collapse to one line under the table
+  ("N person(s) hidden (…) · Show").
+- **The hand-over-admin picker.** The old free-text box is now a dropdown
+  of real people who have opened the app (the current admin and anyone
+  hidden are left out of the list). It falls back to the old typed box,
+  with a plain sentence saying why, whenever the roster can't be read.
+- **A stored limit/exempt/hidden key matching nobody in the roster is left
+  alone** (U14) — not shown, not deleted, not warned about. It costs
+  nothing unless that person ever opens the app, at which point their row
+  shows the limit already set.
+
+### Two mockup rejections, and what they changed (G-U0, 2026-08-25)
+
+Destin rejected the first two drawn versions of the People panel on sight,
+before any code was written:
+
+1. **Three separate tables** (active people / people no longer seen /
+   orphaned limit rows) sharing one sortable-table component — "too
+   complicated."
+2. **One table with a Status column, a "show hidden" tick box, and a
+   flagged orphan-limit box** — same verdict, over the stray-limit notice
+   specifically.
+
+What shipped is the third version he approved ("okay this is fine"): one
+plain table with no Status column, no tick box, and no orphan notice —
+a stored limit for someone who never shows up simply doesn't render
+(U14). Hidden people are one collapsed line, not a second table.
+
+### Plan-code defects found by execution (not by the reviewers reading it)
+
+Same pattern this project keeps recording — a plan's prose held, its
+sketched code and its first-pass implementation didn't, every time:
+
+- **A hash-of-original scheme would have defeated the whole feature**,
+  caught at spec review before any code existed: the first draft's U2 said
+  to append a hash to a sanitised username whenever sanitising changed
+  anything, which gives `DMOSS` and `dmoss` two DIFFERENT roster files —
+  exactly the split U0 exists to close. Fixed in the spec before Task 1
+  started (case-fold the filename, keep the observed spelling inside).
+- **The casefold guard's first version would have scanned unrelated
+  packages** for `.casefold(` calls, which is far broader than "does
+  identity comparison use the one blessed function" — narrowed to the
+  username-handling packages only (Task 1).
+- **The partial-save docstring said something the code didn't do.**
+  `PUT /api/me/display-name` writes the local machine file, then the
+  shared roster; the docstring, the spec and the test all claimed a
+  roster-write failure still returned the just-typed name. It returns
+  whatever `display_name()` resolves at that moment, which reads the
+  roster FIRST — so a failed roster write means the response shows the
+  OLD name, not the new one. Docstring, spec and test corrected to say
+  that, rather than the code being bent to match a promise nobody had
+  checked (Task 4, fix `50bb853`).
+- **A comment claiming an import cycle was false** and was deleted rather
+  than carried forward unexamined (Task 4, same fix commit).
+- **Column-sort headings were tagged as action pills**, which meant the
+  Task 7/9/10 "every action is a pill, click Hide/Show only" test guard
+  would have clicked a SORT heading during its own check. Headings are no
+  longer tagged `adm-btn`; the pill-clicking guard is scoped to actual
+  actions and checks a Show pill is really there before clicking it away.
+- **The hand-over picker's first version claimed "nobody else has opened
+  the app yet" on every load** — the loading state and a failed fetch both
+  look identical to a genuinely empty roster to that check, so the
+  message was wrong on every fresh page load and stayed wrong forever if
+  the fetch failed. Fixed to show "Checking who has opened the app…"
+  while loading and fall back to the typed box (with the failure reason)
+  when the fetch errors, instead of asserting a false "nobody" (Task 9,
+  fix `b3a3fe8`).
+
+### Gates — G-U1, G-U2, G-U3, all executed live, not just asserted
+
+**Suites (commit `b3a3fe8`):** pytest **3407 passed / 5 skipped**; vitest
+**1187 passed (97 files)**; `tsc -b` and `npm run build` both exit 0.
+
+**Suites on the merged tree** (after `origin/master`'s 34-commit "windows
+beta fixes" work merged in, `ab686d3`): **pytest 3488 passed / 5 skipped**;
+targeted guards (`test_users_whoami`, `test_harness_settings`,
+`test_ingest_jobs`, `test_ingest_lock`, `test_packaging_manifest`) **135
+passed**; vitest **1196 passed (97 files)**; `tsc -b` and `npm run build`
+both exit 0. Layer 1 eval on the merged tree is byte-identical to both
+branches' own pre-merge controls — see "Windows beta fixes" above for the
+merge record.
+
+**G-U1 — Layer 1 eval, same-day control.** `ingest/` was touched (the
+`same_person` swap), which is the CLAUDE.md rule for re-running the eval.
+Both runs against the same corpus, same 47-query set, minutes apart: a
+CONTROL on unmodified `master`
+(`eval/results/2026-08-26T0235Z-a1a1eb6.json`) and the branch
+(`eval/results/2026-08-26T0249Z-4b15391.json`) — **identical**: recall@5
+85.71%, recall@15 97.62%, recall@20 100%, refusal precision 60%. No
+ranking or retrieval code path reads a username, so no movement was
+expected and none was found.
+
+**G-U2 — case-fold, hand-over, and break-glass recovery, run against a
+real server.** On a scratch data dir (never the shared dev corpus):
+opened the app as `JLBC_USER=DMOSS` (writes `users/dmoss.json` with
+`username: "DMOSS"`); as `destin`, set a **$25** limit on `DMOSS` through
+`PUT /api/admin/settings` using the OTHER casing than the file recorded;
+confirmed in a Python shell that `check_limit("dmoss", …)` and
+`check_limit("DMOSS", …)` both return **25.0**; transferred admin to
+`DMOSS` (`confirm_admin_transfer: true`); restarted as `JLBC_USER=dmoss`
+(yet another casing) and confirmed `GET /api/me` reports `is_admin: true`;
+then created `RESET-ADMIN.txt` in the scratch data dir, confirmed
+`admin_claimable: true`, called `POST /api/admin/claim`, and confirmed
+admin was back to `destin`. Every step passed on the first try.
+
+**G-U3 — an unreadable roster degrades honestly, run against a real
+server.** `chmod 000` on the scratch data dir's `users/` folder:
+`GET /api/admin/users` returned `{"unreachable": true, "people": []}`;
+a browser screenshot of `/admin` showed the People panel's exact sentence
+("The list of people couldn't be read from the shared folder. Check the
+shared drive is connected, then reload.") and the hand-over card's typed
+box with its own sentence ("The list of people couldn't be read from the
+shared folder, so you'll have to type the username…"). `chmod 755` back,
+reloaded, and the table returned with all four seeded people. A second
+scratch data dir holding only the admin's own roster row showed the
+hand-over picker as a **disabled** `<select>` reading "Nobody else has
+opened the app yet" — matching the mockup's fresh-install case exactly.
+
+### Browser pass against the approved mockup
+
+Screenshotted `/admin` (headless Chrome, real corpus via symlinked
+LanceDB, four seeded roster rows — `destin`, `dmoss` with a $25 custom
+limit, `gwashington`, and `tmartin` hidden) and compared pixel-for-pixel
+against `people-panel.html`. Matched: the four-column table with the
+username in small type under the name; the sortable "Spent this month ▼"
+header; the limit dropdown per row; one **Hide** pill per row; the
+collapsed "1 person hidden (TMARTIN, last seen Today) · Show" line; the
+"Spending limits" card (only visible once AI Mode is toggled on — it was
+off in the copied dev settings, which is why it didn't render at first;
+this is the existing AI-Mode gating chain working as designed, not a
+defect) slimmed to one "Each person, per month" field with a pointer
+sentence to People; the hand-over picker listing real people (`dmoss`,
+`gwashington`) with the current admin and the hidden person both
+correctly excluded; the save bar's **Discard** control rendering as the
+same pill class as every other action, and zero `.adm-link` elements
+anywhere on the page.
+
+### 🔧 Three Important defects, found by the final review and this session's browser pass, fixed 2026-08-26
+
+A final whole-branch review (`a1a1eb6..b3a3fe8`) found **three Important
+defects**, and that review's browser pass directly reproduced the first
+one live rather than taking the review's word for it. A follow-up fix
+pass closed all three before merge:
+
+1. **The People panel's limit dropdown and amount box were bound to the
+   server's row, not to a local draft — the amount could not actually be
+   typed into.** Reproduced live: setting the input's value via script and
+   dispatching an `input` event left the field reading `25` immediately
+   and again 800ms later — every keystroke a real person would type got
+   overwritten by the next re-render from the server-shaped props. **Fixed**:
+   both controls now read a `draftLimitFor(username, draft)` lookup (exempt
+   beats a custom amount, an exact `user_limits` key beats a folded one —
+   mirroring `Settings.limit_for`'s own resolution order) instead of
+   `p.limit`. Two new specs in `PeoplePanel.test.tsx` render the panel
+   inside a small stateful wrapper (`onLimitChange` feeding back into real
+   `useState`, mirroring `Admin.tsx`) and assert the rendered VALUE changes,
+   not just that the callback fired — a static-`draft`-prop test cannot
+   tell the fixed binding from the broken one, because neither ever
+   re-renders from a changed draft.
+2. **Hide/unhide compared usernames exactly**, while the roster itself can
+   re-spell a person's username between visits (`DMOSS` → `dmoss`) — so
+   hiding someone under one spelling might not hide them under the next.
+   **Fixed**: a new shared `webapp/src/admin/same-person.ts::samePerson`
+   (mirrors `users.whoami.same_person`) is now used in `PeoplePanel.tsx`
+   (`isHidden`, `hide` — a no-op if already present under the fold, and
+   `unhide` — removes every same-person spelling), `Admin.tsx::setPersonLimit`
+   (replacing its two inline `toLowerCase` folds), and
+   `AdvancedPanel.tsx`'s hand-over-picker self-exclusion. A new spec pins a
+   roster username `PCHEN` hiding under a stored `hidden_users: ["pchen"]`
+   entry, and Unhide clearing it to `[]`; swapping `samePerson` back to
+   `===` turns that spec red (verified, then reverted).
+3. **The spend-limit CAP itself was checked with an exact-match total.**
+   `harness/ledger.py::month_total` summed a user's spend by their exact
+   stored key, so if the same person's usage was recorded under two
+   spellings, the enforced cap compared against a SMALLER total than the
+   number the People panel displayed (which sums with the fold) — a person
+   could spend up to their cap under EACH spelling. **Fixed**: `_fold` in
+   `harness/settings.py` is now the public `fold` (same three-line body,
+   still pinned by test to the same expression as `users/whoami.py`), and
+   `month_total` imports and matches under it (blank user still matches
+   only blank rows, exactly, mirroring `same_person`'s "blank never matches
+   blank"). Two new tests in `tests/test_ledger.py` pin the summed total
+   and that `check_limit` blocks at it even when neither spelling's own
+   rows individually reach the cap. The spec's U0 consumer table now names
+   `harness/ledger.py::month_total` as a fold consumer, with a paragraph
+   explaining why the CAP needed the fold and not only the display.
+
+Three smaller items flagged "fix before merge" were also closed: the dead
+`fold` import in `users/registry.py`, an orphan-key test in
+`test_admin_users_route.py` now also asserting the `hidden_users` orphan
+(`"nobody"`) never appears in the response, and a mirror-expression test
+(`test_the_whoami_fold_is_the_same_expression_too`) that pins itself
+against `users/whoami.py`'s own source directly rather than only a copy.
+`Admin.tsx::save` also now refetches `GET /api/admin/users` after a
+successful save, so a saved limit/hidden/collision change is reflected on
+screen without a reload.
+
+The post-fix amount box and hide/unhide's hidden-state behaviour are
+pinned by jsdom only and have not been re-witnessed in a real browser —
+the browser reproduction above was of the BROKEN build, before this
+session's fix pass.
+
+### ⏸ Known residuals (recorded, not fixed, and not blocking by themselves)
+
+- **Three more bare-link-styled buttons live OUTSIDE `/admin`** and were
+  left alone as out of this branch's scope: `.page-upload .linkish`
+  (`QueuePanel`'s refresh,×2), `.ai-dismiss` (`AiModePanel`), and
+  `.page-fiscal-notes .linkbtn` (`FiscalNotes`). `/admin` itself is now
+  completely free of `.adm-link` (Task 10); these three are Destin's call
+  whenever he next wants the "every action is a pill" rule extended
+  app-wide.
+- **The browser-side fold is `toLowerCase()`, not `casefold()`.**
+  JavaScript has no `casefold`, so the one shared
+  `webapp/src/admin/same-person.ts::samePerson` — now used by
+  `PeoplePanel.tsx` (hide/unhide, the draft-bound limit lookup),
+  `Admin.tsx::setPersonLimit` and `AdvancedPanel.tsx`'s hand-over picker,
+  consolidated 2026-08-26 — uses `toLowerCase()`. For every Windows
+  username in this office (plain ASCII), the two agree with the server's
+  `casefold()` — but the server is always the authority the panel renders
+  from, never the client's own fold.
+- **A name typed on two different PCs before this shipped** can still
+  produce two different roster entries the first time each machine's copy
+  reaches the share — the documented fallback, not a bug this branch
+  introduces.
+- **`%USERNAME%` case drift now FOLDS for matching purposes, but the
+  ledger still records whichever spelling each request actually arrived
+  under.** `DMOSS` and `dmoss` are treated as one person for limits,
+  admin and hiding — but "Who spent what → by person" can still show two
+  rows for one analyst if they used both spellings, because that display
+  was deliberately left alone (U16) rather than folded as a side effect.
+- **The month-change refetch in the People panel swallows errors** the
+  same way its sibling (usage-by-month) already did before this branch —
+  a transient failure leaves the table showing last month's data with no
+  visible error, rather than a stale-data warning.
+- **`registry.py`'s docstring names a `_windows_display_name()` helper
+  that actually lives in `app/identity.py`.** Harmless, flagged for the
+  next pass through that file. (The dead `fold` import next to it was
+  removed 2026-08-26.)
+- **Risk 1 from the spec — real names now live on a shared, human-readable
+  file per person on the office drive — belongs in the Administrator
+  Handbook, which still does not exist** (Plan 5 Track 5, unstarted). The
+  confidentiality note chat history already needed for the same reason is
+  still waiting there too.
+- **Nobody but this session's headless Chrome has looked at any of
+  this.** Destin has not opened the real `/admin` page against the real
+  corpus and clicked through the People panel himself.
 
 ---
 

@@ -1,9 +1,11 @@
 # Central user roster — design
 
 **Date:** 2026-08-25 (revised same day after review)
-**Status:** design approved by Destin; spec revised after review; **UI shape
-approved from the mockup 2026-08-25 (G-U0 passed)** — ready for an
-implementation plan
+**Status:** **SHIPPED 2026-08-26** (branch `user-roster`; merge pending a
+fix pass on three Important defects found at final review — see
+STATUS.md → "Central user roster"). Design approved by Destin; spec
+revised after review; UI shape approved from the mockup 2026-08-25
+(G-U0 passed); G-U1–G-U3 executed live and passed.
 **Decisions:** U0–U16 · **Gates:** G-U0, G-U1, G-U2, G-U3
 
 **Revision note (2026-08-25).** The first draft had two design defects and
@@ -108,6 +110,7 @@ from. Every consumer below uses this rule and NO other:
 | the ledger ↔ roster ↔ settings join in `GET /api/admin/users` | — | U0 |
 | the "does this stored key belong to someone in the roster?" check (U14) | — | U0 |
 | the transfer picker's "is this the current admin?" | — | U0 |
+| `harness/ledger.py::month_total` (the spend total `check_limit` compares against a cap) | exact | U0 |
 
 **Why one rule and not a fold at each call site:** the CLAUDE.md audit
 lesson — when a field has more than one producer, the defect is the
@@ -135,6 +138,22 @@ writing the observed username verbatim (an accounting record must not
 rewrite what it saw); the fold happens when the People panel groups those
 rows. `harness/settings.py` implements U0 as a self-contained three-line
 fold with no new import — **Invariant 7 unchanged**.
+
+**Amended 2026-08-26 (final review): the fold also has to reach the CAP
+comparison itself, not only the display.** `harness/ledger.py::month_total`
+sums a user's monthly spend by matching rows to the username passed in —
+and originally did that by exact string equality, an EXACT-match consumer
+the table above did not name. `check_limit` calls `month_total` and
+compares the result to a single dollar cap; if the sum is exact-matched
+while the People panel's own total is folded, a person recorded under two
+observed spellings (`dmoss` one day, `DMOSS` the next) could be shown one
+(larger, correct) total on screen while the enforcement path compared the
+cap against a SMALLER, single-spelling total — spending up to the cap
+again under the other spelling. `month_total` now folds via a public
+`fold` in `harness/settings.py` (renamed from `_fold`, still no import of
+`users/`, still pinned to the same expression); the ledger keeps writing
+the observed spelling verbatim, unchanged, since only the READ side that
+feeds the cap needed to fold.
 
 ### U1 — The roster is one small file per person, holding OBSERVATIONS only
 
@@ -278,8 +297,16 @@ share read there, contradicting U4. So:
 `PUT /api/me/display-name` writes the roster **and** the local machine
 file. Writing both is not redundancy: the local copy is the offline
 fallback. If the roster write fails, the local write still succeeds and
-the endpoint still returns 200 — the analyst's memo is correct on the
-machine they are sitting at, which is the thing they asked for.
+the endpoint still returns 200 — but the response is whatever
+`display_name()` resolves at that moment, not necessarily the name just
+typed, because `display_name()` reads the roster first. If a roster row
+with a typed name already exists and only this roster write fails, the
+response carries the PREVIOUS roster name — the ladder is telling the
+truth about what a memo generated on this machine WILL print (the roster
+name, whenever the share can be read). The Settings page renders the
+returned value, so the analyst sees the save did not fully take and can
+retry once the share is back, rather than being told a name took effect
+that the roster does not actually hold. (Found in review, 2026-08-25.)
 
 **Known limit, accepted:** a name typed on two different PCs before this
 ships can leave the roster and one local file disagreeing; online the

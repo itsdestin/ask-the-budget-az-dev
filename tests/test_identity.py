@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import identity
 from app.identity import admin_claimable, current_user, is_admin
 from app.main import create_app
 from app.search_provider import StubSearchProvider
@@ -31,12 +32,15 @@ def test_current_user_prefers_env(monkeypatch):
     assert current_user() == "analyst1"
 
 
-def test_admin_matches_exact_username():
+def test_admin_matches_the_username_under_the_one_identity_rule():
     s = Settings(admin_username="Destin")
     assert is_admin(s, "Destin") is True
-    # Exact match, no case folding — same rule as Settings.limit_for. Folding
-    # here would silently merge two distinct config rows an admin typed.
-    assert is_admin(s, "destin") is False
+    # Folds now (spec U0). `%USERNAME%` reflects how the person typed it at
+    # logon, so `destin` vs `Destin` was a real lockout mode with a real
+    # break-glass file to recover from. Once the admin seat is set from a
+    # dropdown of observed usernames, "two rows an admin typed" cannot happen.
+    assert is_admin(s, "destin") is True
+    assert is_admin(s, "destin2") is False
 
 
 def test_unclaimed_admin_is_claimable_and_grants_access():
@@ -113,3 +117,32 @@ def test_me_is_registered_before_the_spa_catch_all(monkeypatch):
     r = _client().get("/api/me")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
+
+
+def test_me_registers_the_caller_in_the_roster(monkeypatch, tmp_path):
+    from users import registry
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("JLBC_USER", "dmoss")
+    monkeypatch.setattr(identity, "_windows_display_name", lambda: "Danielle Moss")
+    registry.reset_roster_cache()
+    with TestClient(create_app(provider=StubSearchProvider())) as client:
+        body = client.get("/api/me").json()
+    assert body["user"] == "dmoss"
+    p = registry.read_person("dmoss")
+    assert p is not None and p.display_name == "Danielle Moss"
+
+
+def test_me_is_unaffected_when_the_roster_write_fails(monkeypatch, tmp_path, capsys):
+    from users import registry
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("JLBC_USER", "dmoss")
+
+    def boom(*a, **k):
+        raise OSError("share is read-only")
+
+    monkeypatch.setattr(registry, "touch", boom)
+    with TestClient(create_app(provider=StubSearchProvider())) as client:
+        r = client.get("/api/me")
+    assert r.status_code == 200
+    assert r.json()["user"] == "dmoss"
+    assert "share is read-only" in capsys.readouterr().err

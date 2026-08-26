@@ -192,7 +192,7 @@ export function CorpusPanel({
                     </button>
                     <button
                       type="button"
-                      className="adm-link"
+                      className="adm-btn adm-btn-quiet adm-btn-sm"
                       onClick={() => {
                         setConfirming(null);
                         setTyped("");

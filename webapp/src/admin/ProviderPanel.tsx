@@ -43,8 +43,6 @@ export function ProviderPanel({
   limitsActive,
   limitsInactiveReason,
   onDefaultChange,
-  onUserLimitsChange,
-  onExemptChange,
 }: {
   settings: api.AdminSettings;
   models: api.ModelCatalog | null;
@@ -61,8 +59,6 @@ export function ProviderPanel({
   limitsActive: boolean;
   limitsInactiveReason: string | null;
   onDefaultChange: (value: number | null) => void;
-  onUserLimitsChange: (limits: Record<string, number>) => void;
-  onExemptChange: (users: string[]) => void;
 }) {
   const isCustom = settings.provider.provider === "custom";
   const editingKey = apiKey !== null;
@@ -70,19 +66,6 @@ export function ProviderPanel({
   // answer-mode cards would not appear until after a save, and the flow would
   // stall exactly where it should be moving forward.
   const hasKey = settings.provider.api_key_set || Boolean(apiKey);
-  const entries = Object.entries(settings.user_limits);
-
-  function setRow(oldName: string, name: string, amount: number) {
-    const next: Record<string, number> = {};
-    for (const [k, v] of entries) {
-      if (k === oldName) {
-        if (name.trim()) next[name] = amount;
-      } else {
-        next[k] = v;
-      }
-    }
-    onUserLimitsChange(next);
-  }
 
   return (
     <section className="card adm-panel" aria-labelledby="adm-ai-h" data-testid="admin-provider">
@@ -112,7 +95,7 @@ export function ProviderPanel({
             testId="admin-key-card"
             action={
               editingKey ? (
-                <button type="button" className="adm-link" onClick={() => onApiKeyChange(null)}>
+                <button type="button" className="adm-btn adm-btn-quiet adm-btn-sm" onClick={() => onApiKeyChange(null)}>
                   Cancel
                 </button>
               ) : (
@@ -207,7 +190,7 @@ export function ProviderPanel({
 
               {isCustom ? null : (
                 <p className="adm-hint">
-                  <button type="button" className="adm-link" onClick={onRefreshModels}>
+                  <button type="button" className="adm-btn adm-btn-quiet adm-btn-sm" onClick={onRefreshModels}>
                     Check for new models
                   </button>
                 </p>
@@ -218,8 +201,7 @@ export function ProviderPanel({
                 hint={
                   settings.default_monthly_limit_usd === null
                     ? "nobody is capped"
-                    : `$${settings.default_monthly_limit_usd} a month each` +
-                      (entries.length ? `, ${entries.length} with their own` : "")
+                    : `$${settings.default_monthly_limit_usd} a month each`
                 }
                 testId="admin-limits"
               >
@@ -248,77 +230,10 @@ export function ProviderPanel({
                       onDefaultChange(e.target.value === "" ? null : Number(e.target.value))
                     }
                   />
-                  <span className="adm-hint">Blank means no limit. 0 blocks everyone.</span>
-                </label>
-
-                {/* Flat, not nested. These two used to be disclosures inside a
-                    disclosure, which is what produced the fingernail stack. */}
-                <p className="adm-label">People with a different limit</p>
-                {entries.length === 0 ? (
-                  <p className="adm-empty">Nobody yet.</p>
-                ) : (
-                  <ul className="adm-rows">
-                    {entries.map(([name, amount]) => (
-                      <li key={name} data-testid="admin-user-limit">
-                        <input
-                          aria-label={`Windows username for the ${name} limit`}
-                          type="text"
-                          value={name}
-                          onChange={(e) => setRow(name, e.target.value, amount)}
-                        />
-                        <input
-                          aria-label={`Monthly limit for ${name}`}
-                          type="number"
-                          min={0}
-                          value={amount}
-                          onChange={(e) => setRow(name, name, Number(e.target.value))}
-                        />
-                        <button
-                          type="button"
-                          className="adm-link"
-                          onClick={() => {
-                            const next = { ...settings.user_limits };
-                            delete next[name];
-                            onUserLimitsChange(next);
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <button
-                  type="button"
-                  className="adm-btn adm-btn-quiet"
-                  onClick={() => onUserLimitsChange({ ...settings.user_limits, "": 0 })}
-                  disabled={Object.prototype.hasOwnProperty.call(settings.user_limits, "")}
-                >
-                  Add a person
-                </button>
-                <p className="adm-hint">
-                  Use the username Windows shows for them — their Settings page
-                  displays it. It is matched exactly, so <code>dmoss</code> and{" "}
-                  <code>DMOSS</code> are two different people to this app.
-                </p>
-
-                <label className="adm-field">
-                  <span className="adm-label">People with no limit at all</span>
-                  <input
-                    aria-label="Usernames with no limit, separated by commas"
-                    type="text"
-                    value={settings.exempt_users.join(", ")}
-                    placeholder="e.g. the director"
-                    onChange={(e) =>
-                      onExemptChange(
-                        e.target.value
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      )
-                    }
-                  />
-                  <span className="adm-hint">This beats any limit set above.</span>
+                  <span className="adm-hint">
+                    Blank means no limit. 0 blocks everyone. Set one person's own
+                    limit, or no limit, under <strong>People</strong>.
+                  </span>
                 </label>
               </CollapsibleCard>
 
@@ -369,7 +284,7 @@ export function ProviderPanel({
                       </ul>
                       <button
                         type="button"
-                        className="adm-link"
+                        className="adm-btn adm-btn-quiet adm-btn-sm"
                         onClick={() => onProviderChange("openrouter")}
                       >
                         Go back to OpenRouter

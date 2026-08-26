@@ -1,6 +1,7 @@
 import {
   adminAliases,
   adminGuidance,
+  adminUsers,
   bookFormats,
   checkBookFormatUrl,
   issues,
@@ -212,4 +213,24 @@ test("checkBookFormatUrl surfaces the backend's error detail", async () => {
   await expect(checkBookFormatUrl("https://x.test/a.pdf", 2028)).rejects.toThrow(
     "admin only",
   );
+});
+
+// WHY: adminUsers() is the People panel's only source for the roster — a
+// typo'd path or a dropped ?month= silently shows every admin "nobody has
+// ever used AI Mode" instead of the real roster.
+
+test("adminUsers GETs /api/admin/users, with an optional month", async () => {
+  const fetchMock = okJson({ month: "2026-08", unreachable: false, unreadable: 0, people: [] });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await adminUsers();
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/users");
+
+  await adminUsers("2026-07");
+  expect(fetchMock.mock.calls[1][0]).toBe("/api/admin/users?month=2026-07");
+});
+
+test("adminUsers surfaces the backend's error detail", async () => {
+  vi.stubGlobal("fetch", failJson(403, "admin only"));
+  await expect(adminUsers()).rejects.toThrow("admin only");
 });

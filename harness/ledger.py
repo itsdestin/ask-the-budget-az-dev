@@ -35,6 +35,7 @@ from typing import Iterator
 
 from harness.constants import WARN_THRESHOLD_RATIO
 from harness.settings import Settings
+from harness.settings import fold as _fold_username
 from store.config import data_dir
 
 def _load_msvcrt():
@@ -452,6 +453,19 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
     dollar figure in its message are always computed from the SAME
     number — never two representations of "the same" total that can
     silently disagree.
+
+    Matched under U0's fold (found by the 2026-08-26 final review), not by
+    exact username: the ledger keeps writing whatever spelling the OS
+    handed it that day (an accounting record must not rewrite what it
+    saw — spec U0), so a person recorded as both `dmoss` and `DMOSS` has
+    their spend split across two exact keys. `check_limit` compares a
+    single dollar figure against a single cap, so if this function summed
+    only one spelling, that cap would compare against a SMALLER total than
+    the one the People panel shows for the same person (which already
+    sums under the fold) — a person could spend up to their limit under
+    each spelling. Blank is still an exact match, never a fold-match
+    against another blank row: two unnameable users are not one person,
+    mirroring `users.whoami.same_person`.
     """
     when = _as_arizona(now)
     path = _usage_path(_month_shard(when))
@@ -461,9 +475,15 @@ def month_total(user: str, *, now: datetime | None = None) -> MonthUsage:
     cached_tokens = 0
     rows = 0
     rows_with_unknown_cost = 0
+    target = _fold_username(user)
     for row in _read_rows(path):
-        if row.get("user") != user:
-            continue
+        row_user = row.get("user")
+        if target:
+            if not (isinstance(row_user, str) and _fold_username(row_user) == target):
+                continue
+        else:
+            if row_user != user:
+                continue
         rows += 1
         tokens_in += _int_or_zero(row.get("tokens_in"))
         tokens_out += _int_or_zero(row.get("tokens_out"))
@@ -685,7 +705,7 @@ def check_limit(
 
     limit_usd = settings.limit_for(user)
     if limit_usd is None:
-        reason = "exempt" if user in settings.exempt_users else "no limit"
+        reason = "exempt" if settings.is_exempt(user) else "no limit"
         return LimitStatus(
             status="allowed",
             message=None,

@@ -56,7 +56,7 @@ export function SaveBar({
         <div className="adm-savebar-actions">
           <button
             type="button"
-            className="adm-link"
+            className="adm-btn adm-btn-quiet adm-btn-sm"
             onClick={onDiscard}
             disabled={saving || changes.length === 0}
           >

@@ -180,7 +180,7 @@ export function GuidancePanel() {
             {dirty ? (
               <button
                 type="button"
-                className="adm-link"
+                className="adm-btn adm-btn-quiet adm-btn-sm"
                 onClick={() => {
                   setText(saved.text);
                   setError(null);

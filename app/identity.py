@@ -13,7 +13,6 @@ that would be harmful if bypassed.
 """
 from __future__ import annotations
 
-import getpass
 import os
 import sys
 from dataclasses import replace
@@ -30,9 +29,12 @@ from harness.settings import (
 )
 from store.config import data_dir
 
-# Overrides the OS username. Exists for tests and for a dev running two
-# "analysts" side by side — NOT as an auth mechanism.
-USER_ENV_VAR = "JLBC_USER"
+from users import registry
+from users.whoami import USER_ENV_VAR, current_user, same_person  # noqa: F401 — re-exported
+
+# `current_user` MOVED to users/whoami.py (2026-08-25, spec U0) so that
+# ingest/ can share it without importing app/. Re-exported here because ~16
+# test modules and every route import it from this module.
 
 # Tier 2 of the lockout recovery (Task 13) and the primary one: an empty
 # file with this name in the shared data folder makes admin claimable
@@ -40,31 +42,6 @@ USER_ENV_VAR = "JLBC_USER"
 # the only mechanism a non-technical person can execute on a locked-down
 # Windows PC with nothing but File Explorer.
 RESET_FILENAME = "RESET-ADMIN.txt"
-
-
-def current_user() -> str:
-    """Who is asking, per spec S11: the Windows username of this process.
-
-    There is no authentication and this is not pretending to be any. S11 is
-    explicit that per-user cost tracking is "not real security" — the app is
-    installed per machine (S7) and launched by the person sitting at it (S8),
-    so the process owner IS the analyst. Anyone who can set an environment
-    variable can call themselves someone else; the ledger is an accounting
-    tool for a single office, not an access-control boundary, and building a
-    login screen on top of a local-only app would be theater that makes it
-    LOOK like one.
-
-    Falls back to "" (which `Settings.limit_for` resolves to the org default)
-    rather than raising: an unnameable user should lose accurate accounting,
-    not the ability to ask a question.
-    """
-    override = os.environ.get(USER_ENV_VAR)
-    if override:
-        return override
-    try:
-        return getpass.getuser()
-    except Exception:  # noqa: BLE001 — no username source on this host
-        return ""
 
 
 def _windows_display_name() -> str:
@@ -99,19 +76,33 @@ def _windows_display_name() -> str:
 def display_name(user: str | None = None) -> str:
     """The name to print on a document this analyst generates.
 
-    Order: stored override > Windows display name > the bare username.
+    Order: roster typed name > local typed name > Windows > username
+    (spec U6). The roster is the SHARED store, so the name follows the
+    analyst between PCs and the admin can see it; the local file is the
+    offline fallback and stays in step (PUT /api/me/display-name writes
+    both).
 
-    DEVIATION FROM SPEC M5, which listed Windows first. An override that
-    loses to auto-detection cannot correct a WRONG AD name, and a wrong
-    name (`JARRETTD`, an un-updated maiden name) is likelier than a
-    missing one. The spec's intent — nobody has to type this if Windows
-    already knows it — is unaffected, because the override is empty until
-    somebody deliberately sets it.
+    THE ROSTER READ IS ON THE REQUEST PATH OF EVERY PAGE LOAD (`/api/me`),
+    so it is bounded: one known file, cached on its (mtime, size) stamp
+    inside users.registry, and ANY failure falls through to the local name
+    with no exception — a memo signature is not worth a blocked request.
+    The first draft of this feature put an unbounded share read here and
+    contradicted its own "never wait on the share" rule (spec U4).
 
-    Never raises: the fallback chain bottoms out at `current_user()`,
-    which itself bottoms out at "".
+    DEVIATION FROM SPEC M5 (unchanged): a typed override beats
+    auto-detection, because a WRONG AD name (`JARRETTD`) is likelier than
+    a missing one.
+
+    Never raises: the chain bottoms out at `current_user()`, which itself
+    bottoms out at "".
     """
     resolved = current_user() if user is None else user
+    try:
+        shared = registry.typed_name(resolved)
+    except Exception:  # noqa: BLE001 — the fallback below IS the handling
+        shared = ""
+    if shared:
+        return shared
     override = machine_config.read_display_name(resolved)
     if override:
         return override
@@ -250,12 +241,12 @@ def is_admin(settings: Settings, user: str) -> bool:
     the provider (S19), and the destructive action here (restore) is
     reversible because it snapshots first.
 
-    Matching is an EXACT string comparison, deliberately — the same rule
-    as `Settings.limit_for`. Case folding here would silently merge two
-    distinct config rows an admin typed. The cost of that choice is a
-    real lockout mode (`destin` vs `Destin`), which is why Task 13's
-    break-glass reset is not optional.
+    Matching folds case (spec U0, 2026-08-25) via `users.whoami.same_person`
+    — the ONE rule every username comparison uses. It was exact, with a
+    real lockout mode (`destin` vs `Destin`) that the break-glass file
+    existed to recover from; once the seat is set from a dropdown of
+    observed usernames the "two typed rows" argument for exactness is gone.
     """
     if admin_claimable(settings):
         return True  # unclaimed — see admin_claimable for WHY
-    return user == settings.admin_username
+    return same_person(user, settings.admin_username)

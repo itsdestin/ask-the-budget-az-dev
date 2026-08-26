@@ -2795,7 +2795,6 @@ fieldset.adm-field{border:0;padding:0;}
 /* The one destructive action in the app. Distinct, but it still only fires
    after the admin has typed the word — the colour is a signal, not the guard. */
 .adm-btn-danger{background:var(--az-red);}
-.adm-link{border:0;background:none;padding:0;font:inherit;font-size:12.5px;font-weight:800;color:var(--az-gold-d);text-decoration:underline;cursor:pointer;}
 
 /* The save bar. Sticks to the bottom of the viewport and exists only while
    something is pending — it replaced a "Save changes" button parked in the
@@ -2810,7 +2809,9 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-savebar-error{color:#ffd7d7;font-weight:800;flex:1 1 100%;}
 .adm-savebar-actions{display:flex;align-items:center;gap:14px;flex:0 0 auto;}
 .adm-savebar .adm-btn{background:#fff;color:var(--navy);}
-.adm-savebar .adm-link{color:#c9cbe6;}
+/* Discard on the navy save bar: an outlined pill in the bar's own ink, not
+   a bare link (Destin, 2026-08-25). */
+.adm-savebar .adm-btn-quiet{background:transparent;color:#fff;border-color:#c9cbe6;}
 /* Room for the bar so it never sits on top of the last card's content. */
 .page-admin .wrap{padding-bottom:96px;}
 .adm-ok{font-size:13px;font-weight:800;color:var(--teal);}
@@ -2883,7 +2884,12 @@ fieldset.adm-field{border:0;padding:0;}
    target, no separate caret to find. */
 .adm-card-toggle{background:none;border:0;font:inherit;text-align:left;cursor:pointer;}
 .adm-card-toggle:hover .adm-card-title h3{color:var(--az-gold-d);}
-.adm-card-more{flex:0 0 auto;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
+/* The Show/Hide word on a collapsible card header: a small outlined pill,
+   not bare link text (Destin, 2026-08-25; drawn as a pill on the approved
+   People mockup). A span, not a button — the whole header row is already
+   the button, and a nested button is invalid HTML. */
+.adm-card-more{flex:0 0 auto;font-size:12px;font-weight:800;color:var(--navy);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px 12px;line-height:1.3;}
+.adm-card-toggle:hover .adm-card-more{border-color:var(--az-gold);}
 .adm-card.is-open{background:var(--canvas);}
 
 /* The pill switch. A real checkbox sits on top of it at zero opacity so the
@@ -2950,6 +2956,28 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-inline input{width:auto;min-width:120px;}
 .adm-inline label{display:block;}
 .adm-price{color:var(--ink-3);}
+
+/* --- People (spec U13, mockup 2026-08-25) ---------------------------------
+   Every action on this page is a pill. `.adm-btn-sm` is the row-sized one;
+   bare underlined link-as-control styling is gone from the sheet entirely
+   (Destin, 2026-08-25: "shouldn't be used anywhere"; pinned repo-wide by
+   styles/no-bare-links.test.ts). */
+.adm-btn-sm{padding:4px 12px;font-size:12px;}
+.adm-people-sortable{cursor:pointer;user-select:none;}
+.adm-people-sort{border:0;background:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;}
+.adm-people-sortable[aria-sort]{color:var(--navy);}
+.adm-people-sortable:hover .adm-people-sort{color:var(--az-gold-d);}
+.adm-people-arrow{margin-left:4px;font-size:10px;}
+.adm-people tbody th{white-space:nowrap;}
+.adm-people-who{display:block;font-size:11.5px;font-weight:400;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+.adm-people-noname{color:var(--ink-3);font-weight:400;font-style:italic;}
+.adm-people-limit{display:inline-flex;gap:6px;align-items:center;white-space:nowrap;}
+.adm-people-limit select{padding:4px 8px;font-size:12.5px;}
+.adm-people-limit input[type=number]{width:70px;padding:4px 8px;font-size:12.5px;}
+.adm-people-warn{font-size:12.5px;color:var(--warn);margin:4px 0 0;line-height:1.5;max-width:40ch;white-space:normal;}
+.adm-people-act{text-align:right;white-space:nowrap;}
+.adm-people tr.is-hidden td,.adm-people tr.is-hidden th{color:var(--ink-3);font-weight:400;}
+.adm-people-hidden{display:flex;align-items:center;gap:12px;margin:14px 0 0;font-size:13px;color:var(--ink-3);}
 
 /* ===== page-report (spec E3, Task 11) =====
    The analyst's own door into issue reports: a short form, then their own

@@ -40,6 +40,7 @@ function settings(over: Partial<api.AdminSettings> = {}): api.AdminSettings {
     default_monthly_limit_usd: 25,
     user_limits: { analyst1: 5 },
     exempt_users: ["director"],
+    hidden_users: [],
     ...over,
   };
 }
@@ -159,6 +160,7 @@ function mockAll(over: {
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
   issues?: api.IssuesResponse;
+  users?: api.AdminUsers;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
     user: "Destin", is_admin: true, admin_username: "Destin",
@@ -189,6 +191,9 @@ function mockAll(over: {
   );
   vi.spyOn(api, "issues").mockResolvedValue(
     over.issues ?? { reports: [] },
+  );
+  vi.spyOn(api, "adminUsers").mockResolvedValue(
+    over.users ?? { month: "2026-08", unreachable: false, unreadable: 0, people: [] },
   );
   // NOTE: `api.bookFormats` is deliberately NOT mocked here. The whole-report
   // links panel MOVED to the Upload page on 2026-08-16, so /admin must not
@@ -1054,8 +1059,10 @@ describe("the page's shape", () => {
   it("summarises spending limits without being opened", async () => {
     mockAll();
     await renderAdmin();
+    // The per-person count moved off this hint with the rows themselves
+    // (Task 8) — the office default is the only thing left to summarise.
     expect(screen.getByTestId("admin-limits")).toHaveTextContent(
-      /\$25 a month each, 1 with their own/,
+      /\$25 a month each/,
     );
   });
 
@@ -1200,6 +1207,89 @@ describe("the page's shape", () => {
     expect(await screen.findByTestId("admin-save-error")).toHaveTextContent(
       /can't be negative/,
     );
+  });
+});
+
+// --- handing over admin -----------------------------------------------------
+
+describe("handing over admin", () => {
+  const someone = (username: string, display_name: string, hidden = false): api.PersonRow => ({
+    key: username, username, display_name, name_source: "windows", first_seen: "", last_seen: "",
+    hidden, spent_usd: 0, limit: { kind: "default", amount: null, collision: [] },
+  });
+
+  it("offers a dropdown of people who have opened the app, minus hidden people and me", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      someone("Destin", "Destin Jarrett"), someone("gpaulsen", "Geoff Paulsen"), someone("bjw2", ""), someone("pchen", "Pat Chen", true),
+    ] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    const labels = within(picker).getAllByRole("option").map((o) => o.textContent);
+    expect(labels).toEqual(["Choose a person…", "Geoff Paulsen (gpaulsen)", "bjw2"]);
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+  });
+
+  it("says nobody else has opened the app yet on day one — not an empty select, not a typed box", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [someone("Destin", "Destin Jarrett")] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveTextContent(/Nobody else has opened the app yet/);
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Hand over admin/ })).toBeDisabled();
+  });
+
+  it("falls back to the typed box, with a reason, when the people list cannot be read", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: true, unreadable: 0, people: [] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer")).toHaveTextContent(/couldn't be read from the shared folder/);
+    expect(screen.getByPlaceholderText(/their Windows username/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Hand admin to someone else/ })).toBeNull();
+  });
+
+  it("transfers to the picked username and confirms first", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [someone("Destin", "D"), someone("gpaulsen", "Geoff Paulsen")] } });
+    await renderAdmin();
+    open(/Who can open this page/);
+    fireEvent.change(screen.getByRole("combobox", { name: /Hand admin to someone else/ }), { target: { value: "gpaulsen" } });
+    fireEvent.click(screen.getByRole("button", { name: /Hand over admin/ }));
+    expect(screen.getByTestId("admin-transfer-confirm")).toHaveTextContent("Geoff Paulsen");
+    fireEvent.click(screen.getByRole("button", { name: /Yes, hand over admin/ }));
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/admin handed to gpaulsen/);
+  });
+
+  it("uses no bare link anywhere in the card", async () => {
+    mockAll();
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer").querySelector(".adm-link")).toBeNull();
+  });
+
+  it("does not claim nobody has opened the app while the list is still loading", async () => {
+    // The people fetch is fire-and-forget, so this is the FIRST render on
+    // every load. A never-resolving promise keeps it there.
+    mockAll();
+    vi.spyOn(api, "adminUsers").mockReturnValue(new Promise(() => {}));
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveTextContent(/Checking who has opened the app/);
+    expect(screen.queryByText(/Nobody else has opened the app yet/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+  });
+
+  it("falls back to the typed box when the people fetch itself fails", async () => {
+    mockAll();
+    vi.spyOn(api, "adminUsers").mockRejectedValue(new Error("people: the share is gone"));
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer")).toHaveTextContent(/couldn't be read from the shared folder/);
+    expect(screen.getByPlaceholderText(/their Windows username/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nobody else has opened the app yet/)).toBeNull();
   });
 });
 
@@ -1448,5 +1538,66 @@ describe("the save bar", () => {
     expect(screen.getByTestId("admin-savebar-list")).toHaveTextContent(
       "AI Mode switched off",
     );
+  });
+});
+
+// --- People ------------------------------------------------------------
+
+describe("People", () => {
+  it("is mounted, directly above Spending", async () => {
+    // A panel that nothing asserts is mounted has shipped invisible TWICE on
+    // this project (ReportLinksPanel, the citation annotation). Deleting the
+    // <PeoplePanel/> line must turn this red — verified by mutation.
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "dmoss", username: "dmoss", display_name: "Danielle Moss", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 1,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    await renderAdmin();
+    const people = screen.getByTestId("admin-people");
+    const costs = screen.getByTestId("admin-costs");
+    expect(people.compareDocumentPosition(costs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(people).toHaveTextContent("Danielle Moss");
+  });
+
+  it("a limit set on a person's row lands in the save bar and the PUT", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "gpaulsen", username: "gpaulsen", display_name: "Geoff Paulsen", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 0,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    const save = vi.spyOn(api, "saveAdminSettings").mockImplementation(async (b) => ({ ...settings(), ...b } as api.AdminSettings));
+    await renderAdmin();
+    fireEvent.change(screen.getByRole("combobox", { name: /limit for Geoff Paulsen/i }), { target: { value: "exempt" } });
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/who has no limit/);
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await screen.findByTestId("admin-saved");
+    expect(save.mock.calls[0][0].exempt_users).toEqual([...settings().exempt_users, "gpaulsen"]);
+    expect(save.mock.calls[0][0].user_limits).not.toHaveProperty("gpaulsen");
+  });
+
+  it("hiding someone is a settings save, not a separate request", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "gpaulsen", username: "gpaulsen", display_name: "Geoff Paulsen", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 0,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    const save = vi.spyOn(api, "saveAdminSettings").mockImplementation(async (b) => ({ ...settings(), ...b } as api.AdminSettings));
+    await renderAdmin();
+    fireEvent.click(screen.getByRole("button", { name: /Hide Geoff Paulsen/ }));
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/who is hidden/);
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await screen.findByTestId("admin-saved");
+    expect(save.mock.calls[0][0].hidden_users).toEqual(["gpaulsen"]);
+  });
+
+  it("the Spending limits card no longer holds per-person rows", async () => {
+    mockAll();
+    await renderAdmin();
+    open(/Spending limits/);
+    expect(screen.queryByTestId("admin-user-limit")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add a person/ })).toBeNull();
+    expect(screen.queryByLabelText(/no limit, separated by commas/)).toBeNull();
+    expect(screen.getByTestId("admin-limits")).toHaveTextContent(/under People/);
   });
 });

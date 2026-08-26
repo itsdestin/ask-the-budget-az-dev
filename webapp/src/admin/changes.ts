@@ -69,6 +69,9 @@ export function describeChanges(
   if (JSON.stringify(draft.exempt_users) !== JSON.stringify(saved.exempt_users)) {
     changes.push("who has no limit");
   }
+  if (JSON.stringify(draft.hidden_users) !== JSON.stringify(saved.hidden_users)) {
+    changes.push("who is hidden");
+  }
   if (transferTo !== null) {
     changes.push(`admin handed to ${transferTo}`);
   }

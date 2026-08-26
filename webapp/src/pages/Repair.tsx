@@ -147,7 +147,7 @@ export function Repair({
             )
           ) : null}
 
-          <button type="button" className="adm-link" onClick={onRetry}>
+          <button type="button" className="adm-btn adm-btn-quiet adm-btn-sm" onClick={onRetry}>
             Check again
           </button>
         </section>

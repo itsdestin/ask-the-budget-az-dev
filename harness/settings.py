@@ -25,6 +25,26 @@ from typing import Any
 
 from store.config import data_dir
 
+
+def fold(user: str) -> str:
+    """The U0 comparison form. A private copy of `users.whoami.fold`, NOT an
+    import — this module is on the harness import allowlist (Invariant 7)
+    and `users/registry.py` writes files, so admitting the package would
+    admit that too. `tests/test_users_whoami.py` pins this line to the same
+    expression so the two cannot drift.
+
+    PUBLIC (not `_fold`) because `harness/ledger.py::month_total` needs the
+    same fold for the spend total the cap is compared against — found by
+    the 2026-08-26 final review: `month_total` matched rows by an EXACT
+    username, so a person recorded under two spellings (`dmoss`/`DMOSS`)
+    could spend up to their cap under each spelling, twice, while the
+    People panel's own total (which sums under the fold) showed the
+    correct, larger number. `ledger.py` imports this function rather than
+    writing its own `.casefold(` — `tests/test_users_whoami.py`'s source
+    guard allows `.casefold(` only in this file and `users/whoami.py`."""
+    return user.strip().casefold()
+
+
 SETTINGS_FILE = "settings.json"
 
 # S13: OpenRouter is the recommended, admin-default provider. S15's
@@ -198,6 +218,14 @@ class Settings:
     user_limits: dict[str, float] = field(default_factory=dict)
     exempt_users: tuple[str, ...] = ()
 
+    # People the admin has taken out of every dropdown and the People table
+    # (spec U7). HERE, not in the person's roster file: hiding is something
+    # the ADMIN decides about someone ELSE, and a roster file is written only
+    # by its own user's machine — an admin's machine writing it too was a
+    # two-writer race with no lock in which a daily touch could silently
+    # un-hide someone. Their ledger rows are untouched and still count.
+    hidden_users: tuple[str, ...] = ()
+
     def limit_for(self, user: str) -> float | None:
         """Resolve `user`'s monthly dollar cap. None means unlimited.
 
@@ -205,19 +233,42 @@ class Settings:
         exempt list should never be blocked even if an admin also typos
         a per-user override for them) > per-user override > org default.
 
-        Username matching is an EXACT string comparison — no case
-        folding. Windows usernames are case-preserving-but-insensitive
-        at the OS level, but folding here would mean "Analyst1" and
-        "analyst1" silently share one limit even though the admin typed
-        two distinct entries. Silent merging of what looks like two
-        different config rows is worse than requiring the admin (Plan 5
-        UI) to match the OS's actual username casing exactly.
+        Matching is EXACT FIRST, THEN CASE-INSENSITIVE (spec U0, 2026-08-25).
+        This used to be exact only, on the grounds that folding would
+        silently merge two rows an admin TYPED. Every row now comes from a
+        dropdown of observed usernames, so two rows for one person cannot
+        be created — and the thing exact matching caused was worse:
+        `%USERNAME%` reflects how the person typed their name at logon, so
+        `DMOSS` today and `dmoss` tomorrow silently got two different limits.
+        Where a legacy file holds both spellings the exact one still wins
+        and the People panel shows the collision on that row.
         """
         if user in self.exempt_users:
             return None
         if user in self.user_limits:
             return self.user_limits[user]
+        folded = fold(user)
+        if folded:
+            if any(fold(u) == folded for u in self.exempt_users):
+                return None
+            for key, limit in self.user_limits.items():
+                if fold(key) == folded:
+                    return limit
         return self.default_monthly_limit_usd
+
+    def is_exempt(self, user: str) -> bool:
+        """On the no-limit list, under the same rule `limit_for` uses."""
+        if user in self.exempt_users:
+            return True
+        folded = fold(user)
+        return bool(folded) and any(fold(u) == folded for u in self.exempt_users)
+
+    def is_hidden(self, user: str) -> bool:
+        """Hidden by the admin (spec U7), under the same rule."""
+        if user in self.hidden_users:
+            return True
+        folded = fold(user)
+        return bool(folded) and any(fold(u) == folded for u in self.hidden_users)
 
 
 def ai_available(settings: Settings, tier: str) -> tuple[bool, str | None]:
@@ -373,6 +424,9 @@ def _settings_from_dict(raw: dict[str, Any]) -> Settings:
     exempt_raw = raw.get("exempt_users")
     exempt_users = tuple(str(u) for u in exempt_raw) if isinstance(exempt_raw, list) else ()
 
+    hidden_raw = raw.get("hidden_users")
+    hidden_users = tuple(str(u) for u in hidden_raw) if isinstance(hidden_raw, list) else ()
+
     ai_enabled = raw.get("ai_enabled")
     return Settings(
         provider=_provider_from_dict(raw.get("provider")),
@@ -384,6 +438,7 @@ def _settings_from_dict(raw: dict[str, Any]) -> Settings:
         default_monthly_limit_usd=default_limit,
         user_limits=user_limits,
         exempt_users=exempt_users,
+        hidden_users=hidden_users,
     )
 
 
@@ -409,6 +464,7 @@ def _settings_to_dict(settings: Settings) -> dict[str, Any]:
         "default_monthly_limit_usd": settings.default_monthly_limit_usd,
         "user_limits": dict(settings.user_limits),
         "exempt_users": list(settings.exempt_users),
+        "hidden_users": list(settings.hidden_users),
     }
 
 

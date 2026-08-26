@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as api from "../api";
 import { CollapsibleCard } from "./Card";
+import { samePerson } from "./same-person";
 
 // The things an admin touches once, or never — collapsed by default.
 //
@@ -20,14 +21,33 @@ export function AdvancedPanel({
   me,
   dataDir,
   onTransfer,
+  people,
+  peopleError,
 }: {
   settings: api.AdminSettings;
   me: api.Me;
   dataDir: string;
   onTransfer: (username: string) => void;
+  people: api.AdminUsers | null;
+  peopleError: string | null;
 }) {
   const [next, setNext] = useState("");
   const [armed, setArmed] = useState(false);
+
+  // A PICKER, not a typed box (spec U10/U11, Destin 2026-08-25). A typed
+  // username here was the single most dangerous typo in the product — one
+  // wrong letter locked both people out, recoverable only by hand-creating
+  // RESET-ADMIN.txt on the share. The picker offers people who have opened
+  // the app, minus hidden people and me. There is deliberately NO typed
+  // escape hatch in normal use: a successor opens the app once (thirty
+  // seconds) and appears here. The typed box returns ONLY when the people
+  // list itself cannot be read (spec U12) — an empty picker there would be
+  // a dead end.
+  const candidates = (people?.people ?? []).filter(
+    (p) => !p.hidden && !samePerson(p.username, me.user),
+  );
+  const chosen = candidates.find((p) => p.username === next);
+  const chosenLabel = chosen?.display_name ? chosen.display_name : next;
 
   return (
     <section className="card adm-panel" aria-labelledby="adm-adv-h" data-testid="admin-advanced">
@@ -51,29 +71,68 @@ export function AdvancedPanel({
           OpenRouter account, not by this.
         </p>
 
-        <label className="adm-field">
-          <span className="adm-label">Hand admin to someone else</span>
-          <input
-            type="text"
-            value={next}
-            placeholder="their Windows username"
-            onChange={(e) => {
-              setNext(e.target.value);
-              setArmed(false);
-            }}
-          />
-          <span className="adm-hint">
-            Ask them what Windows shows rather than guessing from their name —
-            their Settings page displays it. One wrong letter locks you both
-            out.
-          </span>
-        </label>
+        {peopleError !== null || people?.unreachable ? (
+          <>
+            <p className="adm-warn">
+              The list of people couldn't be read from the shared folder, so
+              you'll have to type the username. Their Settings page displays
+              it. One wrong letter locks you both out.
+            </p>
+            <label className="adm-field">
+              <span className="adm-label">Hand admin to someone else</span>
+              <input
+                type="text"
+                value={next}
+                placeholder="their Windows username"
+                onChange={(e) => { setNext(e.target.value); setArmed(false); }}
+              />
+            </label>
+          </>
+        ) : people === null ? (
+          // Still loading. `Admin.tsx` fetches the people list
+          // fire-and-forget (not inside the awaited Promise.all), so this
+          // is the FIRST render on every page load, not an edge case — and
+          // the old code had no branch for it, so it fell into "no
+          // candidates" and claimed "Nobody else has opened the app yet"
+          // before it had asked (review finding, 2026-08-25).
+          <label className="adm-field">
+            <span className="adm-label">Hand admin to someone else</span>
+            <select disabled aria-label="Hand admin to someone else">
+              <option>Checking who has opened the app…</option>
+            </select>
+          </label>
+        ) : (
+          <label className="adm-field">
+            <span className="adm-label">Hand admin to someone else</span>
+            {candidates.length === 0 ? (
+              <select disabled aria-label="Hand admin to someone else">
+                <option>Nobody else has opened the app yet</option>
+              </select>
+            ) : (
+              <select
+                aria-label="Hand admin to someone else"
+                value={next}
+                onChange={(e) => { setNext(e.target.value); setArmed(false); }}
+              >
+                <option value="">Choose a person…</option>
+                {candidates.map((p) => (
+                  <option key={p.key} value={p.username}>
+                    {p.display_name ? `${p.display_name} (${p.username})` : p.username}
+                  </option>
+                ))}
+              </select>
+            )}
+            {candidates.length === 0 ? (
+              <span className="adm-hint">Ask your successor to open the app once and they will appear here.</span>
+            ) : null}
+          </label>
+        )}
 
         {armed ? (
           <div className="adm-caveats" data-testid="admin-transfer-confirm">
             <p>
-              Handing admin to <strong>{next}</strong> removes your own access
-              to this page. Only they can give it back.
+              Handing admin to <strong>{chosenLabel}</strong> removes your own
+              access to this page. Only they can give it back.
             </p>
             <button
               type="button"
@@ -85,7 +144,7 @@ export function AdvancedPanel({
             >
               Yes, hand over admin
             </button>
-            <button type="button" className="adm-link" onClick={() => setArmed(false)}>
+            <button type="button" className="adm-btn adm-btn-quiet" onClick={() => setArmed(false)}>
               Cancel
             </button>
           </div>

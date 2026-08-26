@@ -16,7 +16,6 @@ instead of starting the night over.
 """
 from __future__ import annotations
 
-import getpass
 import hashlib
 import json
 import os
@@ -37,6 +36,7 @@ from ingest.archive import (
 from ingest.archive import sweep as _sweep
 from store.config import data_dir
 from store.fs import replace_with_retry
+from users.whoami import current_user
 
 JOBS_DIRNAME = "jobs"
 
@@ -250,7 +250,11 @@ def new_job(
         stage_detail="",
         error=None,
         machine=socket.gethostname(),
-        user=user or _current_user(),
+        # `or "unknown"`: the private resolver this replaced returned the
+        # word "unknown", and job files are read in Notepad — a blank owner
+        # would read as a torn file. users.whoami returns "" so the harness
+        # can resolve it to the office default; the word is added here.
+        user=user or current_user() or "unknown",
         created_at=now,
         updated_at=now,
         source_path=source_path,
@@ -648,8 +652,3 @@ def _validated_job_id(job_id: str) -> str:
     return job_id
 
 
-def _current_user() -> str:
-    try:
-        return getpass.getuser()
-    except Exception:
-        return "unknown"
