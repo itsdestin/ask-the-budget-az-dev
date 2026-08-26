@@ -125,11 +125,22 @@ def _read_all(*, quiet: bool = False) -> dict:
 
 
 def read_data_dir() -> Path | None:
-    """The configured share, or None if there isn't one or it is unreadable."""
+    """The configured share, or None if there isn't one or it is unreadable.
+
+    WHY the read normalises too, when `set_data_dir` already normalised what
+    it wrote: the three beta laptops were configured before that existed and
+    carry the exact `//bcpool/JLBCSearch` spelling behind the 2026-08-18
+    launch failure — it passes every pathlib check and LanceDB refuses it
+    (InvalidUrl), so the app serves stub fixtures and says nothing. An
+    upgrade where the shared-folder question is skipped leaves the old value
+    in place, so healing it on the way out is what stops a repair screen the
+    analyst should never have had to see. Reading stays side-effect-free:
+    machine.json is NOT rewritten here.
+    """
     value = _read_all().get("data_dir")
     if not isinstance(value, str) or not value.strip():
         return None
-    return Path(value.strip())
+    return Path(normalize_data_dir(value))
 
 
 def ingest_enabled() -> bool:
@@ -263,15 +274,18 @@ def validate_data_dir(path: Path | str) -> str | None:
     """
     candidate_str = normalize_data_dir(path)
     if not candidate_str:
-        return "Type the full path to the shared JLBC Search folder."
+        return "Choose the budget folder, or type its location."
     candidate = Path(candidate_str)
     if not candidate.exists():
         return (
-            "Couldn't find that folder. Check the spelling, and that the "
-            "shared drive is connected."
+            "Can't find that folder. Check the network drive is connected, "
+            "or choose the folder again."
         )
     if not candidate.is_dir():
-        return "That's a file, not a folder. Pick the folder that holds the corpus."
+        return (
+            "That's a file, not a folder. Choose the folder that holds the "
+            "budget data."
+        )
     if not (candidate / "lancedb").is_dir():
         return MSG_NO_CORPUS
     # Open it the way the app does. The laptop incident (2026-08-18):

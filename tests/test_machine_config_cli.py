@@ -1,6 +1,6 @@
 """`python -m app.machine_config` (Session B's app-requirement #3).
 
-`packaging/install.cmd` writes `%LOCALAPPDATA%\\JLBC-Search\\machine.json`
+`packaging/Install-JLBC-Search.cmd` writes `%LOCALAPPDATA%\\JLBC-Search\\machine.json`
 with a hand-rolled JSON literal, because the app is not running at
 install time. That is the schema duplicated in a batch file, and it will
 rot the first time `app/machine_config.py` changes shape — which this

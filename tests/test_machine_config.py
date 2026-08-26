@@ -155,7 +155,7 @@ def test_validate_rejects_a_path_that_is_not_a_directory(tmp_path):
 
 def test_validate_rejects_a_path_that_does_not_exist(tmp_path):
     message = validate_data_dir(tmp_path / "nope")
-    assert message and "couldn't find" in message.lower()
+    assert message and "can't find" in message.lower()
 
 
 def test_validate_rejects_an_empty_path():
@@ -279,6 +279,7 @@ def test_an_unreachable_share_resolves_instead_of_raising(monkeypatch, capsys, t
 # docs/superpowers/investigations/2026-08-25-windows-launch-failure.md)
 # ---------------------------------------------------------------------------
 import os
+from pathlib import PurePosixPath
 
 from app.machine_config import normalize_data_dir
 
@@ -307,6 +308,43 @@ def test_normalize_on_posix_only_trims(monkeypatch):
     monkeypatch.setattr(os, "name", "posix")
     assert normalize_data_dir(' "/mnt/share/jlbc/" ') == "/mnt/share/jlbc"
     assert normalize_data_dir("//server/share/x") == "//server/share/x"
+
+
+def test_read_data_dir_normalises_a_pointer_written_before_the_fix(
+    monkeypatch, tmp_path
+):
+    """The three beta laptops carry the exact `//bcpool/JLBCSearch` spelling
+    that caused the 2026-08-18 launch failure, written before `set_data_dir`
+    normalised anything. An upgrade that skips the shared-folder question
+    leaves it in place, so the READ has to heal it too — otherwise the
+    analyst meets a repair screen for a folder that is actually correct."""
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / MACHINE_FILE).write_text(
+        json.dumps({"data_dir": "//bcpool/JLBCSearch"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(os, "name", "nt")
+    # Substituting PurePosixPath is what makes this test able to FAIL. With
+    # `os.name` faked to "nt", `Path(...)` builds a WindowsPath, and a
+    # WindowsPath silently rewrites `//bcpool/JLBCSearch` into the same
+    # string as the normalised form — so the unfixed code would pass here.
+    # PurePosixPath keeps whatever string the function derived, verbatim.
+    import app.machine_config as mc
+
+    monkeypatch.setattr(mc, "Path", PurePosixPath)
+    assert str(read_data_dir()) == r"\\bcpool\JLBCSearch"
+    # And the read stays side-effect-free: the file is not rewritten.
+    assert json.loads((tmp_path / MACHINE_FILE).read_text(encoding="utf-8")) == {
+        "data_dir": "//bcpool/JLBCSearch"
+    }
+
+
+def test_read_data_dir_on_posix_only_trims(monkeypatch, tmp_path):
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / MACHINE_FILE).write_text(
+        json.dumps({"data_dir": '  "/mnt/share/jlbc/"  '}), encoding="utf-8"
+    )
+    monkeypatch.setattr(os, "name", "posix")
+    assert str(read_data_dir()) == "/mnt/share/jlbc"
 
 
 def test_set_data_dir_stores_the_normalised_form(monkeypatch, tmp_path):

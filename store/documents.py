@@ -143,12 +143,15 @@ def _load_cached(*, strict: bool = False) -> dict[str, dict[str, Any]]:
                 )
         except OSError as err:
             if strict:
-                # Do NOT cache the failure — the caller is about to be told
-                # to restore the file, and the next attempt must re-read it.
+                # Do NOT cache the failure — the next attempt must re-read.
+                # WHY this differs from the ValueError branch below: an
+                # OSError here is a sharing violation, a dropped share or a
+                # permission problem — the file is very probably FINE, so
+                # telling the reader to restore it from a snapshot is wrong
+                # advice that risks discarding a good sidecar.
                 raise RuntimeError(
-                    f"{path} is not valid JSON ({err}). Restore it from a "
-                    "corpus snapshot before ingesting — writing a fresh one "
-                    "over it would orphan every PDF in the viewer."
+                    f"{path} could not be read ({err}). Retry the write; if "
+                    "it keeps failing, check the share."
                 ) from err
             # A share blip, a sharing violation, a half-replaced file: keep
             # whatever was cached and FORGET the stamp, so the next call

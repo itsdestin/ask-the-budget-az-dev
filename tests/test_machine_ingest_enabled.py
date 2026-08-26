@@ -52,7 +52,7 @@ def test_ingest_is_off_when_nothing_is_configured():
 
 
 def test_a_machine_json_without_the_key_is_still_off():
-    """install.cmd's file, or one written before this flag existed. Silence
+    """Install-JLBC-Search.cmd's file, or one written before this flag existed. Silence
     must not read as consent — that is the twenty-workers case."""
     # The forward-slash UNC form survives on Linux (normalize_data_dir only
     # rewrites separators on nt). On Windows the stored form is

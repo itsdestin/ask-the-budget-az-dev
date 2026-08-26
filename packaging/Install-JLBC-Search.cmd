@@ -105,9 +105,17 @@ if defined OLDPID (
         echo   Stopping the running copy of JLBC Search...
         taskkill /PID %OLDPID% /T /F >nul 2>&1
         timeout /t 2 /nobreak >nul
+        rem  Only NOW is the record stale. Deleting it before this point
+        rem  (any abort below - folder locked, folder stuck, tar failure,
+        rem  incomplete unzip) would leave the server still running with
+        rem  nothing recording its pid: the next icon click cannot reuse
+        rem  the live instance, port 9300 is still held so try_bind fails,
+        rem  and a SECOND server starts on a fallback port.
+        rem  %RUNNING% is set by a completed statement above this block,
+        rem  so parse-time expansion inside the block is correct here.
+        if exist "%RUNNING%" del /q "%RUNNING%" >nul 2>&1
     )
 )
-if exist "%RUNNING%" del /q "%RUNNING%" >nul 2>&1
 
 rem --- one-time cleanup of the 0.9.1 layout (program files at the root) -------
 if exist "%ROOT_DIR%\python\pythonw.exe" (

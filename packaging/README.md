@@ -86,9 +86,12 @@ needs updating if the other side moves.
   entry point starts no server, and it exits 0 even when the folder is
   unreachable — a network drive that is not connected during setup is normal,
   and refusing to record the path would strand the user. `Install-JLBC-Search.cmd`
-  also calls `--set-ingest-enabled false`, which is deliberate rather than
-  redundant: it is the same default the app applies, written down where the
-  installer's reader can see it.
+  also calls `--default-ingest-enabled false`. That flag records the default
+  ONLY when the key is absent, and never overrides a choice this PC has
+  already made — which is the whole point of it. The older
+  `--set-ingest-enabled false` wrote the key unconditionally, so every
+  upgrade switched the office's one ingest PC back OFF and uploads piled up
+  on the share with nothing draining them.
 - **`REQUIREMENTS` in `build_bundle.py` mirrors `measure.py`**, and both are derived
   from the app's imports rather than from `pyproject.toml`. Track 4 deleted the
   retired Postgres/Voyage stack from the tree, but `pyproject.toml` still

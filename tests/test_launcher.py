@@ -204,6 +204,35 @@ def test_the_retry_delete_only_fires_on_our_own_bundle():
     assert lines.index('set "OURS="') < lines.index('set "OURS=1"')
 
 
+def test_the_running_record_is_deleted_only_after_the_kill():
+    """running.json must survive every abort path.
+
+    The delete used to run unconditionally, before anything was installed.
+    So a run that then aborted (folder locked, folder stuck, tar failure,
+    incomplete unzip) exited with the record gone while the server was
+    still up: the next icon click could not reuse the live instance,
+    `try_bind(9300)` failed because that port was still held, and a SECOND
+    server started on a fallback port. The record is only stale once we
+    have actually killed the pid it names, so the delete belongs after the
+    taskkill and nowhere else.
+    """
+    raw = INSTALLER_SRC.splitlines()
+    stripped = [ln.strip() for ln in raw]
+    kill = "taskkill /PID %OLDPID% /T /F >nul 2>&1"
+    delete = r'if exist "%RUNNING%" del /q "%RUNNING%" >nul 2>&1'
+    deletes = [i for i, ln in enumerate(stripped) if ln == delete]
+    assert len(deletes) == 1, "the running-record delete was duplicated or lost"
+    assert kill in stripped, "the installer stopped killing the running server"
+    assert stripped.index(kill) < deletes[0]
+    # Order alone cannot see a delete moved back out to file scope — it would
+    # STILL sit after the taskkill line. Indentation is what says "inside the
+    # block that only runs when we actually killed the pid".
+    assert raw[deletes[0]].startswith("        "), (
+        "the running-record delete left the taskkill block: every abort path "
+        "below it would now exit with the record gone and the server alive"
+    )
+
+
 def test_the_locked_file_checks_read_pythonw_not_python():
     """python.exe is not the running image and is not locked — it is deleted
     by the failed rmdir like everything else unlocked. A check on it reports
