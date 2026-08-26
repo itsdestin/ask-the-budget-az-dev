@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
 from chunking.builders._tokens import count_tokens
+from chunking.builders.table_chunk import _build_text
 from chunking.readers.mineru_reader import MinerUReader
 from chunking.readers.odl_reader import ODLReader
 from ingest.extract_dirs import resolve_extract_dir
@@ -150,14 +151,30 @@ def plan_document(
     except (OSError, ValueError) as exc:
         return [], f"extractor output unreadable: {exc}"
 
-    table_rows = sorted((r for r in rows if r.get("is_table")), key=_chunk_index)
+    try:
+        table_rows = sorted((r for r in rows if r.get("is_table")), key=_chunk_index)
+    except (IndexError, ValueError):
+        # A chunk_id lacking a numeric `-NNNN` suffix must not abort the
+        # whole corpus-wide run -- the document is skipped and NAMED, per
+        # this module's own rule (see the docstring above). Find the
+        # offending row by re-trying `_chunk_index` one row at a time,
+        # rather than teaching `_chunk_index` itself to return a sentinel
+        # that would silently mis-sort.
+        bad_id: Any = "?"
+        for row in rows:
+            if not row.get("is_table"):
+                continue
+            try:
+                _chunk_index(row)
+            except (IndexError, ValueError):
+                bad_id = row["chunk_id"]
+                break
+        return [], f"malformed chunk_id: {bad_id!r}"
     if len(table_rows) != len(doc.tables):
         return [], (
             f"table count mismatch: corpus has {len(table_rows)}, "
             f"extractor output has {len(doc.tables)}"
         )
-
-    from chunking.builders.table_chunk import _build_text  # local: avoids a cycle
 
     changes: list[RowChange] = []
     for row, table in zip(table_rows, doc.tables):

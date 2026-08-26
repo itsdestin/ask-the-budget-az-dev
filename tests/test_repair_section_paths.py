@@ -142,6 +142,28 @@ def test_table_rows_are_matched_by_numeric_suffix_not_string_order(root: Path):
     assert _chunk_index({"chunk_id": "doc-a-10000"}) > _chunk_index({"chunk_id": "doc-a-0002"})
 
 
+def test_plan_skips_a_document_with_a_malformed_chunk_id_instead_of_crashing(root: Path):
+    """`_chunk_index` has no guard around its `int()` call, and neither
+    `plan_document`'s sort nor `_plan_corpus`'s per-document loop wrapped it
+    in a try/except -- one row with a chunk_id lacking a numeric `-NNNN`
+    suffix used to abort the ENTIRE corpus-wide dry run. The module's own
+    rule is that a document that cannot be planned is skipped and NAMED,
+    never a crash."""
+    rows = [{"chunk_id": "doc-a-final", "doc_id": "doc-a", "is_table": True,
+             "section_path": ["Table of Contents"],
+             "text": "Table of Contents\nAcupuncture Examiners, Board of"}]
+    changes, skipped = plan_document("doc-a", rows, root)
+    assert changes == []
+    assert skipped is not None
+    assert "malformed chunk_id" in skipped
+    assert "doc-a-final" in skipped
+
+    result = repair_section_paths(
+        store=_FakeStore(rows), embedder=_FakeEmbedder(), root=root, dry_run=True
+    )
+    assert result.documents_skipped.get("doc-a") == skipped
+
+
 class _FakeStore:
     def __init__(self, rows: list[dict]):
         self.rows = rows
