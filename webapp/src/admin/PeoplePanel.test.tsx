@@ -115,8 +115,14 @@ describe("the table", () => {
   it("uses pills, never bare link text, for every action", () => {
     const { container } = render(<PeoplePanel people={{ month: "2026-08", unreachable: false, unreadable: 0, people: PEOPLE }}
       loadError={null} draft={DRAFT} onLimitChange={vi.fn()} onHiddenChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
     expect(container.querySelector(".adm-link")).toBeNull();
-    for (const b of container.querySelectorAll("button")) expect(b.className).toMatch(/adm-btn/);
+    // Every action — Hide, Unhide, Show — is a pill. Column-sort headings are
+    // headings, not actions, and are deliberately NOT in this set.
+    const actions = container.querySelectorAll(".adm-people-act button, .adm-people-hidden button");
+    expect(actions.length).toBeGreaterThan(0);
+    for (const b of actions) expect(b.className).toMatch(/\badm-btn\b/);
+    for (const h of container.querySelectorAll("thead button")) expect(h.className).not.toMatch(/adm-btn/);
   });
 
   it("carries no jargon", () => {

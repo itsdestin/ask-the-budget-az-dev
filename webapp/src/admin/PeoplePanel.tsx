@@ -120,13 +120,11 @@ export function PeoplePanel({
       className="adm-people-sortable"
       aria-sort={sort.col === col ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
     >
-      {/* `adm-btn` here is deliberate, not decorative: every <button> on this
-          panel must derive from the shared pill family so a future button
-          added without it fails the "uses pills" guard below. `.adm-people-sort`
-          is defined LATER in app.css and resets the pill look back to plain
-          text — this reads as the mockup's unstyled sort header, not a pill,
-          while still being a real branded button underneath. */}
-      <button type="button" className="adm-btn adm-people-sort" onClick={() => clickHeading(col)}>
+      {/* A column-sort heading is not an action — Destin's "every action is
+          a pill" rule (see the CSS block below) governs Hide/Unhide/Show,
+          not this. The mockup renders it as plain heading text with an
+          arrow, so it carries no `adm-btn`. */}
+      <button type="button" className="adm-people-sort" onClick={() => clickHeading(col)}>
         {label}
         {sort.col === col ? <span className="adm-people-arrow">{sort.dir === "asc" ? "▲" : "▼"}</span> : null}
       </button>
