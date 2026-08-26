@@ -22,7 +22,6 @@ agreeing.
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +36,7 @@ from scripts.export_fiscal_notes_snapshot import (
     parse_session_html,
 )
 from store.config import data_dir
+from store.fs import replace_with_retry
 
 SESSION_URL = "https://www.azjlbc.gov/fiscal-notes/?Year={year}"
 DIRECTORY_FILENAME = "fiscal-notes-directory.json"
@@ -100,17 +100,19 @@ def load_directory() -> dict:
 
 
 def write_directory(directory: dict) -> Path:
-    """Atomically replace the directory file (tmp + os.replace).
+    """Atomically replace the directory file (tmp + retried os.replace).
 
     Whole-file rewrite is fine: it's ~460 KB, and a merge would need
-    per-session conflict rules for data that has exactly one writer.
+    per-session conflict rules for data that has exactly one writer. The
+    retry is for a PC reading the directory at the same moment a refresh
+    replaces it -- Windows/SMB refuse the replace while that read is open.
     """
     path = directory_path()
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(
         json.dumps(directory, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
     return path
 
 

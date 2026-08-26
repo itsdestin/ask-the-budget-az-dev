@@ -951,3 +951,34 @@ test("a book with only agency pages renders no group heading at all", async () =
   expect(screen.queryByRole("heading", { name: /agency pages/i })).not.toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: /summary sections/i })).not.toBeInTheDocument();
 });
+
+test("labels stub results as samples, like Fiscal Notes does", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [],
+    total: 0,
+    provider: "stub",
+    inferred_fiscal_years: [],
+    inferred_doc_types: [],
+    dropped_filters: [],
+  });
+  mount(DOCS, "/search?q=ahcccs&in=contents");
+  expect(await screen.findByRole("note")).toHaveTextContent(/Sample results only/);
+});
+
+test("no sample-results note on a real provider", async () => {
+  vi.spyOn(api, "search").mockResolvedValue({
+    results: [],
+    total: 0,
+    provider: "lance",
+    inferred_fiscal_years: [],
+    inferred_doc_types: [],
+    dropped_filters: [],
+  });
+  mount(DOCS, "/search?q=ahcccs&in=contents");
+  // The status line (role="status") and the Results header both state the
+  // same count once ready — scope to the status line so this wait isn't an
+  // ambiguous match across the two, same as the assertion below scopes to
+  // "note" rather than any element carrying similar text.
+  await screen.findByText(/Top 0 passages/, { selector: '[role="status"]' });
+  expect(screen.queryByRole("note")).toBeNull();
+});

@@ -92,9 +92,17 @@ def sql_str(value: str) -> str:
 
 
 class ChunkStore:
-    def __init__(self, *, root: Path | None = None, dim: int = DEFAULT_DIM):
+    def __init__(self, *, root: Path | None = None, dim: int = DEFAULT_DIM,
+                 create: bool = True):
         self._root = (root or data_dir()) / "lancedb"
-        self._root.mkdir(parents=True, exist_ok=True)
+        if create:
+            self._root.mkdir(parents=True, exist_ok=True)
+        elif not self._root.is_dir():
+            # WHY not connect anyway: lancedb.connect() creates a missing
+            # local directory itself. A PROBE must never do that — spec
+            # principle 3 (2026-08-25); the health ladder, the startup
+            # provider probe and validate_data_dir all pass create=False.
+            raise FileNotFoundError(f"no lancedb folder at {self._root}")
         self._dim = dim
         self._db = lancedb.connect(str(self._root))
         # WHY cache handles: table_names() + open_table() measured ~5.7ms per
@@ -163,6 +171,15 @@ class ChunkStore:
         """Create every corpus table up front (used by ingest / migration)."""
         for name in CORPUS_TABLES:
             self._open_or_create(name)
+
+    def table_names(self) -> list[str]:
+        """The tables actually present on disk — a read, never a create.
+
+        Used by the health ladder (app/health.py) to tell "a lancedb/ folder
+        with no tables in it" (wrong folder, or a half-finished copy) apart
+        from "a table with zero rows" (a genuinely fresh, healthy install).
+        """
+        return list(self._db.table_names())
 
     def count(self, name: str) -> int:
         tbl = self._open(name)

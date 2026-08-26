@@ -489,7 +489,20 @@ def load_settings(path: Path | None = None) -> Settings:
             if not isinstance(raw, dict):
                 raise ValueError(f"expected a JSON object, got {type(raw).__name__}")
             settings = _settings_from_dict(raw)
-        except (OSError, ValueError) as err:
+        except OSError as err:
+            # A share blip, a sharing violation, a half-replaced file: keep
+            # whatever was cached and FORGET the stamp, so the next call
+            # re-reads. Caching Settings() under the good stamp (the
+            # pre-2026-08-25 behaviour) reported "no API key configured"
+            # until the admin next saved settings.
+            print(
+                f"harness.settings: could not read {target} ({err}) — "
+                "will retry.",
+                file=sys.stderr,
+            )
+            _settings_stamp = None
+            return _settings_cache
+        except ValueError as err:
             print(
                 f"harness.settings: {target} is unreadable/corrupt ({err}) — "
                 "falling back to defaults. AI Mode will report "

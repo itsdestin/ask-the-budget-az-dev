@@ -349,3 +349,25 @@ def test_filter_expr_doc_id_quotes_apostrophes(store):
     empty result."""
     assert store.filter_expr(doc_id=["o'brien-doc"]) == \
         "doc_id IN ('o''brien-doc')"
+
+
+def test_create_false_never_makes_the_lancedb_folder(tmp_path):
+    """Spec principle 3: a probe that manufactures the folder it is probing
+    can only ever report 'fine'. On the laptop this is why a wrong pointer
+    read as 'index can't be opened, can't repair' instead of 'wrong folder'."""
+    from store.chunk_store import ChunkStore
+
+    root = tmp_path / "share"
+    root.mkdir()
+    with pytest.raises(FileNotFoundError):
+        ChunkStore(root=root, create=False)
+    assert not (root / "lancedb").exists()
+
+
+def test_create_false_opens_an_existing_folder(tmp_path):
+    from store.chunk_store import ChunkStore
+
+    root = tmp_path / "share"
+    (root / "lancedb").mkdir(parents=True)
+    store = ChunkStore(root=root, create=False)
+    assert store.count("budget_chunks") == 0

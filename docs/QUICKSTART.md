@@ -12,7 +12,7 @@ rights and nothing already installed on your PC.
 does everything else itself:
 
 1. **Install folder** — where the program lives. Press **Enter** to take the
-   recommended spot (`%LOCALAPPDATA%\JLBC-Search`).
+   recommended spot (`%LOCALAPPDATA%\JLBC-Search\program`).
 2. **Shared data folder** — where the budget documents live. **Drag the folder into
    the window and press Enter**, or paste its path. This is the folder that has the
    **`lancedb`** folder inside it (the search index). Press Enter alone to set it
@@ -20,10 +20,6 @@ does everything else itself:
 
 When it finishes you have a **JLBC Search** icon on your Desktop and in the Start
 Menu.
-
-**The manual way** (if you ever need it): copy `JLBC-Search-<version>.zip` to your own
-PC, right-click → **Extract All…** → extract to `%LOCALAPPDATA%\JLBC-Search`, open that
-folder, and double-click **`install.cmd`**.
 
 > **The one gotcha:** the shared-data path must point at the folder that has the
 > `lancedb` folder **inside** it — that is the actual corpus, one level down. Point at
@@ -40,6 +36,9 @@ folder, and double-click **`install.cmd`**.
 
 Double-click the **JLBC Search** icon. The first start takes 20–40 seconds while it
 loads its search models; after that it is a few seconds.
+
+Always start it from the icon. If your browser reopens an old tab and it says the site
+can't be reached, click the icon — it opens the right address.
 
 You can now **search the budget documents and read fiscal notes**. That works with no
 accounts, no keys, and no internet connection.
@@ -117,16 +116,17 @@ everyone under Admin → **Spending → Who spent what**.
 
 | | |
 |---|---|
-| The app | `%LOCALAPPDATA%\JLBC-Search` |
+| The app | `%LOCALAPPDATA%\JLBC-Search\program` |
 | Budget documents, settings, usage records | the shared data folder you entered in step 1 |
 | Log files (send these if something breaks) | `%LOCALAPPDATA%\JLBC-Search\logs` |
+| Your saved AI chats | `%LOCALAPPDATA%\JLBC-Search\conversations` — stays on this PC; not backed up |
+| Memos you generate | `%LOCALAPPDATA%\JLBC-Search\documents` (and a copy in your Downloads) |
 
 ---
 
 ## If it will not start
 
-1. Double-click the icon once more — the first click may have been while it was still
-   starting.
+1. If a box says it is still starting, wait a minute and click the icon again.
 2. If a message box names a log file, open the **`logs`** folder above, take the newest
    file, and send it to whoever supports this app. That file says what actually went
    wrong; a screenshot of the message box usually does not.

@@ -1,15 +1,18 @@
 @echo off
 setlocal EnableDelayedExpansion
 rem ============================================================================
-rem  JLBC Search - ONE-CLICK installer (preview run)
+rem  JLBC Search - ONE-CLICK installer
 rem
 rem  This sits on the USB drive NEXT TO the bundle zip. Double-clicking it is
-rem  the entire setup: it asks for two folders, extracts the program, fixes up
-rem  the model path, creates the shortcuts, and records where the data lives.
-rem  No admin rights, no Python, no Java, nothing else to install.
+rem  the entire setup. In order it: finds the zip, asks where the program
+rem  should live and where the shared data folder is, stops a copy that is
+rem  already running (so Windows is not holding its files), removes the
+rem  previous version, extracts the new one, records the data folder, leaves
+rem  uploads switched off on this PC unless somebody has already chosen, and
+rem  makes the Start-Menu and Desktop shortcuts.
 rem
-rem  It reuses the same steps as install.cmd, but wraps them so the user never
-rem  has to unzip by hand or go hunting for a second script.
+rem  No admin rights, no Python, no Java, nothing else to install.
+rem  This is the ONLY installer - there is no second script to run.
 rem ============================================================================
 
 set "USB_DIR=%~dp0"
@@ -17,7 +20,7 @@ if "%USB_DIR:~-1%"=="\" set "USB_DIR=%USB_DIR:~0,-1%"
 
 echo.
 echo   ============================================================
-echo    JLBC Search - preview setup
+echo    JLBC Search - setup
 echo   ============================================================
 echo.
 echo   This will install JLBC Search on this PC. It asks for two
@@ -38,7 +41,8 @@ echo   Using bundle: %ZIP%
 echo.
 
 rem --- Q1: where to install the program --------------------------------------
-set "INSTALL_DEFAULT=%LOCALAPPDATA%\JLBC-Search"
+set "ROOT_DIR=%LOCALAPPDATA%\JLBC-Search"
+set "INSTALL_DEFAULT=%ROOT_DIR%\program"
 echo   Where should the program live?
 echo     Press Enter for the recommended spot:
 echo       %INSTALL_DEFAULT%
@@ -46,37 +50,160 @@ echo     (or drag a different empty folder here, then Enter)
 set "INSTALL_DIR="
 set /p "INSTALL_DIR=  Install folder [%INSTALL_DEFAULT%]: "
 if not defined INSTALL_DIR set "INSTALL_DIR=%INSTALL_DEFAULT%"
-rem strip surrounding quotes if they dragged a folder in
 set "INSTALL_DIR=%INSTALL_DIR:"=%"
+if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
+rem  The old QUICKSTART named %ROOT_DIR% itself. Installing the program THERE
+rem  would put it beside the chats/memos/pointer again and make every later
+rem  upgrade dangerous. Refuse it rather than silently reinstalling the 0.9.1 layout.
+if /I "%INSTALL_DIR%"=="%ROOT_DIR%" (
+    echo   ERROR: the program must live in a folder INSIDE %ROOT_DIR%,
+    echo   not in that folder itself. Press Enter next time to take the default.
+    pause
+    exit /b 1
+)
 echo   Installing to: %INSTALL_DIR%
 echo.
 
 rem --- Q2: where is the shared data (the corpus)? -----------------------------
 echo   Where is the shared budget-data folder?
 echo     This is the folder that has the "lancedb" folder inside it
-echo     (the search index). On this preview it is usually the "Data"
-echo     folder on the USB drive or on the office share.
-echo     You can drag the folder here, then press Enter.
+echo     (the search index). You can drag the folder here, then press Enter.
 echo     Press Enter alone to decide later - the app asks on first run.
 set "DATA_DIR="
 set /p "DATA_DIR=  Shared data folder (Enter to skip): "
 set "DATA_DIR=%DATA_DIR:"=%"
+if defined DATA_DIR if "%DATA_DIR:~-1%"=="\" set "DATA_DIR=%DATA_DIR:~0,-1%"
 echo.
 
-rem --- extract the bundle -----------------------------------------------------
-echo   Extracting straight into the install folder (this can take a few
-echo   minutes for 36,000 files; please wait)...
+rem --- stop a running copy before touching its files ---------------------------
+rem  Windows locks python312.dll and every .pyd while pythonw.exe runs, so an
+rem  upgrade over a live server fails halfway and leaves a mixed-version tree.
+rem  running.json (written by launcher.pyw) carries the pid; an installed
+rem  Python is always still on disk when it exists. The image name is checked
+rem  so a reused pid never kills a stranger.
+set "RUNNING=%ROOT_DIR%\running.json"
+set "OLDPID="
+if exist "%RUNNING%" (
+    set "OLDPY="
+    if exist "%INSTALL_DIR%\python\python.exe" set "OLDPY=%INSTALL_DIR%\python\python.exe"
+    if exist "%ROOT_DIR%\python\python.exe" set "OLDPY=%ROOT_DIR%\python\python.exe"
+    rem  Write the pid to a temp file rather than parse it inside for /f -
+    rem  nested quotes inside a for /f command are the classic batch trap.
+    if defined OLDPY (
+        "!OLDPY!" -c "import json,sys;print(json.load(open(sys.argv[1],encoding='utf-8')).get('pid',''))" "%RUNNING%" > "%TEMP%\jlbc-pid.txt" 2>nul
+        set /p OLDPID=<"%TEMP%\jlbc-pid.txt"
+        del /q "%TEMP%\jlbc-pid.txt" >nul 2>&1
+    )
+)
+if defined OLDPID (
+    tasklist /FI "PID eq %OLDPID%" /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
+    if not errorlevel 1 (
+        echo   JLBC Search is running and must be stopped to upgrade.
+        echo   Press any key to stop it. ^(An upload in progress will start
+        echo   over afterwards.^)
+        pause >nul
+        echo   Stopping the running copy of JLBC Search...
+        taskkill /PID %OLDPID% /T /F >nul 2>&1
+        timeout /t 2 /nobreak >nul
+        rem  Only NOW is the record stale. Deleting it before this point
+        rem  (any abort below - folder locked, folder stuck, tar failure,
+        rem  incomplete unzip) would leave the server still running with
+        rem  nothing recording its pid: the next icon click cannot reuse
+        rem  the live instance, port 9300 is still held so try_bind fails,
+        rem  and a SECOND server starts on a fallback port.
+        rem  %RUNNING% is set by a completed statement above this block,
+        rem  so parse-time expansion inside the block is correct here.
+        if exist "%RUNNING%" del /q "%RUNNING%" >nul 2>&1
+    )
+)
+
+rem --- one-time cleanup of the 0.9.1 layout (program files at the root) -------
+if exist "%ROOT_DIR%\python\pythonw.exe" (
+    echo   Removing the old program files from %ROOT_DIR% ...
+    for %%d in (python site-packages jre models app harness store retrieval chunking citation identity memo ingest webapp data samples scripts funds primer) do (
+        if exist "%ROOT_DIR%\%%d" rmdir /s /q "%ROOT_DIR%\%%d"
+    )
+    for %%f in (launcher.pyw install.cmd QUICKSTART.md VERSION MANIFEST.json) do (
+        if exist "%ROOT_DIR%\%%f" del /q "%ROOT_DIR%\%%f"
+    )
+)
+
+rem --- replace the program folder ---------------------------------------------
+rem  Deleted ONLY when it is recognisably ours (launcher.pyw + VERSION inside);
+rem  a typed folder that is something else is never touched.
+set "OURS="
+if exist "%INSTALL_DIR%\launcher.pyw" if exist "%INSTALL_DIR%\VERSION" (
+    echo   Removing the previous version...
+    set "OURS=1"
+    rmdir /s /q "%INSTALL_DIR%"
+)
+rem  That rmdir fails and says nothing when Windows is still holding the
+rem  running copy's files - the stop step above was skipped, or 2 s was not
+rem  long enough for taskkill to release them. tar then fails and the
+rem  extraction message blamed the USB drive, which is never the cause.
+rem
+rem  What "fails" MEANS here is the whole point. rmdir /s /q does not stop at
+rem  the first locked file: it recurses and deletes everything it can, then
+rem  fails only to remove the directories above the files it could not touch.
+rem  So a half-deleted install has lost launcher.pyw, VERSION, python.exe and
+rem  python312._pth - all unlocked - and kept exactly the LOCKED ones:
+rem  python\pythonw.exe (the shortcut runs pythonw, so that is the running
+rem  image), python312.dll, and any loaded .pyd under site-packages. Every
+rem  test below therefore reads pythonw.exe, and the retry cannot be gated on
+rem  a file that is always already gone.
+rem
+rem  Two ways to know the leftovers are OURS, keeping section 1.4's rule that
+rem  a typed folder which is something else is never deleted:
+rem    OURS      - this run just did the guarded delete, so we know.
+rem    otherwise - the embeddable-CPython fingerprint. That distribution
+rem                keeps its stdlib in python312.zip and ships NO Lib\
+rem                folder; every normally-installed Python has one. So
+rem                no normally-installed Python can look like python\pythonw.exe
+rem                with no python\Lib\ beside it, which is what lets the
+rem                second run (guard files already gone) heal our leftovers.
+if not exist "%INSTALL_DIR%\python\pythonw.exe" goto :folder_clear
+if defined OURS goto :folder_retry
+if exist "%INSTALL_DIR%\python\pythonw.exe" if not exist "%INSTALL_DIR%\python\Lib\" goto :folder_retry
+goto :folder_locked
+
+:folder_retry
+rmdir /s /q "%INSTALL_DIR%" 2>nul
+if not exist "%INSTALL_DIR%\python\pythonw.exe" goto :folder_clear
+
+:folder_locked
+rem  Still there, so something really is holding it. Ask Windows WHICH -
+rem  the leftover folder alone is not evidence that the app is open, and a
+rem  message that is only sometimes true is what sent the user in circles.
+tasklist /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
+if errorlevel 1 goto :folder_stuck
+echo.
+echo   JLBC Search is still open. Close it, then run this installer again.
+echo.
+pause
+exit /b 1
+
+:folder_stuck
+echo.
+echo   Couldn't clear the old program folder:
+echo     %INSTALL_DIR%
+echo   Delete it, then run this installer again.
+echo.
+pause
+exit /b 1
+
+:folder_clear
 mkdir "%INSTALL_DIR%" 2>nul
-rem tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.
-rem Extract DIRECTLY into the install folder (no temp dir + xcopy pass) —
-rem the old two-step (temp then xcopy) wrote every file twice, doubling
-rem the time Windows Defender spends scanning the tree.
-rem `--strip-components=1` drops the zip's top-level `JLBC-Search-<version>/`
-rem so the app lands at the install root, exactly like the old xcopy did.
+echo   Extracting into the install folder (36,000 files; please wait)...
+rem  tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.
+rem  Extract DIRECTLY into the install folder (no temp dir + xcopy pass) -
+rem  the old two-step wrote every file twice, doubling the time Windows
+rem  Defender spends scanning the tree. `--strip-components=1` drops the
+rem  zip's top-level `JLBC-Search-<version>/` so the app lands at the root
+rem  of the install folder.
 tar -xf "%ZIP%" -C "%INSTALL_DIR%" --strip-components=1
 if errorlevel 1 (
-    echo   ERROR: extraction failed. Try copying the zip to your Desktop and
-    echo   running this script from there instead of off the USB drive.
+    echo   ERROR: extraction failed. Copy the zip to your Desktop and run this
+    echo   script from there instead of off the USB drive.
     pause
     exit /b 1
 )
@@ -85,7 +212,7 @@ rem --- sanity: refuse to configure a bundle that did not unzip completely ----
 if not exist "%INSTALL_DIR%\python\pythonw.exe"      goto :incomplete
 if not exist "%INSTALL_DIR%\launcher.pyw"            goto :incomplete
 if not exist "%INSTALL_DIR%\webapp\dist\index.html"  goto :incomplete
-if not exist "%INSTALL_DIR%\models\mineru.json"      goto :incomplete
+if not exist "%INSTALL_DIR%\VERSION"                 goto :incomplete
 echo   Extracted OK.
 echo.
 
@@ -100,14 +227,10 @@ if errorlevel 1 (
 )
 :skip_data
 
-rem --- this computer does NOT process uploads by default ----------------------
-rem  (same default as install.cmd; one designated machine turns it on in-app)
-"%INSTALL_DIR%\python\python.exe" -m app.machine_config --set-ingest-enabled false >nul 2>&1
+rem --- ingest default: recorded only if this PC has never chosen ---------------
+"%INSTALL_DIR%\python\python.exe" -m app.machine_config --default-ingest-enabled false >nul 2>&1
 
-rem --- make MinerU's model path absolute --------------------------------------
-"%INSTALL_DIR%\python\python.exe" -c "import json,sys,pathlib; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d['models-dir']['pipeline']=str(pathlib.Path(sys.argv[2])/'models'/'mineru'); p.write_text(json.dumps(d,indent=2))" "%INSTALL_DIR%\models\mineru.json" "%INSTALL_DIR%" 2>nul
-
-rem --- shortcuts --------------------------------------------------------------
+rem --- shortcuts ---------------------------------------------------------------
 set "SM_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
 call :mkshortcut "%SM_DIR%\JLBC Search.lnk"
 call :mkshortcut "%USERPROFILE%\Desktop\JLBC Search.lnk"
@@ -120,7 +243,7 @@ echo.
 echo    Start it from:  the Start Menu, or the JLBC Search icon on
 echo                    your Desktop.
 if defined DATA_DIR echo    Data folder:    %DATA_DIR%
-echo    Log files:      %LOCALAPPDATA%\JLBC-Search\logs
+echo    Log files:      %ROOT_DIR%\logs
 echo.
 echo    If it will not start, send the newest file in that logs
 echo    folder to whoever supports the app.
@@ -146,9 +269,7 @@ exit /b 0
 
 :incomplete
 echo.
-echo   This install is missing files that should have been in the zip.
-echo   The most likely cause is that the zip did not finish extracting.
-echo   Delete the folder %INSTALL_DIR%, then run this script again.
+echo   The install didn't finish. Run this installer again.
 echo.
 pause
 exit /b 1

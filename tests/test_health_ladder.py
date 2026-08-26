@@ -38,7 +38,9 @@ def client() -> TestClient:
 
 
 def make_corpus(tmp_path) -> None:
-    (tmp_path / "share" / "lancedb").mkdir(parents=True, exist_ok=True)
+    from store.chunk_store import ChunkStore
+
+    ChunkStore(root=tmp_path / "share").ensure_tables()
 
 
 def rung(report: dict, name: str) -> dict:
@@ -94,10 +96,10 @@ def test_an_unreachable_share_fails_with_an_actionable_sentence(client, monkeypa
 
     share = rung(report, "share")
     assert share["ok"] is False
-    assert "shared" in share["detail"].lower() or "folder" in share["detail"].lower()
-    # An actionable fix, not a diagnosis. The reader is a person standing
-    # at a machine that won't start.
-    assert share["fix"]
+    assert "folder" in share["detail"].lower()
+    # The action is folded into the sentence itself now (spec §2.5) — the
+    # repair form, not a separate `fix` string, is what an admin acts on.
+    assert share["fix"] is None
     assert report["ok"] is False
 
 
@@ -128,13 +130,27 @@ def test_can_repair_is_true_exactly_when_the_share_is_the_first_failure(
     assert report["can_repair"] is True
 
 
-def test_can_repair_is_false_when_the_corpus_is_the_problem(client, tmp_path):
-    # The share is reachable, so relocating it fixes nothing. Offering the
-    # repair box here would waste an admin's time on the wrong action.
+def test_can_repair_is_true_when_the_corpus_folder_has_no_data(client, tmp_path):
+    # The share is reachable but nothing lives inside it — the "pointed at
+    # the parent folder" mistake. Choosing the folder again fixes exactly
+    # this, so it is repairable (spec §2.5, 2026-08-25 widening).
     (tmp_path / "share").mkdir(parents=True, exist_ok=True)
     report = client.get("/api/health/detail").json()
 
     assert rung(report, "share")["ok"] is True
+    assert rung(report, "corpus")["ok"] is False
+    assert report["can_repair"] is True
+
+
+def test_a_corpus_that_cannot_be_opened_is_not_repairable(client, tmp_path, monkeypatch):
+    make_corpus(tmp_path)
+    import store.chunk_store as cs
+
+    def boom(*a, **k):
+        raise ValueError("Invalid input, Failed to connect to namespace")
+
+    monkeypatch.setattr(cs.lancedb, "connect", boom)
+    report = client.get("/api/health/detail").json()
     assert rung(report, "corpus")["ok"] is False
     assert report["can_repair"] is False
 
@@ -149,7 +165,7 @@ def test_a_corrupt_machine_config_fails_its_own_rung(client, tmp_path):
 
     config = rung(report, "machine_config")
     assert config["ok"] is False
-    assert config["fix"]
+    assert config["fix"] is None
     # And it short-circuits, so nothing below it reports a scary second line.
     assert rung(report, "share")["ok"] is None
 
@@ -168,12 +184,15 @@ def test_missing_models_fail_the_last_rung(client, tmp_path, monkeypatch):
     assert report["can_repair"] is False
 
 
-def test_every_failing_rung_carries_a_fix(client, monkeypatch, tmp_path):
+def test_a_failing_rungs_fix_is_never_an_empty_string(client, monkeypatch, tmp_path):
+    """Most failures fold their action into `detail` now (spec §2.5) and
+    carry `fix: None` — `FIX_CHOOSE_AGAIN` is the one exception. Either way
+    a rung must never carry a falsy-but-present fix (an empty string)."""
     monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path / "not-there"))
     report = client.get("/api/health/detail").json()
     for r in report["rungs"]:
         if r["ok"] is False:
-            assert r["fix"], f"{r['name']} failed with no suggested fix"
+            assert r["fix"] is None or r["fix"], f"{r['name']} carries an empty fix"
 
 
 def test_no_rung_leaks_a_stack_trace(client, monkeypatch, tmp_path):
@@ -203,3 +222,80 @@ def test_health_detail_never_raises(monkeypatch, tmp_path):
     report = health_detail()
     assert report["ok"] is False
     assert any(r["ok"] is False for r in report["rungs"])
+
+
+# ---------------------------------------------------------------------------
+# The pointer failures the laptop actually hit (2026-08-18)
+# ---------------------------------------------------------------------------
+
+
+def test_a_bundle_with_no_pointer_fails_the_config_rung_and_can_repair(
+    client, monkeypatch, tmp_path
+):
+    """The laptop (2026-08-18): first failing rung was machine_config, so
+    can_repair was False, the folder box never rendered, and the only advice
+    was 'delete this file by hand'."""
+    import store.config as config_mod
+
+    monkeypatch.delenv("JLBC_DATA_DIR")
+    root = tmp_path / "bundle"
+    root.mkdir()
+    (root / "VERSION").write_text("0.9.2\n", encoding="utf-8")
+    monkeypatch.setattr(config_mod, "_ROOT", root)
+
+    report = client.get("/api/health/detail").json()
+
+    config = rung(report, "machine_config")
+    assert config["ok"] is False
+    assert config["detail"] == "No location is set on this computer yet."
+    assert config["fix"] is None
+    assert report["can_repair"] is True
+    assert rung(report, "share")["ok"] is None
+
+
+def test_a_corrupt_pointer_offers_the_box_not_a_hand_edit(client, tmp_path):
+    machine = tmp_path / "machine"
+    machine.mkdir(parents=True, exist_ok=True)
+    (machine / "machine.json").write_text("{ not json", encoding="utf-8")
+    make_corpus(tmp_path)
+
+    report = client.get("/api/health/detail").json()
+
+    config = rung(report, "machine_config")
+    assert config["detail"] == "The saved location couldn't be read."
+    assert config["fix"] is None
+    assert report["can_repair"] is True
+
+
+def test_a_dev_checkout_with_no_pointer_is_still_fine(client, tmp_path):
+    """Nothing changes for the dev box: no VERSION marker, no failure."""
+    make_corpus(tmp_path)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "machine_config")["ok"] is True
+
+
+def test_a_pointer_file_without_a_data_dir_is_fine_when_a_folder_resolves(client, tmp_path):
+    """machine.json can legitimately hold only `ingest_enabled` (the
+    installer writes it even when the data folder was skipped) or only
+    `display_names` (the Settings page). With JLBC_DATA_DIR set — every
+    dev box and the Z13 — that is NOT a failure. Only 'nothing resolves at
+    all' (DataDirNotConfigured) fails this rung."""
+    machine = tmp_path / "machine"
+    machine.mkdir(parents=True, exist_ok=True)
+    (machine / "machine.json").write_text('{"ingest_enabled": false}', encoding="utf-8")
+    make_corpus(tmp_path)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "machine_config")["ok"] is True
+
+
+def test_a_lancedb_folder_with_no_tables_fails_the_corpus_rung(client, tmp_path):
+    """An empty lancedb/ used to read as 'set up, no documents yet' — the
+    same sentence a fresh install gets. Zero ROWS stays OK (the Upload page
+    must be reachable); zero TABLES is the wrong-parent-folder mistake, and
+    the picker fixes exactly it (spec §2.5) — so it is now repairable."""
+    (tmp_path / "share" / "lancedb").mkdir(parents=True)  # a folder, NO tables
+    report = client.get("/api/health/detail").json()
+    corpus = rung(report, "corpus")
+    assert corpus["ok"] is False
+    assert report["can_repair"] is True
+    assert rung(report, "corpus")["fix"] == "Choose the folder again."

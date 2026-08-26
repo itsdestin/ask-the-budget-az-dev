@@ -141,10 +141,30 @@ def _load_cached(*, strict: bool = False) -> dict[str, dict[str, Any]]:
                     "expected a JSON object of doc_id -> metadata, got "
                     f"{type(loaded).__name__}"
                 )
-        except (OSError, ValueError) as err:
+        except OSError as err:
             if strict:
-                # Do NOT cache the failure — the caller is about to be told
-                # to restore the file, and the next attempt must re-read it.
+                # Do NOT cache the failure — the next attempt must re-read.
+                # WHY this differs from the ValueError branch below: an
+                # OSError here is a sharing violation, a dropped share or a
+                # permission problem — the file is very probably FINE, so
+                # telling the reader to restore it from a snapshot is wrong
+                # advice that risks discarding a good sidecar.
+                raise RuntimeError(
+                    f"{path} could not be read ({err}). Retry the write; if "
+                    "it keeps failing, check the share."
+                ) from err
+            # A share blip, a sharing violation, a half-replaced file: keep
+            # whatever was cached and FORGET the stamp, so the next call
+            # re-reads. Caching {} under the good stamp (the pre-2026-08-25
+            # behaviour) blanked every title until the next ingest.
+            print(
+                f"store.documents: could not read {path} ({err}) — will retry.",
+                file=sys.stderr,
+            )
+            _stamp = None
+            return _cache
+        except ValueError as err:
+            if strict:
                 raise RuntimeError(
                     f"{path} is not valid JSON ({err}). Restore it from a "
                     "corpus snapshot before ingesting — writing a fresh one "

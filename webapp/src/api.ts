@@ -1079,9 +1079,13 @@ export interface HealthReport {
   ok: boolean;
   rungs: HealthRung[];
   data_dir: string | null;
-  /** True exactly when the SHARE rung is the first failure — the only case
-   *  where "point me at a different folder" can possibly help. */
+  /** True when relocating the folder can fix the first failing rung — the
+   *  pointer, the share, or the corpus rung's own "no data in it" case
+   *  (spec §2.5, 2026-08-25). */
   can_repair: boolean;
+  /** True when this computer can open its own folder-picker dialog
+   *  (Windows only). The Choose folder… button renders only then. */
+  can_pick: boolean;
 }
 
 export async function healthDetail(): Promise<HealthReport> {
@@ -1090,9 +1094,16 @@ export async function healthDetail(): Promise<HealthReport> {
   return r.json();
 }
 
-export async function setDataDir(
-  path: string,
-): Promise<{ path: string; restart_required: boolean }> {
+export async function pickFolder(): Promise<{ supported: boolean; path: string | null }> {
+  const r = await fetch("/api/config/pick-folder", { method: "POST" });
+  if (!r.ok) await fail(r, "open the folder window");
+  return r.json();
+}
+
+export async function setDataDir(path: string): Promise<{ path: string }> {
+  // The server now re-probes the folder and swaps it in place (Task 9,
+  // 2026-08-25) — there is no restart to wait for, so the response no
+  // longer carries `restart_required`. See Repair.tsx.
   const r = await fetch("/api/config/data-dir", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
