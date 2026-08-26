@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>People panel — G-U0 mockup</title>
+<style>
+/* Tokens: webapp/src/styles/tokens.css verbatim. Admin rules: the .adm-* subset
+   of webapp/src/styles/app.css. Only .mk-* rules are mockup chrome.
+   NO .adm-link anywhere — Destin's rule: actions are pills, never blue text. */
+:root{
+  --navy:#2b2f63; --navy-900:#181b3d; --navy-100:#e7e8f2;
+  --az-red:#2f55c4; --az-red-100:#e1e6fa;
+  --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+  --teal:#1782b3; --teal-100:#dbeef8;
+  --ink:#21243f; --ink-2:#4a4e6a; --ink-3:#757895;
+  --line:#e6e6ef; --canvas:#f5f5fa; --card:#fff;
+  --r-lg:22px; --r-sm:12px; --r-pill:999px; --gap:22px;
+  --shadow-sm:0 1px 2px rgba(27,27,61,.06),0 3px 10px rgba(27,27,61,.05);
+  --maxw:1140px; --font:"Nunito","Segoe UI",system-ui,-apple-system,sans-serif;
+  --warn:#b45309; --warn-100:#fdf1e6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:28px 22px 80px}
+h1{font-size:26px;color:var(--navy);font-weight:800;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm)}
+.adm-panel{padding:20px 24px;margin-bottom:var(--gap)}
+.adm-panel h2{font-size:18px;color:var(--navy);font-weight:800;margin:0 0 4px}
+.adm-sub{font-size:13.5px;color:var(--ink-2);margin:0 0 10px}
+.adm-hint{font-size:12.5px;color:var(--ink-3);margin:4px 0 0;line-height:1.5}
+.adm-note{font-size:12.5px;color:var(--ink-2);margin:12px 0 0;line-height:1.55}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--canvas);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.adm-table{width:100%;border-collapse:collapse;font-size:13px}
+.adm-table th,.adm-table td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.adm-table thead th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);white-space:nowrap}
+.adm-table tbody th{font-weight:800;color:var(--ink);white-space:nowrap}
+.adm-field{display:block;margin:14px 0 0;font-size:13.5px;color:var(--ink-2)}
+.adm-field>span:first-child{display:block;font-weight:800;color:var(--ink);margin-bottom:4px}
+.adm-field .adm-hint{display:block}
+input[type=text],input[type=number],select{border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 10px;font:inherit;font-size:13.5px;background:var(--card);color:var(--ink);max-width:100%}
+.adm-field input,.adm-field select{width:min(420px,100%)}
+select:disabled,input:disabled{background:var(--canvas);color:var(--ink-3)}
+.adm-btn{border:0;background:var(--navy);color:#fff;border-radius:var(--r-pill);padding:8px 18px;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.adm-btn:disabled{opacity:.45;cursor:not-allowed}
+.adm-btn-quiet{background:var(--card);color:var(--navy);border:1px solid var(--line)}
+.adm-btn-sm{padding:4px 12px;font-size:12px}
+.adm-warn{font-size:13px;color:var(--navy-900);background:var(--az-red-100);border-radius:var(--r-sm);padding:9px 12px;margin:10px 0 0;line-height:1.55}
+.adm-card{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--canvas);margin-top:12px}
+.adm-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px}
+.adm-card-title{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.adm-card-title h3{margin:0;font-size:13.5px;font-weight:800;color:var(--navy)}
+.adm-card-hint{font-size:12.5px;color:var(--ink-3)}
+.adm-card-body{padding:0 14px 14px}
+.adm-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0}
+
+/* People table */
+.adm-table thead th.is-sortable{cursor:pointer;user-select:none}
+.adm-table thead th[aria-sort]{color:var(--navy)}
+.sort-arrow{margin-left:4px;font-size:10px}
+.who{display:block;font-size:11.5px;font-weight:400;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.name-missing{color:var(--ink-3);font-weight:400;font-style:italic}
+.limit-ctl{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.limit-ctl select{padding:4px 8px;font-size:12.5px}
+.limit-ctl input[type=number]{width:70px;padding:4px 8px;font-size:12.5px}
+.adm-table td.act{text-align:right;white-space:nowrap}
+.hidden-row{display:flex;align-items:center;gap:12px;margin:14px 0 0;font-size:13px;color:var(--ink-3)}
+
+/* mockup chrome */
+.mk-lede{color:var(--ink-2);font-size:14px;margin:0 0 26px;max-width:78ch}
+.mk-h{font-size:15px;font-weight:800;color:var(--navy);margin:34px 0 4px}
+.mk-p{font-size:13.5px;color:var(--ink-2);margin:0 0 12px;max-width:78ch;line-height:1.55}
+.mk-two{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
+@media (max-width:820px){.mk-two{grid-template-columns:1fr}}
+.mk-two .card{margin-bottom:0}
+.mk-calls{margin:0;padding-left:22px;font-size:13.5px;color:var(--ink-2);line-height:1.6}
+.mk-calls li{margin:6px 0}
+.mk-calls b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>People — Admin page mockup</h1>
+<p class="mk-lede">Drawn with the real Admin page's styles. Nothing is built. Three screens, then five questions at the bottom.</p>
+
+<!-- ============================================================ -->
+<p class="mk-h">1 · The People panel</p>
+<p class="mk-p">A new section on the Admin page, directly above <b>Spending</b>. Everyone who has opened the app, one row each. Sorted by this month's spend by default; click any heading to sort by it.</p>
+
+<section class="card adm-panel">
+  <h2>People</h2>
+  <p class="adm-sub">Everyone who has opened the app, and what they have spent on AI Mode this month. Names come from Windows; anyone can change their own on their Settings page.</p>
+
+  <table class="adm-table">
+    <thead>
+      <tr>
+        <th scope="col" class="is-sortable">Person</th>
+        <th scope="col" class="is-sortable">Last seen</th>
+        <th scope="col" class="is-sortable" aria-sort="descending">Spent this month<span class="sort-arrow">▼</span></th>
+        <th scope="col" class="is-sortable">Monthly limit</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th scope="row">Danielle Moss<span class="who">dmoss</span></th>
+        <td>Today</td>
+        <td>$14.20</td>
+        <td><span class="limit-ctl"><select><option>A specific amount</option><option>Office default ($40)</option><option>No limit</option></select><input type="number" value="25"></span></td>
+        <td class="act"><button class="adm-btn adm-btn-quiet adm-btn-sm">Hide</button></td>
+      </tr>
+      <tr>
+        <th scope="row">Geoff Paulsen<span class="who">gpaulsen</span></th>
+        <td>Yesterday</td>
+        <td>$9.85</td>
+        <td><span class="limit-ctl"><select><option>Office default ($40)</option><option>A specific amount</option><option>No limit</option></select></span></td>
+        <td class="act"><button class="adm-btn adm-btn-quiet adm-btn-sm">Hide</button></td>
+      </tr>
+      <tr>
+        <th scope="row"><span class="name-missing">No name yet</span><span class="who">bjw2</span></th>
+        <td>Aug 19</td>
+        <td>$3.10</td>
+        <td><span class="limit-ctl"><select><option>No limit</option><option>Office default ($40)</option><option>A specific amount</option></select></span></td>
+        <td class="act"><button class="adm-btn adm-btn-quiet adm-btn-sm">Hide</button></td>
+      </tr>
+      <tr>
+        <th scope="row">Alex Rivera<span class="who">arivera</span></th>
+        <td>Aug 4</td>
+        <td>$0.00</td>
+        <td><span class="limit-ctl"><select><option>Office default ($40)</option><option>A specific amount</option><option>No limit</option></select></span></td>
+        <td class="act"><button class="adm-btn adm-btn-quiet adm-btn-sm">Hide</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+
+  <div class="hidden-row">
+    <span>1 person hidden (Pat Chen, last seen Jun 30)</span>
+    <button class="adm-btn adm-btn-quiet adm-btn-sm">Show</button>
+  </div>
+  <p class="adm-hint">Hiding someone takes them out of the lists on this page. Their past spending still counts; nothing is deleted.</p>
+</section>
+
+<!-- ============================================================ -->
+<p class="mk-h">2 · AI Mode → Spending limits, afterwards</p>
+<p class="mk-p">The existing card, minus the “people with a different limit” rows and the “no limit at all” box — those are now the dropdown on each person's row above. Only the office-wide default stays here.</p>
+
+<section class="card adm-panel" style="max-width:720px">
+  <div class="adm-card">
+    <div class="adm-card-head"><div class="adm-card-title"><h3>Spending limits</h3><span class="adm-card-hint">$40 a month each, 2 with their own</span></div><button class="adm-btn adm-btn-quiet adm-btn-sm">Hide</button></div>
+    <div class="adm-card-body">
+      <p class="adm-sub"><strong>Searching is never affected.</strong> Someone at their limit can still search, browse fiscal notes and upload.</p>
+      <label class="adm-field">
+        <span>Each person, per month</span>
+        <input type="number" value="40">
+        <span class="adm-hint">Blank means no limit. 0 blocks everyone. Set one person's own limit under <strong>People</strong>.</span>
+      </label>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<p class="mk-h">3 · Access and files → handing over admin</p>
+<p class="mk-p">The typed username box becomes a dropdown of people who have opened the app (hidden people and you left out). No typed box in normal use. If the people list itself can't be read from the shared folder, the old typed box comes back with a sentence saying why.</p>
+
+<div class="mk-two">
+<section class="card adm-panel">
+  <p class="adm-sub">Windows knows you as <strong>dmoss</strong>.</p>
+  <label class="adm-field">
+    <span>Hand admin to someone else</span>
+    <select>
+      <option>Choose a person…</option>
+      <option>Geoff Paulsen (gpaulsen)</option>
+      <option>bjw2</option>
+      <option>Alex Rivera (arivera)</option>
+    </select>
+  </label>
+  <div class="adm-actions"><button class="adm-btn adm-btn-quiet" disabled>Hand over admin…</button></div>
+</section>
+
+<section class="card adm-panel">
+  <p class="adm-sub">Windows knows you as <strong>dmoss</strong>.</p>
+  <label class="adm-field">
+    <span>Hand admin to someone else</span>
+    <select disabled><option>Nobody else has opened the app yet</option></select>
+    <span class="adm-hint">Ask your successor to open the app once and they will appear here.</span>
+  </label>
+  <div class="adm-actions"><button class="adm-btn adm-btn-quiet" disabled>Hand over admin…</button></div>
+</section>
+</div>
+<p class="adm-hint" style="margin-top:10px">Left: the normal case. Right: a fresh install where nobody else has opened the app yet. The confirmation step and the <code>RESET-ADMIN.txt</code> rescue note are unchanged.</p>
+
+<!-- ============================================================ -->
+<p class="mk-h">Your calls</p>
+<ol class="mk-calls">
+  <li><b>The table:</b> one row per person, limit as a dropdown on the row, hidden people collapsed to one line beneath. OK as drawn?</li>
+  <li><b>Default sort:</b> highest spend first. Or name, or last seen?</li>
+  <li><b>Placement:</b> its own section directly above Spending, with the office-wide default staying in AI Mode. Or move the office-wide default into People too, so all limits are in one place?</li>
+  <li><b>Real names from Windows get written to the shared folder</b> (one small file per person) so you can see them here. Today they stay on each person's own PC. Yes?</li>
+  <li><b>A name someone already typed on their own PC is copied to the shared folder</b> the next time they open the app, without asking them. Yes, or should they re-type it once?</li>
+</ol>
+
+</div>
+</body>
+</html>

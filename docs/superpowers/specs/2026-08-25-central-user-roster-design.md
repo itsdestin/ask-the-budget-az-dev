@@ -1,8 +1,9 @@
 # Central user roster — design
 
 **Date:** 2026-08-25 (revised same day after review)
-**Status:** design approved by Destin; **spec revised after review, UI shape
-NOT yet approved — see G-U0**
+**Status:** design approved by Destin; spec revised after review; **UI shape
+approved from the mockup 2026-08-25 (G-U0 passed)** — ready for an
+implementation plan
 **Decisions:** U0–U16 · **Gates:** G-U0, G-U1, G-U2, G-U3
 
 **Revision note (2026-08-25).** The first draft had two design defects and
@@ -105,7 +106,7 @@ from. Every consumer below uses this rule and NO other:
 | `app.identity.is_admin` | exact | U0 |
 | roster filename (U2) | — | U0 |
 | the ledger ↔ roster ↔ settings join in `GET /api/admin/users` | — | U0 |
-| the orphan-limit check (U14) | — | U0 |
+| the "does this stored key belong to someone in the roster?" check (U14) | — | U0 |
 | the transfer picker's "is this the current admin?" | — | U0 |
 
 **Why one rule and not a fold at each call site:** the CLAUDE.md audit
@@ -311,8 +312,8 @@ them. Moving it to `settings.json` removes the race outright instead of
 adding a lock to manage it, and puts it where every other per-person
 admin decision already is.
 
-A hidden person is removed from every dropdown and shown greyed in the
-People table (shape per G-U0). Their ledger rows are untouched and still
+A hidden person is removed from every dropdown and from the People table,
+collapsing to one line beneath it with a **Show** pill (U13). Their ledger rows are untouched and still
 count in office totals — **deleting a person would make last year's spend
 stop adding up**, and the ledger is the accounting record.
 
@@ -421,18 +422,18 @@ When `unreachable` is true:
 
 ### U13 — ONE People table, sortable on every column, both directions
 
-**Proposed shape, pending G-U0.** One table, every person in it. A
-*Status* column carries one of: blank (active), *hidden*, *hidden — seen
-since*, or *never seen* (a limit exists for a username no roster file
-matches — U14). Hidden rows render greyed and are filtered out by default
-behind a "show hidden" tick box. Orphan rows are always shown, flagged.
+**Proposed shape, pending G-U0.** One table, every person in it. Hidden
+people are not rows in it: they collapse to one line beneath the table
+("1 person hidden (Pat Chen, last seen Jun 30) · Show"), which expands
+them in place. There is no Status column and no orphan section (U14).
 
 The first draft had three separate tables (active / "No longer here" /
-orphan limits) sharing an extracted `SortableTable` so they could not
-drift. One table with a status column removes the drift risk by having
-one table, removes the extraction, and removes the "no never-seen case
-here" special pleading. **If Destin prefers the three-list layout at the
-mockup, this reverts** — it is a look-and-feel call, not a correctness one.
+orphan limits) sharing an extracted `SortableTable`; the second had one
+table with a Status column, a "show hidden" tick box and a flagged
+orphan box. Destin rejected both as too complicated at the mockup
+(2026-08-25). What stands is the plain table above, one action pill per
+row (**never** bare link text — his standing rule), and one collapsed
+line for the hidden.
 
 Click a heading to sort; click again to reverse. An arrow in the heading
 states which column and which direction, and `aria-sort` carries the same
@@ -444,29 +445,35 @@ fact to a screen reader.
 | Username | A→Z | Z→A |
 | Last seen | most recent first | longest-absent first |
 | Spent this month | highest first | lowest first |
-| Limit | highest amount first, then office default, then no limit | reversed |
-| Status | active, hidden, never seen | reversed |
+| Monthly limit | highest amount first, then office default, then no limit | reversed |
 
 Default is **highest spend first**, matching today's table, because that is
 the question the page is usually opened to answer (to confirm at G-U0).
 
-Two orderings are explicit rather than emergent: a person with **no
-recorded name** sorts LAST in a name sort **in both directions**, and a
-**never-seen** row sorts LAST in a last-seen sort in both directions.
+One ordering is explicit rather than emergent: a person with **no
+recorded name** sorts LAST in a name sort **in both directions**.
 Reversing a sort must not promote the least informative rows to the top
-of the page.
+of the page. Every row has been seen — a roster file only exists because
+somebody opened the app — so there is no never-seen case.
 
-### U14 — Orphan limits are surfaced, not deleted
+### U14 — A limit for a username nobody has matched is NOT shown
+
+Destin's call, 2026-08-25, from the mockup: a box announcing *"a limit is
+set for `tmartin` but nobody by that name has opened the app"* is wasteful
+and confusing. It does not render.
 
 Any key in `user_limits`, `exempt_users` or `hidden_users` that matches no
-roster person **under U0** appears in the table as *never seen*, flagged.
-Matching under U0 matters: a `DMOSS` limit with a `dmoss` roster row is
-NOT an orphan, it is that person's limit. **This is the first time the app
-would ever report the existing silent bug**, and it is expected to find
-something in the live config.
+roster person **under U0** is left exactly where it is in `settings.json`
+— not shown, not deleted, not warned about. It applies to nobody, so it
+costs nothing; and if that person ever opens the app, their row appears
+with that limit already on it. The first draft surfaced these as a
+"never seen" section; that section is gone.
 
-Nothing is auto-removed. When that person first opens the app the row
-becomes an ordinary row on its own.
+**One exception, and it is the U0 collision guard, not an orphan
+notice:** if a stored key folds to a person who IS in the roster under a
+different spelling (`DMOSS` in `user_limits`, `dmoss` in the roster), that
+is the same person and the row shows their limit — with the exact-match
+rule deciding which value wins when both spellings are stored (U0).
 
 ### U15 — The People panel is admin-only
 
@@ -489,26 +496,27 @@ The *by model* and *by answer mode* tabs are unaffected.
 
 ---
 
-## Calls for Destin to confirm at the mockup (G-U0)
+## Calls settled at the mockup (G-U0, 2026-08-25)
 
-Each of these has a visible consequence and none has been shown to him.
-They are recorded as the spec's CURRENT choice, not as approved.
+Destin approved the third version of the mockup ("okay this is fine")
+after rejecting two: the first for too many columns, badges and boxes,
+the second for its stray-limit notice. What that approval fixes:
 
-1. One table with a status column (U13) versus three lists.
-2. Default sort: highest spend first.
-3. The per-row limit control as a three-way choice (office default / a
-   specific amount / no limit) rather than the two boxes it replaces.
-4. Where the People panel sits among the Admin page's groups (Needs
-   attention / AI Mode / Search & documents / …), and what `ProviderPanel`
-   looks like once its per-person rows are gone — the office-wide default
-   stays there, so limits become a two-panel story.
-5. The transfer picker, including its "nobody else has opened the app
-   yet" state (U10).
-6. **Real names auto-copied from Active Directory onto the shared drive**
-   (Risk 1) — a privacy-stance change from M6, not a mechanism.
-7. **A name someone typed for their own machine being copied up to the
-   share** on first touch (U6).
-8. The "two spellings fold to one person" warning wording (U0).
+1. **The table as drawn** — one row per person (name with the username in
+   small type beneath), Last seen, Spent this month, Monthly limit as a
+   dropdown on the row, one **Hide** pill per row, hidden people as one
+   collapsed line beneath with a **Show** pill.
+2. **Default sort: highest spend first.**
+3. **Placement:** its own section directly above Spending; the
+   office-wide default stays in AI Mode → Spending limits with a one-line
+   pointer to People.
+4. **Real names from Windows are written to the shared drive** (one small
+   file per person) — accepted as stated on the mockup page.
+5. **A name already typed on someone's own PC is copied up to the share**
+   on their next visit, without asking — accepted as stated.
+6. **No orphan-limit notice** (U14); **no Status column, no "show hidden"
+   tick box** (U13); **every action is a pill, never bare link text** —
+   a standing rule, not a per-screen choice.
 
 ---
 
@@ -555,7 +563,7 @@ admin page →  GET /api/admin/users
                  ├─ users.registry.list_all()      → name, username, seen dates
                  ├─ ledger.breakdown(month,"user") → this month's spend per username
                  └─ settings.{user_limits,exempt_users,hidden_users}
-              joined under U0 into ONE merged payload with a status per row;
+              joined under U0 into ONE merged payload, hidden flagged per row;
               the panel never joins two endpoints itself
 
 limit edit →  PUT /api/admin/settings  (existing route, existing validation)
@@ -575,7 +583,7 @@ hide       →  PUT /api/admin/settings  (hidden_users — same route, same vali
 | Roster write fails during a name save | Local machine file still written; endpoint still 200 (U6) |
 | Hide fails | It is a `settings.json` write and **raises** like every other settings write → the admin sees the error (U7) |
 | Two stored keys fold to one person | Exact match wins; warning rendered on that row (U0) |
-| A limit/hidden key matches nobody under U0 | Shown as *never seen* (U14) |
+| A limit/hidden key matches nobody under U0 | Ignored: left in place, not shown (U14) |
 | Windows name reads blank on a touch | Existing name kept (U5) |
 
 ---
@@ -583,12 +591,14 @@ hide       →  PUT /api/admin/settings  (hidden_users — same route, same vali
 ## Gates
 
 **G-U0 — The UI shape is approved from a rendered mockup BEFORE any code.**
-One HTML mockup, committed under `docs/superpowers/specs/assets/` the way
-the tool-card work did, showing: the People table in its default sort with
-an active, a hidden, a hidden-seen-since and a never-seen row; the per-row
-limit control in all three states; the transfer picker in its populated
-AND its "nobody else yet" state; and `ProviderPanel` after its rows are
-cut. Destin settles the eight calls listed above on that page. STATUS.md
+One HTML mockup at
+`docs/superpowers/specs/assets/2026-08-25-user-roster-mockup/people-panel.html`
+showing: the People table in its default sort with the per-row limit
+dropdown in all three states and the hidden line beneath; the transfer
+picker in its populated AND its "nobody else yet" state; and
+`ProviderPanel` after its rows are cut. Two earlier versions were
+rejected on sight (too many columns, badges and boxes; blue link text as
+controls). Destin settles the calls listed above on that page. STATUS.md
 records the Upload page being rejected on sight after a faithfully-built
 spec, and no test, review or eval can catch a UI shape that implements a
 misread requirement — this gate is the only thing that can.
@@ -651,14 +661,15 @@ blank select.
 - A hidden person's own touch leaves them hidden (structural now — the
   touch cannot reach `settings.json` — but pinned so the structure cannot
   be undone by a later "convenience").
-- Orphan detection under U0: a `DMOSS` limit with a `dmoss` row is NOT an
-  orphan; a key with no fold-match is.
+- A `DMOSS` limit with a `dmoss` roster row renders on that person's row
+  (U0); a key with no fold-match renders NOWHERE and is left in
+  `settings.json` byte-for-byte (U14).
 - `/api/me` responds correctly with the roster write failing AND with the
   roster read failing.
 
 **vitest**
-- Sorting: every column, both directions, `aria-sort` correct, no-name and
-  never-seen orderings pinned (U13).
+- Sorting: every column, both directions, `aria-sort` correct, the no-name
+  ordering pinned (U13).
 - The limit control writes the right one of the two settings fields and
   clears the other (U8).
 - `unreachable` renders the message and the typed fallback, not an empty
@@ -666,8 +677,9 @@ blank select.
   "nobody else yet" sentence (U10).
 - Hidden people are absent from the transfer picker; the current admin is
   absent from it under U0.
-- The "show hidden" filter hides and reveals; never-seen rows are always
-  shown and flagged.
+- The hidden line shows the count and expands in place; no row in the
+  main table is hidden; no control on the panel is a bare link (a spec
+  asserts no `adm-link` class renders in `PeoplePanel`).
 - A guard that the panel is mounted — deleting the `<PeoplePanel/>` line
   must turn a spec red. This has been a real defect twice on this project
   (`ReportLinksPanel`, the citation annotation), and `Admin.test.tsx` has
@@ -704,5 +716,6 @@ blank select.
    `/api/me` is one file, cached (U6). No listing cache is specified; if
    it ever matters, the same `(mtime, size)` stamp is the shape to copy.
 7. **Legacy `user_limits` written by hand may hold two casings of one
-   person.** U0 keeps the exact match and warns; nothing is merged for the
-   admin. Expected to be found once, at the first render of the panel.
+   person, or a username nobody has.** U0 keeps the exact match and warns
+   on the collision; a key matching nobody is silently inert (U14).
+   Nothing is merged or removed for the admin.
