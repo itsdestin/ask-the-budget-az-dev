@@ -40,6 +40,7 @@ function settings(over: Partial<api.AdminSettings> = {}): api.AdminSettings {
     default_monthly_limit_usd: 25,
     user_limits: { analyst1: 5 },
     exempt_users: ["director"],
+    hidden_users: [],
     ...over,
   };
 }

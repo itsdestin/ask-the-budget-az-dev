@@ -730,6 +730,10 @@ export interface AdminSettings {
   default_monthly_limit_usd: number | null;
   user_limits: Record<string, number>;
   exempt_users: string[];
+  /** People the admin took out of every list (spec U7). Stored HERE, not in
+   *  the person's roster file — see harness/settings.py for the two-writer
+   *  race that decided it. */
+  hidden_users: string[];
 }
 
 /** The literal a client sends in place of the key to mean "I am not editing
@@ -751,6 +755,7 @@ export interface AdminSettingsWrite {
   default_monthly_limit_usd?: number | null;
   user_limits?: Record<string, number>;
   exempt_users?: string[];
+  hidden_users?: string[];
   api_key?: string;
   confirm_admin_transfer?: boolean;
 }
@@ -862,6 +867,42 @@ export interface AdminUsage {
 export async function adminUsage(month?: string): Promise<AdminUsage> {
   const r = await fetch(`/api/admin/usage${month ? `?month=${month}` : ""}`);
   if (!r.ok) await fail(r, "usage");
+  return r.json();
+}
+
+export interface PersonLimit {
+  kind: "default" | "custom" | "exempt";
+  amount: number | null;
+  /** Every stored limit key that folds to this person when there is more
+   *  than one — a legacy hand-typed file can hold `dmoss` and `DMOSS`. */
+  collision: string[];
+}
+
+export interface PersonRow {
+  key: string;
+  username: string;
+  display_name: string;
+  name_source: "typed" | "windows" | "";
+  first_seen: string;
+  last_seen: string;
+  hidden: boolean;
+  spent_usd: number;
+  limit: PersonLimit;
+}
+
+export interface AdminUsers {
+  month: string;
+  /** The users folder could not be read. Distinct from "nobody yet" — the
+   *  panel says so and the hand-over picker degrades to a typed box. */
+  unreachable: boolean;
+  /** Rows that exist but could not be read. Shown, never silently dropped. */
+  unreadable: number;
+  people: PersonRow[];
+}
+
+export async function adminUsers(month?: string): Promise<AdminUsers> {
+  const r = await fetch(`/api/admin/users${month ? `?month=${month}` : ""}`);
+  if (!r.ok) await fail(r, "people");
   return r.json();
 }
 
