@@ -174,16 +174,39 @@ def test_the_launcher_keeps_its_final_wording(sentence, count):
 
 
 def test_the_retry_delete_only_fires_on_our_own_bundle():
-    """§1.4: a folder that is not recognisably ours is never deleted. The
-    retry's evidence is `python312._pth` — shipped by the embeddable CPython,
-    sitting beside the locked python312.dll so it survives the half-deletion
-    that takes launcher.pyw and VERSION, and absent from any normal Python
-    install. Without the guard the retry would delete a stranger's folder."""
+    """Section 1.4: a folder that is not recognisably ours is never deleted.
+
+    `rmdir /s /q` recurses and deletes every UNLOCKED file before failing, so
+    a half-deleted install has lost launcher.pyw, VERSION and python.exe and
+    kept only the locked ones — python\\pythonw.exe above all, since the
+    shortcut runs pythonw. The retry therefore cannot be gated on any of the
+    files that are always already gone. Its two gates are `OURS` (this run did
+    the delete) and the embeddable-CPython fingerprint (pythonw.exe with no
+    `Lib\\`, which no normal Python install can look like). Both must sit
+    above the retry, or a stranger's folder gets deleted or ours never heals.
+    """
     lines = [ln.strip() for ln in INSTALLER_SRC.splitlines()]
-    guard = r'if not exist "%INSTALL_DIR%\python\python312._pth" goto :folder_locked'
+    ours = "if defined OURS goto :folder_retry"
+    fingerprint = (r'if exist "%INSTALL_DIR%\python\pythonw.exe" '
+                   r'if not exist "%INSTALL_DIR%\python\Lib\" goto :folder_retry')
     retry = r'rmdir /s /q "%INSTALL_DIR%" 2>nul'
-    assert guard in lines, "the retry lost its ours-only guard"
-    assert lines.index(guard) < lines.index(retry)
+    assert 'set "OURS=1"' in lines, "the guarded delete stopped recording that it ran"
+    assert ours in lines, "the retry lost its same-run gate"
+    assert fingerprint in lines, "the retry lost its embeddable-CPython fingerprint"
+    assert lines.index(ours) < lines.index(retry)
+    assert lines.index(fingerprint) < lines.index(retry)
+
+
+def test_the_locked_file_checks_read_pythonw_not_python():
+    """python.exe is not the running image and is not locked — it is deleted
+    by the failed rmdir like everything else unlocked. A check on it reports
+    "clear" over a folder that still holds python312.dll, and tar then fails
+    with the message about copying the zip to the Desktop that this whole
+    block exists to prevent."""
+    block = INSTALLER_SRC[INSTALLER_SRC.index("--- replace the program folder"):
+                          INSTALLER_SRC.index("\n:folder_clear\n")]
+    assert block.count(r'"%INSTALL_DIR%\python\pythonw.exe"') == 3
+    assert r'"%INSTALL_DIR%\python\python.exe"' not in block
 
 
 @pytest.mark.parametrize("sentence", [

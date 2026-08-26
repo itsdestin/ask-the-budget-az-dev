@@ -123,32 +123,44 @@ if exist "%ROOT_DIR%\python\pythonw.exe" (
 rem --- replace the program folder ---------------------------------------------
 rem  Deleted ONLY when it is recognisably ours (launcher.pyw + VERSION inside);
 rem  a typed folder that is something else is never touched.
+set "OURS="
 if exist "%INSTALL_DIR%\launcher.pyw" if exist "%INSTALL_DIR%\VERSION" (
     echo   Removing the previous version...
+    set "OURS=1"
     rmdir /s /q "%INSTALL_DIR%"
 )
-rem  That rmdir fails and says nothing when Windows is still holding
-rem  python312.dll - the stop step above was skipped, or 2 s was not long
-rem  enough for taskkill to release it. tar then fails and the extraction
-rem  message blamed the USB drive, which is never the cause of THAT.
+rem  That rmdir fails and says nothing when Windows is still holding the
+rem  running copy's files - the stop step above was skipped, or 2 s was not
+rem  long enough for taskkill to release them. tar then fails and the
+rem  extraction message blamed the USB drive, which is never the cause.
 rem
-rem  It also fails HALFWAY: the unlocked files go first, launcher.pyw and
-rem  VERSION among them, so the guard above can never match again. Without a
-rem  second attempt the folder is unremovable for ever - the user closes the
-rem  app, runs the installer again, and is told it is "still open" about a
-rem  closed app, on every run, permanently.
+rem  What "fails" MEANS here is the whole point. rmdir /s /q does not stop at
+rem  the first locked file: it recurses and deletes everything it can, then
+rem  fails only to remove the directories above the files it could not touch.
+rem  So a half-deleted install has lost launcher.pyw, VERSION, python.exe and
+rem  python312._pth - all unlocked - and kept exactly the LOCKED ones:
+rem  python\pythonw.exe (the shortcut runs pythonw, so that is the running
+rem  image), python312.dll, and any loaded .pyd under site-packages. Every
+rem  test below therefore reads pythonw.exe, and the retry cannot be gated on
+rem  a file that is always already gone.
 rem
-rem  The retry keeps §1.4's rule that we only ever delete a folder that is
-rem  recognisably OURS. `python\python312._pth` is the evidence that survives
-rem  a half-deletion: it is a two-line file the embeddable CPython carries,
-rem  sitting beside the very python312.dll whose lock stopped the delete, and
-rem  a normally-installed Python never has one. So it is still there whenever
-rem  the first rmdir was ours and failed, and never there in a stranger's
-rem  folder - which is left untouched, exactly as before.
-if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
-if not exist "%INSTALL_DIR%\python\python312._pth" goto :folder_locked
+rem  Two ways to know the leftovers are OURS, keeping section 1.4's rule that
+rem  a typed folder which is something else is never deleted:
+rem    OURS      - this run just did the guarded delete, so we know.
+rem    otherwise - the embeddable-CPython fingerprint. That distribution
+rem                keeps its stdlib in python312.zip and ships NO Lib\
+rem                folder; every normally-installed Python has one. So
+rem                python\pythonw.exe with no python\Lib\ beside it is our
+rem                bundle's leftovers and nobody else's, which is what makes
+rem                the second run (guard files already gone) able to heal.
+if not exist "%INSTALL_DIR%\python\pythonw.exe" goto :folder_clear
+if defined OURS goto :folder_retry
+if exist "%INSTALL_DIR%\python\pythonw.exe" if not exist "%INSTALL_DIR%\python\Lib\" goto :folder_retry
+goto :folder_locked
+
+:folder_retry
 rmdir /s /q "%INSTALL_DIR%" 2>nul
-if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
+if not exist "%INSTALL_DIR%\python\pythonw.exe" goto :folder_clear
 
 :folder_locked
 rem  Still there, so something really is holding it. Ask Windows WHICH -
