@@ -57,7 +57,20 @@ def test_every_table_chunk_agrees_with_the_owner_lookup():
 
 def test_every_narrative_chunk_agrees_with_the_owner_lookup():
     """The narrative builder reaches its path through `visit()`, never
-    through `owner_path`. If the two ever diverge, one of them is wrong."""
+    through `owner_path`. If the two ever diverge, one of them is wrong.
+
+    The original version of this test asserted only that a chunk's path
+    was SOME real breadcrumb in the document -- `chunk.section_path in
+    paragraph_owner.values()` -- which a chunk built from the WRONG node
+    would still satisfy, as long as some other node in the document
+    happened to carry the same path. It could not have caught
+    `narrative_chunk.visit` mis-attributing page-10 paragraphs to
+    `["Table of Contents"]`: that path is a real breadcrumb elsewhere in
+    this very fixture. This version instead identifies exactly which
+    paragraph(s) a chunk was built from and compares its `section_path`
+    to THOSE paragraphs' own owner, per chunk -- the comparison the
+    docstring above always claimed to make.
+    """
     doc = ODLReader().read(FIXTURE)
     paragraph_owner: dict[int, list[str]] = {}
 
@@ -72,11 +85,60 @@ def test_every_narrative_chunk_agrees_with_the_owner_lookup():
     for root in doc.outline:
         walk(root, [])
 
+    # Every real paragraph in the fixture, owned or not -- an orphan
+    # paragraph (before the document's first heading) has no entry in
+    # `paragraph_owner` and must match a chunk whose `section_path` is `[]`,
+    # never be waved through by it.
+    all_paragraphs = [
+        block
+        for page in doc.pages
+        for block in page.blocks
+        if isinstance(block, Paragraph)
+    ]
+
+    saw_nonempty_path = False
     for chunk in build_narrative_chunks(doc, _meta(), start_index=0):
-        # A chunk merges several paragraphs from ONE node, so any one of the
-        # node's paragraphs answers for it; an orphan chunk has no owner and
-        # an empty path (narrative_chunk.py's `_orphaned_paragraphs`).
-        assert chunk.section_path == [] or chunk.section_path in paragraph_owner.values()
+        # `_flush_section_into_chunks` (narrative_chunk.py) builds a
+        # chunk's text as `"\n\n".join(buffer_text_parts)` -- each member
+        # paragraph's raw `.text`, verbatim and unmodified -- optionally
+        # preceded by a `section_header + "\n\n"` line. Splitting the
+        # chunk's own text on that same "\n\n" separator and comparing
+        # each part for EXACT equality against a paragraph's `.text`
+        # therefore recovers precisely the paragraph(s) the chunk was
+        # built from -- never more, never fewer. A plain substring check
+        # (`para.text in chunk.text`) is NOT safe here: this fixture's
+        # short TOC-list paragraph "Acupuncture Board of Examiners" is
+        # itself a substring of chunk 0004's paragraph "The Acupuncture
+        # Board of Examiners licenses and regulates...", which sits under
+        # a DIFFERENT section -- a substring match would wrongly pull the
+        # TOC paragraph's owner into that chunk's comparison and fail a
+        # correct chunk. Splitting on the exact join separator avoids it:
+        # only a paragraph whose ENTIRE text is one of the joined parts
+        # counts as a match. Verified sound for this fixture: no two
+        # paragraphs share identical text and no paragraph's own text
+        # contains "\n\n" (both checked directly against the fixture).
+        parts = chunk.text.split("\n\n")
+        matched = [p for p in all_paragraphs if p.text in parts]
+        assert matched, (
+            f"chunk {chunk.chunk_id!r} (section_path={chunk.section_path!r}) "
+            "matched no paragraph in the fixture -- the text-splitting match "
+            "rule above is wrong, not this chunk"
+        )
+        for para in matched:
+            owner = paragraph_owner.get(id(para), [])
+            assert chunk.section_path == owner, (
+                f"chunk {chunk.chunk_id!r} claims section_path="
+                f"{chunk.section_path!r}, but the paragraph it was built "
+                f"from ({para.text[:60]!r}) is owned by {owner!r}"
+            )
+        if chunk.section_path:
+            saw_nonempty_path = True
+
+    assert saw_nonempty_path, (
+        "every chunk had an empty section_path -- this fixture is supposed "
+        "to exercise real headings, so the comparison above never actually "
+        "checked anything but the orphan case"
+    )
 
 
 def test_the_contents_page_does_not_capture_the_agency_table():
