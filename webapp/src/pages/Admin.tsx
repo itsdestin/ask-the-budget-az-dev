@@ -526,6 +526,7 @@ export function Admin() {
             me={me}
             dataDir={corpus.data_dir}
             people={people}
+            peopleError={peopleError}
             onTransfer={(username) => {
               setTransferTo(username);
               setDraft({ ...draft, admin_username: username });

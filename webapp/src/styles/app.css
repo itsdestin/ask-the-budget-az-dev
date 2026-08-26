@@ -2884,7 +2884,12 @@ fieldset.adm-field{border:0;padding:0;}
    target, no separate caret to find. */
 .adm-card-toggle{background:none;border:0;font:inherit;text-align:left;cursor:pointer;}
 .adm-card-toggle:hover .adm-card-title h3{color:var(--az-gold-d);}
-.adm-card-more{flex:0 0 auto;font-size:12.5px;font-weight:800;color:var(--az-gold-d);}
+/* The Show/Hide word on a collapsible card header: a small outlined pill,
+   not bare link text (Destin, 2026-08-25; drawn as a pill on the approved
+   People mockup). A span, not a button — the whole header row is already
+   the button, and a nested button is invalid HTML. */
+.adm-card-more{flex:0 0 auto;font-size:12px;font-weight:800;color:var(--navy);background:var(--card);border:1px solid var(--line);border-radius:var(--r-pill);padding:4px 12px;line-height:1.3;}
+.adm-card-toggle:hover .adm-card-more{border-color:var(--az-gold);}
 .adm-card.is-open{background:var(--canvas);}
 
 /* The pill switch. A real checkbox sits on top of it at zero opacity so the

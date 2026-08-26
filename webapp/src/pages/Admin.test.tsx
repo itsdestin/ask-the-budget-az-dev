@@ -1267,6 +1267,30 @@ describe("handing over admin", () => {
     open(/Who can open this page/);
     expect(screen.getByTestId("admin-transfer").querySelector(".adm-link")).toBeNull();
   });
+
+  it("does not claim nobody has opened the app while the list is still loading", async () => {
+    // The people fetch is fire-and-forget, so this is the FIRST render on
+    // every load. A never-resolving promise keeps it there.
+    mockAll();
+    vi.spyOn(api, "adminUsers").mockReturnValue(new Promise(() => {}));
+    await renderAdmin();
+    open(/Who can open this page/);
+    const picker = screen.getByRole("combobox", { name: /Hand admin to someone else/ });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveTextContent(/Checking who has opened the app/);
+    expect(screen.queryByText(/Nobody else has opened the app yet/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/their Windows username/)).toBeNull();
+  });
+
+  it("falls back to the typed box when the people fetch itself fails", async () => {
+    mockAll();
+    vi.spyOn(api, "adminUsers").mockRejectedValue(new Error("people: the share is gone"));
+    await renderAdmin();
+    open(/Who can open this page/);
+    expect(screen.getByTestId("admin-transfer")).toHaveTextContent(/couldn't be read from the shared folder/);
+    expect(screen.getByPlaceholderText(/their Windows username/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nobody else has opened the app yet/)).toBeNull();
+  });
 });
 
 // --- the AI Mode toggle chain -----------------------------------------------

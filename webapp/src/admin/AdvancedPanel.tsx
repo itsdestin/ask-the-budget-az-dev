@@ -21,12 +21,14 @@ export function AdvancedPanel({
   dataDir,
   onTransfer,
   people,
+  peopleError,
 }: {
   settings: api.AdminSettings;
   me: api.Me;
   dataDir: string;
   onTransfer: (username: string) => void;
   people: api.AdminUsers | null;
+  peopleError: string | null;
 }) {
   const [next, setNext] = useState("");
   const [armed, setArmed] = useState(false);
@@ -68,7 +70,7 @@ export function AdvancedPanel({
           OpenRouter account, not by this.
         </p>
 
-        {people?.unreachable ? (
+        {peopleError !== null || people?.unreachable ? (
           <>
             <p className="adm-warn">
               The list of people couldn't be read from the shared folder, so
@@ -85,6 +87,19 @@ export function AdvancedPanel({
               />
             </label>
           </>
+        ) : people === null ? (
+          // Still loading. `Admin.tsx` fetches the people list
+          // fire-and-forget (not inside the awaited Promise.all), so this
+          // is the FIRST render on every page load, not an edge case — and
+          // the old code had no branch for it, so it fell into "no
+          // candidates" and claimed "Nobody else has opened the app yet"
+          // before it had asked (review finding, 2026-08-25).
+          <label className="adm-field">
+            <span className="adm-label">Hand admin to someone else</span>
+            <select disabled aria-label="Hand admin to someone else">
+              <option>Checking who has opened the app…</option>
+            </select>
+          </label>
         ) : (
           <label className="adm-field">
             <span className="adm-label">Hand admin to someone else</span>
