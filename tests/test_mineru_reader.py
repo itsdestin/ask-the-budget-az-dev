@@ -83,14 +83,6 @@ def test_mineru_reader_outline_built_from_text_levels():
     assert root.children[0].text == "Capital Outlay"
 
 
-def test_mineru_reader_outline_path_finds_table_content():
-    """The Parks line item lives in the Capital Outlay section's table — an
-    outline_path query should find it."""
-    doc = MinerUReader().read(FIXTURE_APPROPS_P513)
-    path = doc.outline_path("Parks Statewide")
-    assert path == ["Department of Administration", "Capital Outlay"]
-
-
 # --- Multi-page table reassembly --------------------------------------------
 
 

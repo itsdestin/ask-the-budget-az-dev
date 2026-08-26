@@ -89,34 +89,6 @@ def test_odl_reader_outline_tree_built_from_structure_tags():
     )
 
 
-def test_odl_reader_outline_path_finds_query_in_section_text():
-    """outline_path returns the breadcrumb to the deepest section whose body
-    text matches the query — used by entity stamper + chunk builders to ask
-    "which section does this content live under?"."""
-    doc = ODLReader().read(FIXTURE_AFR_P163)
-    # "Note 6" appears only in the paragraph body, not in any heading.
-    # The deepest enclosing heading is the H2.
-    path = doc.outline_path("Note 6")
-    assert path == [
-        "Arizona Annual Financial Report FY 2025",
-        "Notes to the Financial Statements",
-        "Statement of Revenues, Expenditures and Changes in Fund Balance",
-    ]
-    assert path[-1] == "Statement of Revenues, Expenditures and Changes in Fund Balance"
-
-
-def test_odl_reader_outline_path_matches_heading_text():
-    doc = ODLReader().read(FIXTURE_AFR_P163)
-    # Querying a substring of a heading itself — match returns path to that heading
-    path = doc.outline_path("Notes to the Financial Statements")
-    assert path[-1] == "Notes to the Financial Statements"
-
-
-def test_odl_reader_outline_path_no_match_returns_empty_list():
-    doc = ODLReader().read(FIXTURE_AFR_P163)
-    assert doc.outline_path("nonsense xyzzy") == []
-
-
 def test_odl_reader_paragraph_carries_page_and_bbox():
     doc = ODLReader().read(FIXTURE_AFR_P163)
     paragraph = next(b for b in doc.pages[0].blocks if isinstance(b, Paragraph))

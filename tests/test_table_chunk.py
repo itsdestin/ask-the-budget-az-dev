@@ -145,3 +145,71 @@ def _capture_logs(logger_name: str, level: int):
     finally:
         logger.removeHandler(h)
         logger.setLevel(prior_level)
+
+
+def _toc_trap_doc():
+    """A contents page listing an agency, and that agency's own table nine
+    pages later. Both tables carry the identical first-cell string — the
+    shipped defect (spec §1.1) labels the agency table 'Table of Contents'."""
+    from pathlib import Path
+
+    from chunking.readers.types import (
+        Cell, ExtractedDocument, Heading, OutlineNode, Page, Row, Table,
+    )
+
+    def t(text, page):
+        return Table(
+            page=page, pages=[page],
+            rows=[Row(cells=[Cell(text=text, row=0, col=0)])],
+            html=f"<table><tr><td>{text}</td></tr></table>",
+        )
+
+    contents = t("Acupuncture Examiners, Board of", 1)
+    agency = t("Acupuncture Examiners, Board of", 10)
+    orphan = t("FY 2026 Executive Budget", 1)
+    doc = ExtractedDocument(
+        source_path=Path("fake"), extractor="opendataloader",
+        pages=[
+            Page(page_number=1, blocks=[orphan, Heading(text="Table of Contents", level=1, page=1), contents]),
+            Page(page_number=9, blocks=[Heading(text="Acupuncture Examiners, Board of", level=1, page=9)]),
+            Page(page_number=10, blocks=[agency]),
+        ],
+        outline=[
+            OutlineNode(text="Table of Contents", level=1, page=1, body_blocks=[contents]),
+            OutlineNode(text="Acupuncture Examiners, Board of", level=1, page=9, body_blocks=[agency]),
+        ],
+    )
+    return doc, agency, orphan
+
+
+def test_a_table_is_labelled_with_the_heading_it_sits_under_not_a_text_match():
+    doc, agency, _ = _toc_trap_doc()
+    chunk = build_table_chunk(agency, doc, _approps_meta(), chunk_index=0)
+    assert chunk.section_path == ["Acupuncture Examiners, Board of"]
+
+
+def test_the_contents_page_no_longer_captures_every_table_in_the_book():
+    """Regression pin for the measured defect: 1,079 of 1,246 tables in
+    governor-governors-budget-fy2026 were filed under 'Table of Contents'."""
+    doc, agency, _ = _toc_trap_doc()
+    chunk = build_table_chunk(agency, doc, _approps_meta(), chunk_index=0)
+    assert "Table of Contents" not in chunk.section_path
+    assert not chunk.text.startswith("Table of Contents")
+
+
+def test_a_table_under_no_heading_gets_an_empty_path_and_no_heading_line():
+    """Spec D2. `_build_text` opens with `if section_path:`, so an empty
+    path must produce a chunk whose FIRST line is already table data — not
+    a blank line. The repair in Task 5 depends on this exact shape."""
+    doc, _, orphan = _toc_trap_doc()
+    chunk = build_table_chunk(orphan, doc, _approps_meta(), chunk_index=0)
+    assert chunk.section_path == []
+    assert chunk.text.splitlines()[0] == "FY 2026 Executive Budget"
+
+
+def test_an_explicit_section_path_still_wins():
+    doc, agency, _ = _toc_trap_doc()
+    chunk = build_table_chunk(
+        agency, doc, _approps_meta(), chunk_index=0, section_path=["Given"]
+    )
+    assert chunk.section_path == ["Given"]

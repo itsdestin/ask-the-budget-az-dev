@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 
 from chunking.builders._tokens import count_tokens
-from chunking.readers.types import ExtractedDocument, Heading, Table
+from chunking.readers.types import ExtractedDocument, Table
 
 # DocMeta moved to chunking.types (it's doc-level, not table-level); re-exported
 # here so the existing import sites keep working.
@@ -51,12 +51,21 @@ def build_table_chunk(
 ) -> Chunk:
     """Emit one Chunk for a logical Table.
 
-    `section_path`, when omitted, is resolved from `doc.outline` by finding
-    the deepest heading whose body content includes any cell text from the
-    table. (See `_resolve_section_path` for the search rule.)
+    `section_path`, when omitted, is the heading the table PHYSICALLY sits
+    under — `doc.owner_path(table)`, the same fact `narrative_chunk.visit`
+    reads for paragraphs, so two chunks on one page can no longer disagree
+    about their section.
+
+    It used to be resolved by searching the whole document for the table's
+    own cell text (`outline_path`). Measured 2026-08-26 on the live corpus:
+    that put tables a MEDIAN of 93 pages from the heading they were given,
+    and filed 1,079 of the 1,246 tables in the FY2026 Governor's Budget
+    under its table of contents, because the contents page names every
+    agency in the book and matched first. Do not reintroduce a text search
+    here. Spec: docs/superpowers/specs/2026-08-26-table-section-path-design.md
     """
     if section_path is None:
-        section_path = _resolve_section_path(table, doc)
+        section_path = doc.owner_path(table)
 
     text = _build_text(table, section_path)
     token_count = count_tokens(text)
@@ -114,42 +123,3 @@ def _build_text(table: Table, section_path: list[str]) -> str:
 
 def _clean(s: str) -> str:
     return " ".join(s.split())
-
-
-def _resolve_section_path(table: Table, doc: ExtractedDocument) -> list[str]:
-    """Best-effort section path for a table.
-
-    Strategy: walk the document's outline searching for any of the table's
-    cell text. Use `outline_path(query)` for the first non-trivial cell text
-    that yields a non-empty match. If nothing matches, fall back to the
-    nearest preceding heading on the table's first page.
-    """
-    candidate_texts: list[str] = []
-    for row in table.rows[:3]:  # only need to probe a few cells
-        for cell in row.cells:
-            t = _clean(cell.text)
-            if len(t) >= 4:  # avoid 1-2 char tokens that match too many headings
-                candidate_texts.append(t)
-    for q in candidate_texts:
-        path = doc.outline_path(q)
-        if path:
-            return path
-
-    # Fallback: nearest-preceding-heading on the table's first page
-    target_page = table.pages[0] if table.pages else table.page
-    if target_page is not None:
-        latest_heading: list[str] = []
-        stack: list[str] = []
-        for page in doc.pages:
-            for block in page.blocks:
-                if isinstance(block, Heading):
-                    while stack and len(stack) >= block.level:
-                        stack.pop()
-                    stack.append(block.text)
-                    latest_heading = list(stack)
-                if page.page_number == target_page and block is table:
-                    return latest_heading
-        if latest_heading:
-            return latest_heading
-
-    return []
