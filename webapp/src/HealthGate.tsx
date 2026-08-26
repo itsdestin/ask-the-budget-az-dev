@@ -38,6 +38,7 @@ export function HealthGate({ children }: { children: React.ReactNode }) {
           ],
           data_dir: null,
           can_repair: false,
+          can_pick: false,
         });
       });
   }, []);

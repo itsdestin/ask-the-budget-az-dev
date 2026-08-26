@@ -1290,14 +1290,13 @@ export function Search() {
                   {content.kind === "ready" && content.provider === "stub" && (
                     // The dev-fixture provider serves the same handful of
                     // passages for every question — indistinguishable from a
-                    // real answer unless labelled. Fiscal Notes already
-                    // carries this note (see FiscalNotes.tsx); this is the
-                    // same sentence, same class, on the sibling page.
+                    // real answer unless labelled. Wording per spec §2.5
+                    // (2026-08-25) — the minimum-words rewrite; Fiscal Notes
+                    // (FiscalNotes.tsx) still carries the earlier, longer
+                    // note, which that page's task did not touch.
                     <p className="fnnote fn-fixture" role="note">
-                      <strong>These are sample results, not a real search.</strong> This
-                      computer can't open the shared budget folder, or that folder holds
-                      no documents yet, so the same few example passages come back for
-                      every question. Ask whoever set up the shared drive.
+                      Sample results only — JLBC Search can't reach the budget folder
+                      right now.
                     </p>
                   )}
 

@@ -1079,14 +1079,24 @@ export interface HealthReport {
   ok: boolean;
   rungs: HealthRung[];
   data_dir: string | null;
-  /** True exactly when the SHARE rung is the first failure — the only case
-   *  where "point me at a different folder" can possibly help. */
+  /** True when relocating the folder can fix the first failing rung — the
+   *  pointer, the share, or the corpus rung's own "no data in it" case
+   *  (spec §2.5, 2026-08-25). */
   can_repair: boolean;
+  /** True when this computer can open its own folder-picker dialog
+   *  (Windows only). The Choose folder… button renders only then. */
+  can_pick: boolean;
 }
 
 export async function healthDetail(): Promise<HealthReport> {
   const r = await fetch("/api/health/detail");
   if (!r.ok) await fail(r, "health check");
+  return r.json();
+}
+
+export async function pickFolder(): Promise<{ supported: boolean; path: string | null }> {
+  const r = await fetch("/api/config/pick-folder", { method: "POST" });
+  if (!r.ok) await fail(r, "open the folder window");
   return r.json();
 }
 

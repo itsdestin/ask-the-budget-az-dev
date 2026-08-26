@@ -962,7 +962,7 @@ test("labels stub results as samples, like Fiscal Notes does", async () => {
     dropped_filters: [],
   });
   mount(DOCS, "/search?q=ahcccs&in=contents");
-  expect(await screen.findByRole("note")).toHaveTextContent(/sample results, not a real search/);
+  expect(await screen.findByRole("note")).toHaveTextContent(/Sample results only/);
 });
 
 test("no sample-results note on a real provider", async () => {
