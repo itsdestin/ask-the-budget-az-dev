@@ -672,3 +672,20 @@ def test_an_omitted_switch_does_not_turn_a_mode_off(admin_client, settings_with_
     reset_settings_cache()
     assert load_settings().tiers["standard"].is_enabled is True
     assert load_settings().tiers["standard"].model == "vendor/other"
+
+
+# ---------------------------------------------------------------------------
+# hidden_users (U8) — same round-trip and validation shape as exempt_users
+# ---------------------------------------------------------------------------
+
+
+def test_hidden_users_round_trip_through_the_settings_routes(admin_client, settings_with_key):
+    r = admin_client.put("/api/admin/settings", json=base_body(hidden_users=["pchen"]))
+    assert r.status_code == 200, r.text
+    assert r.json()["hidden_users"] == ["pchen"]
+    assert admin_client.get("/api/admin/settings").json()["hidden_users"] == ["pchen"]
+
+
+def test_a_blank_hidden_user_is_refused_like_the_other_lists(admin_client, settings_with_key):
+    r = admin_client.put("/api/admin/settings", json=base_body(hidden_users=[" "]))
+    assert r.status_code == 400

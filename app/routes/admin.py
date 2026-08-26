@@ -80,6 +80,7 @@ from store.backup import (
 )
 from store.config import data_dir, documents_path
 from users import registry
+from users.whoami import fold, same_person
 
 router = APIRouter()
 
@@ -348,6 +349,7 @@ def _redacted(settings: Settings) -> dict[str, Any]:
         "default_monthly_limit_usd": settings.default_monthly_limit_usd,
         "user_limits": dict(settings.user_limits),
         "exempt_users": list(settings.exempt_users),
+        "hidden_users": list(settings.hidden_users),
     }
 
 
@@ -380,6 +382,7 @@ class SettingsBody(BaseModel):
     default_monthly_limit_usd: float | None = None
     user_limits: dict[str, float] | None = None
     exempt_users: list[str] | None = None
+    hidden_users: list[str] | None = None
     api_key: str | None = None
     confirm_admin_transfer: bool = False
 
@@ -447,6 +450,9 @@ def _validate(new: Settings, current: Settings, body: SettingsBody) -> None:
         if limit < 0:
             raise _bad_request(MSG_NEGATIVE_LIMIT)
     for username in new.exempt_users:
+        if not username.strip():
+            raise _bad_request(MSG_BLANK_USERNAME)
+    for username in new.hidden_users:
         if not username.strip():
             raise _bad_request(MSG_BLANK_USERNAME)
 
@@ -541,6 +547,10 @@ def _merge(current: Settings, body: SettingsBody) -> Settings:
         exempt_users=(
             tuple(str(u) for u in body.exempt_users)
             if body.exempt_users is not None else current.exempt_users
+        ),
+        hidden_users=(
+            tuple(str(u) for u in body.hidden_users)
+            if body.hidden_users is not None else current.hidden_users
         ),
     )
 
@@ -684,6 +694,78 @@ def get_usage(
         "limits_active": limits_active,
         "limits_inactive_reason": None if limits_active else org_limit.reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/users — the People panel (spec U8, U12, U13, U14)
+# ---------------------------------------------------------------------------
+
+
+def _limit_view(settings: Settings, username: str) -> dict[str, Any]:
+    """How this person's limit is stored, joined under U0.
+
+    `collision` is the one thing the fold must SAY rather than resolve: a
+    legacy hand-typed file can hold `dmoss` and `DMOSS`, `limit_for` picks
+    the exact match, and the row shows both keys so the admin removes one.
+    """
+    if settings.is_exempt(username):
+        return {"kind": "exempt", "amount": None, "collision": []}
+    matching = [k for k in settings.user_limits if same_person(k, username)]
+    if not matching:
+        return {"kind": "default", "amount": None, "collision": []}
+    return {
+        "kind": "custom",
+        "amount": settings.limit_for(username),
+        "collision": matching if len(matching) > 1 else [],
+    }
+
+
+@router.get("/api/admin/users")
+def get_users(
+    month: str | None = None, settings: Settings = Depends(require_admin)
+) -> dict:
+    """Everyone who has opened the app, with this month's spend and their
+    limit — ONE payload, joined server-side, so the panel never joins two
+    endpoints itself and the three sources cannot disagree on screen.
+
+    A stored limit/exempt/hidden key that matches no roster person is
+    LEFT ALONE and NOT REPORTED (spec U14, Destin's call at the mockup):
+    it applies to nobody, so it costs nothing, and the row appears with
+    that limit already on it if the person ever opens the app.
+    """
+    shard = month or _current_month()
+    if not _MONTH_SHARD.match(shard):
+        raise _bad_request(MSG_BAD_MONTH)
+    try:
+        people, unreadable = registry.list_people()
+    except registry.RosterUnavailable:
+        # "Nobody has opened the app" and "we could not look" are different
+        # facts (spec U12); only the second is known here.
+        return {"month": shard, "unreachable": True, "unreadable": 0, "people": []}
+
+    spend: dict[str, float] = {}
+    for g in breakdown(shard, by="user"):
+        spend[fold(g.key)] = spend.get(fold(g.key), 0.0) + g.cost_usd
+
+    rows = [
+        {
+            "key": p.key,
+            "username": p.username,
+            "display_name": p.display_name,
+            "name_source": p.name_source,
+            "first_seen": p.first_seen,
+            "last_seen": p.last_seen,
+            "hidden": settings.is_hidden(p.username),
+            "spent_usd": round(spend.get(fold(p.username), 0.0), 2),
+            "limit": _limit_view(settings, p.username),
+        }
+        for p in people
+    ]
+    # Ties broken on the raw username, never case-folded — the U0 fold
+    # rule is confined to users/whoami.py and harness/settings.py by a
+    # source guard (tests/test_users_whoami.py).
+    rows.sort(key=lambda r: (-r["spent_usd"], r["username"]))
+    return {"month": shard, "unreachable": False, "unreadable": unreadable, "people": rows}
 
 
 @router.get("/api/me/usage")
