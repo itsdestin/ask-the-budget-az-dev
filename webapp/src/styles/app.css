@@ -2951,6 +2951,27 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-inline label{display:block;}
 .adm-price{color:var(--ink-3);}
 
+/* --- People (spec U13, mockup 2026-08-25) ---------------------------------
+   Every action on this page is a pill. `.adm-btn-sm` is the row-sized one;
+   `.adm-link` — bare blue underlined text as a control — is gone from the
+   sheet entirely (Destin, 2026-08-25: "shouldn't be used anywhere"). */
+.adm-btn-sm{padding:4px 12px;font-size:12px;}
+.adm-people-sortable{cursor:pointer;user-select:none;}
+.adm-people-sort{border:0;background:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;}
+.adm-people-sortable[aria-sort]{color:var(--navy);}
+.adm-people-sortable:hover .adm-people-sort{color:var(--az-gold-d);}
+.adm-people-arrow{margin-left:4px;font-size:10px;}
+.adm-people tbody th{white-space:nowrap;}
+.adm-people-who{display:block;font-size:11.5px;font-weight:400;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+.adm-people-noname{color:var(--ink-3);font-weight:400;font-style:italic;}
+.adm-people-limit{display:inline-flex;gap:6px;align-items:center;white-space:nowrap;}
+.adm-people-limit select{padding:4px 8px;font-size:12.5px;}
+.adm-people-limit input[type=number]{width:70px;padding:4px 8px;font-size:12.5px;}
+.adm-people-warn{font-size:12.5px;color:var(--warn);margin:4px 0 0;line-height:1.5;max-width:40ch;white-space:normal;}
+.adm-people-act{text-align:right;white-space:nowrap;}
+.adm-people tr.is-hidden td,.adm-people tr.is-hidden th{color:var(--ink-3);font-weight:400;}
+.adm-people-hidden{display:flex;align-items:center;gap:12px;margin:14px 0 0;font-size:13px;color:var(--ink-3);}
+
 /* ===== page-report (spec E3, Task 11) =====
    The analyst's own door into issue reports: a short form, then their own
    past reports below it. Reuses .adm-panel/.adm-field/.adm-btn so the page
