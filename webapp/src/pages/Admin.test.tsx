@@ -160,6 +160,7 @@ function mockAll(over: {
   aliases?: api.AdminAliases;
   guidance?: api.AdminGuidance;
   issues?: api.IssuesResponse;
+  users?: api.AdminUsers;
 } = {}) {
   vi.spyOn(api, "me").mockResolvedValue({
     user: "Destin", is_admin: true, admin_username: "Destin",
@@ -190,6 +191,9 @@ function mockAll(over: {
   );
   vi.spyOn(api, "issues").mockResolvedValue(
     over.issues ?? { reports: [] },
+  );
+  vi.spyOn(api, "adminUsers").mockResolvedValue(
+    over.users ?? { month: "2026-08", unreachable: false, unreadable: 0, people: [] },
   );
   // NOTE: `api.bookFormats` is deliberately NOT mocked here. The whole-report
   // links panel MOVED to the Upload page on 2026-08-16, so /admin must not
@@ -1055,8 +1059,10 @@ describe("the page's shape", () => {
   it("summarises spending limits without being opened", async () => {
     mockAll();
     await renderAdmin();
+    // The per-person count moved off this hint with the rows themselves
+    // (Task 8) — the office default is the only thing left to summarise.
     expect(screen.getByTestId("admin-limits")).toHaveTextContent(
-      /\$25 a month each, 1 with their own/,
+      /\$25 a month each/,
     );
   });
 
@@ -1449,5 +1455,66 @@ describe("the save bar", () => {
     expect(screen.getByTestId("admin-savebar-list")).toHaveTextContent(
       "AI Mode switched off",
     );
+  });
+});
+
+// --- People ------------------------------------------------------------
+
+describe("People", () => {
+  it("is mounted, directly above Spending", async () => {
+    // A panel that nothing asserts is mounted has shipped invisible TWICE on
+    // this project (ReportLinksPanel, the citation annotation). Deleting the
+    // <PeoplePanel/> line must turn this red — verified by mutation.
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "dmoss", username: "dmoss", display_name: "Danielle Moss", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 1,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    await renderAdmin();
+    const people = screen.getByTestId("admin-people");
+    const costs = screen.getByTestId("admin-costs");
+    expect(people.compareDocumentPosition(costs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(people).toHaveTextContent("Danielle Moss");
+  });
+
+  it("a limit set on a person's row lands in the save bar and the PUT", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "gpaulsen", username: "gpaulsen", display_name: "Geoff Paulsen", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 0,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    const save = vi.spyOn(api, "saveAdminSettings").mockImplementation(async (b) => ({ ...settings(), ...b } as api.AdminSettings));
+    await renderAdmin();
+    fireEvent.change(screen.getByRole("combobox", { name: /limit for Geoff Paulsen/i }), { target: { value: "exempt" } });
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/who has no limit/);
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await screen.findByTestId("admin-saved");
+    expect(save.mock.calls[0][0].exempt_users).toEqual([...settings().exempt_users, "gpaulsen"]);
+    expect(save.mock.calls[0][0].user_limits).not.toHaveProperty("gpaulsen");
+  });
+
+  it("hiding someone is a settings save, not a separate request", async () => {
+    mockAll({ users: { month: "2026-08", unreachable: false, unreadable: 0, people: [
+      { key: "gpaulsen", username: "gpaulsen", display_name: "Geoff Paulsen", name_source: "windows",
+        first_seen: "", last_seen: "2026-08-25T09:00:00-07:00", hidden: false, spent_usd: 0,
+        limit: { kind: "default", amount: null, collision: [] } },
+    ] } });
+    const save = vi.spyOn(api, "saveAdminSettings").mockImplementation(async (b) => ({ ...settings(), ...b } as api.AdminSettings));
+    await renderAdmin();
+    fireEvent.click(screen.getByRole("button", { name: /Hide Geoff Paulsen/ }));
+    expect(screen.getByTestId("admin-savebar")).toHaveTextContent(/who is hidden/);
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    await screen.findByTestId("admin-saved");
+    expect(save.mock.calls[0][0].hidden_users).toEqual(["gpaulsen"]);
+  });
+
+  it("the Spending limits card no longer holds per-person rows", async () => {
+    mockAll();
+    await renderAdmin();
+    open(/Spending limits/);
+    expect(screen.queryByTestId("admin-user-limit")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add a person/ })).toBeNull();
+    expect(screen.queryByLabelText(/no limit, separated by commas/)).toBeNull();
+    expect(screen.getByTestId("admin-limits")).toHaveTextContent(/under People/);
   });
 });

@@ -11,6 +11,7 @@ import { IssuesPanel } from "../admin/IssuesPanel";
 import { NeedsAttention } from "../admin/NeedsAttention";
 import { PoorlyRead } from "../admin/PoorlyRead";
 import { NoticesPanel } from "../admin/NoticesPanel";
+import { PeoplePanel } from "../admin/PeoplePanel";
 import { ProviderPanel } from "../admin/ProviderPanel";
 import { SaveBar } from "../admin/SaveBar";
 import { describeChanges } from "../admin/changes";
@@ -66,6 +67,8 @@ export function Admin() {
   const [models, setModels] = useState<api.ModelCatalog | null>(null);
   const [tierCopy, setTierCopy] = useState<Record<string, api.AiTierInfo> | null>(null);
   const [usage, setUsage] = useState<api.AdminUsage | null>(null);
+  const [people, setPeople] = useState<api.AdminUsers | null>(null);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
   const [corpus, setCorpus] = useState<api.AdminCorpus | null>(null);
   const [snapshots, setSnapshots] = useState<api.Snapshot[]>([]);
   const [notices, setNotices] = useState<api.Notice[]>([]);
@@ -145,8 +148,10 @@ export function Admin() {
         // the retry/dismiss actions already use below, rather than a
         // second message a reader would have to learn to recognise.
         if (a.error) setAttentionError(a.error);
-        // These two are allowed to fail without taking the page down.
+        // These are allowed to fail without taking the page down.
         api.aiStatus().then((st) => !cancelled && setTierCopy(st.tiers)).catch(() => {});
+        api.adminUsers(month).then((p) => !cancelled && setPeople(p))
+          .catch((err) => !cancelled && setPeopleError(err instanceof Error ? err.message : String(err)));
         loadModels();
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
@@ -168,6 +173,7 @@ export function Admin() {
       .adminUsage(month)
       .then((u) => !cancelled && setUsage(u))
       .catch(() => {});
+    api.adminUsers(month).then((p) => !cancelled && setPeople(p)).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -196,6 +202,7 @@ export function Admin() {
         default_monthly_limit_usd: draft.default_monthly_limit_usd,
         user_limits: draft.user_limits,
         exempt_users: draft.exempt_users,
+        hidden_users: draft.hidden_users,
         // The sentinel when the field was never touched. This is the whole
         // point of the field: an admin editing a spend limit must not be able
         // to blank the key by saving the form.
@@ -230,6 +237,28 @@ export function Admin() {
     setTransferTo(null);
     setSaveError(null);
     setSaved(false);
+  }
+
+  /** The People panel's dropdown writes to ONE of two settings fields and
+   *  clears the other (spec U8): a person can never be in both, which is
+   *  possible by hand today and resolved silently by `limit_for`. */
+  function setPersonLimit(username: string, kind: api.PersonLimit["kind"], amount: number | null) {
+    if (!draft) return;
+    const user_limits = { ...draft.user_limits };
+    // Every spelling of this person, not just the exact key — a legacy file
+    // can hold DMOSS and dmoss, and choosing "office default" must clear both.
+    // JS has no casefold, so `toLowerCase()` is the nearest match to the
+    // server's `strip().casefold()` — the server is the authority and this
+    // fold only decides what the PeoplePanel row shows before a save.
+    for (const k of Object.keys(user_limits)) {
+      if (k.trim().toLowerCase() === username.trim().toLowerCase()) delete user_limits[k];
+    }
+    const exempt_users = draft.exempt_users.filter(
+      (u) => u.trim().toLowerCase() !== username.trim().toLowerCase(),
+    );
+    if (kind === "custom") user_limits[username] = amount ?? 0;
+    if (kind === "exempt") exempt_users.push(username);
+    setDraft({ ...draft, user_limits, exempt_users });
   }
 
   async function restore(name: string) {
@@ -446,8 +475,6 @@ export function Admin() {
             onDefaultChange={(default_monthly_limit_usd) =>
               setDraft({ ...draft, default_monthly_limit_usd })
             }
-            onUserLimitsChange={(user_limits) => setDraft({ ...draft, user_limits })}
-            onExemptChange={(exempt_users) => setDraft({ ...draft, exempt_users })}
           />
           <GuidancePanel />
         </Group>
@@ -463,6 +490,19 @@ export function Admin() {
           />
           <AliasesPanel />
           <AgenciesPanel />
+        </Group>
+
+        {/* People directly ABOVE Spending (mockup, 2026-08-25): its numbers
+            are this month's spend, and it is where per-person limits live now
+            that ProviderPanel only carries the office-wide default. */}
+        <Group>
+          <PeoplePanel
+            people={people}
+            loadError={peopleError}
+            draft={draft}
+            onLimitChange={setPersonLimit}
+            onHiddenChange={(hidden_users) => setDraft({ ...draft, hidden_users })}
+          />
         </Group>
 
         {/* No title: this group holds only CostsPanel, whose own heading is
