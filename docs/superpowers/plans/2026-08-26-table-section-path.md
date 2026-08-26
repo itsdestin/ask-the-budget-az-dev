@@ -4,9 +4,11 @@
 
 **Goal:** A table chunk's `section_path` becomes the heading it physically sits under, instead of the first heading anywhere in the document containing one of its cell strings — and the ~10,200 corpus rows already carrying the wrong answer are repaired in place.
 
-**Architecture:** The readers' `_build_outline` already files every table into the `body_blocks` of the innermost open heading; that list is the haystack the current text search scans. Task 1 exposes it as a lookup (`ExtractedDocument.owner_path`), Task 2 makes the table builder use it and deletes the search, Task 3 pins that the two chunk builders agree on a REAL two-page slice of the Governor's Budget and adds the one read-side lookup the repair needs (`ingest/extract_dirs.py`), Tasks 4–6 build a surgical corpus repair modelled on `identity/relabel.py` / `funds/unstamp.py` and end at a **go/no-go stop for Destin**, and Task 7 runs the write behind the spec's gates.
+**Architecture:** The readers' `_build_outline` already files every table into the `body_blocks` of the innermost open heading; that list is the haystack the current text search scans. Task 1 exposes it as a lookup (`ExtractedDocument.owner_path`), Task 2 makes the table builder use it and deletes the search, Task 3 pins that the two chunk builders agree on a REAL two-page slice of the Governor's Budget and adds the one read-side lookup the repair needs (`ingest/extract_dirs.py`), Tasks 4–6 build a surgical corpus repair modelled on `identity/relabel.py` / `funds/unstamp.py`, Task 7 **rehearses the whole apply on a copy of the database** and ends at a **go/no-go stop for Destin** with the real before/after on screen, and Task 8 runs the live write behind the spec's gates.
 
 > **Revised 2026-08-26 after review against the code and the live data.** Five of the first draft's claims were wrong (fixture copied the cover page instead of the contents page; folder precedence read the wrong AFR; eval field names that do not exist; three `outline_path` tests unlisted; a half-copy of the old rule). Also added: the fiscal-note table, the untouched-row half of G-T3, the two unrepairable documents, and the checkpoint. The half-copied old rule and its script are gone — the dry-run report answers the same question from the stored rows.
+
+> **Revised again 2026-08-26 after a second review.** The second draft's fake store never applied a write, so **6 of its 8 apply tests failed against the correct implementation** with "did not land" — fixed in the fake, not the guard. Two names were wrong (`tests/test_builder.py`, and Task 1's mutation fails 4 tests only once a can't-fail test is removed). Added: a per-row compare-and-swap at write time (the plan is computed before the lock), an explicit `input_type="document"`, "nothing to change" checked BEFORE the snapshot, the eval ground-truth intersection printed at dry-run time (the eval directly sees ~5 of ≈10,200 rows — measured), the Budget Documents card as a third screen that shows line 0, and **a full rehearsal of the apply on a copy of the database (Task 7) before the checkpoint**, so the live write is a repeat and Destin sees the real after. Removed: the invented ±15% tolerance, the hand-rolled heartbeat calls, the memo test that could not fail.
 
 **Tech Stack:** Python 3.12, `uv`, pytest, LanceDB (`store/chunk_store.py`), local ONNX embedder (`retrieval/local_embedder.py`), pydantic models in `chunking/types.py`.
 
@@ -19,11 +21,15 @@
 - **Nothing in `tests/` may open a real LanceDB directory or load ONNX weights** (CLAUDE.md). Reader fixtures are committed JSON under `tests/fixtures/`; the corpus at `data/insight-data/` is gitignored and absent from a fresh clone, so **no test may read it**.
 - **A repair pass writes the corpus.** It follows the shape `identity/relabel.py` and `funds/unstamp.py` established: dry run takes no lock and writes nothing; apply is lock → snapshot+verify → scan → compute → batched write → verify → reversal record → **`build_fts_index` + `optimize`**. The FTS rebuild is not optional (`funds/unstamp.py` learned it: re-added rows are invisible to BM25 until then).
 - **Run the eval after this change.** `retrieval/` is untouched but `chunking/` is not, and `section_path` is line 0 of embedded text. `uv run python -m eval.run_eval` (~60s, needs `JLBC_DATA_DIR`), as a CONTROL on unmodified code immediately before the write and again after. Commit both result files.
+- **The eval is nearly blind to this change — do not let it carry the weight.** Measured 2026-08-26: of the 51 ground-truth chunk ids in `eval/queries.yaml`, 14 are table chunks, and 9 of those 14 sit in the two documents this pass CANNOT repair (`governor-governors-budget-fy2027`, `agao-afr-fy2025`). G-T2 therefore directly watches about **5 rows of ≈10,200**. It is still run and a flipped status still stops the write — but the gates that actually see this change are G-T4 (read the documents) and G-T6 (repair equals a re-chunk), and Task 6 prints exactly which ground-truth ids are in the change set before anything is written.
+- **Three screens show line 0, not two.** The spec names AI Mode (`RetrieveView`) and fiscal notes (`FiscalNoteResult`). The **Budget Documents** passage card is built from `text[:280]` (`app/search_provider.py:304`), and only `RetrieveView` strips the leading heading line — so on the most-used page every repaired table's card shows a different first line, and the ≈3,400 JLBC summary tables lose theirs. Almost certainly an improvement; it is in the checkpoint's screenshot list because nobody has approved it from a picture.
+- **Saved AI-Mode chats keep the OLD breadcrumbs.** Tool cards render the retrieve JSON stored in the transcript, not the live row. Harmless; recorded in STATUS so nobody reads it as the repair not taking.
+- **Rehearse before you write.** LanceDB is **833 MB** on this machine. Task 7 copies it into a scratch data dir and runs the FULL apply there first — the only way the apply code (the 2,000-id `IN` filter, writing scan-shaped rows back, the index rebuild, the untouched-row re-read) ever meets a real LanceDB before the one run that cannot be taken back. It costs one extra embed (30–60 min) and gives the checkpoint a real after.
 - **Two tables, not one.** Fiscal notes are chunked by the same `chunk_doc` (tables first) into a SEPARATE LanceDB table, `fiscal_note_chunks` (`ingest/worker.py::CORPUS_TABLES`). Spec §3.5 counts ≈351 fiscal-note rows. Every dry run, apply and G-T3 check in this plan runs against **both** tables, the way `funds/unstamp.py` does.
-- **The apply holds the ingest lock for a long time.** Snapshotting the corpus takes minutes, and re-embedding ≈10,200 rows on the local CPU model is on the order of 30–60 minutes on this machine. Nobody in the office can upload while it runs. Say so before starting, and run it when nothing else is writing. (`IngestLock.acquire()` starts its own heartbeat thread — the explicit `lock.heartbeat()` calls in Task 5 are belt-and-braces between phases, not what keeps the lock alive.)
+- **The apply holds the ingest lock for a long time.** Snapshotting the corpus takes minutes, and re-embedding ≈10,200 rows on the local CPU model is on the order of 30–60 minutes on this machine. Nobody in the office can upload while it runs. Say so before starting, and run it when nothing else is writing. (`IngestLock.acquire()` starts its own heartbeat thread; nothing in this plan calls `heartbeat()` by hand.) **Planning is NOT under the lock** — reading every document's extractor JSON off disk takes tens of minutes and happens twice, once for the dry run and again inside the apply — which is why the write re-checks each row's text against what the plan saw (Task 5).
 - **Which extractor output to read comes from `documents.json`, never from a folder precedence.** `agao-afr-fy2024` holds BOTH `mineru/` and `mineru-ocr/` output; the corpus holds the `mineru` reading and the sidecar's `extraction.method` says so. Task 3's `resolve_extract_dir` reads the sidecar; a guess by folder name reads the wrong document.
 - **Scratch files go in the session's scratchpad directory, never `/tmp`.** `$SCRATCH` below means that directory.
-- **There is a STOP in this plan.** Task 6 ends with a go/no-go checkpoint for Destin. Task 7 (the write) does not start until he says go.
+- **There is a STOP in this plan.** Task 7 ends with a go/no-go checkpoint for Destin, AFTER the apply has been rehearsed end-to-end on a copy of the database and its result seen in a browser. Task 8 (the live write) does not start until he says go.
 - **Worktree:** `~/ask-the-budget-az-worktrees/table-section-path/`, branched off `origin/master`. `ln -s <main-repo>/.venv <worktree>/.venv`.
 - **`uvicorn` runs without `--reload`** — Python changes need a server restart if anyone starts one.
 
@@ -136,14 +142,6 @@ def test_owner_path_includes_ancestors_deepest_last():
     assert doc.owner_path(child) == ["Financial Statements", "Note 3"]
 
 
-def test_owner_path_answers_repeatedly_and_consistently():
-    """It memoizes; a second call must not return a different answer."""
-    doc, agency, orphan = _doc_with_a_toc_trap()
-    assert doc.owner_path(agency) == ["Acupuncture Examiners, Board of"]
-    assert doc.owner_path(orphan) == []
-    assert doc.owner_path(agency) == ["Acupuncture Examiners, Board of"]
-
-
 def test_owner_path_also_owns_paragraphs_not_just_tables():
     """The narrative builder reaches the same answer through `visit()`; this
     is the same fact from the other side, and Task 3 pins that they agree."""
@@ -227,7 +225,7 @@ In `chunking/readers/types.py`, replace the two-line comment above `body_blocks`
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `uv run pytest tests/test_extracted_document_owner_path.py -v`
-Expected: 6 passed.
+Expected: 5 passed.
 
 Then run the readers' own suites to prove nothing moved:
 
@@ -237,7 +235,7 @@ Expected: all pass, same counts as before this task.
 - [ ] **Step 6: Verify the memo cannot be fooled — mutate in place, do not copy**
 
 Replace `memo[id(b)] = here` with `memo[id(b)] = list(ancestors)` (dropping the node's own text), run
-`uv run pytest tests/test_extracted_document_owner_path.py -v`, and confirm **4 tests fail**. Revert the single line by hand (the file carries this task's own uncommitted edits, so `git checkout` would discard them) and re-run to confirm 6 passed.
+`uv run pytest tests/test_extracted_document_owner_path.py -v`, and confirm **4 tests fail** (the orphan test still passes — an empty path is empty either way). Revert the single line by hand (the file carries this task's own uncommitted edits, so `git checkout` would discard them) and re-run to confirm 5 passed.
 
 - [ ] **Step 7: Commit**
 
@@ -418,7 +416,7 @@ In `chunking/builders/narrative_chunk.py:27`, replace `identical to what Extract
 
 - [ ] **Step 7: Run the full chunking suite**
 
-Run: `uv run pytest tests/test_table_chunk.py tests/test_narrative_chunk.py tests/test_chunk_builder.py tests/test_mineru_reader.py tests/test_odl_reader.py -q`
+Run: `uv run pytest tests/test_table_chunk.py tests/test_narrative_chunk.py tests/test_builder.py tests/test_mineru_reader.py tests/test_odl_reader.py -q`
 
 Expected: all pass. **Any test that fails here is a test that was pinning the text-search behaviour** — read it, and if it asserted a section path that came from a distant heading, re-point it at the positional answer and say so in the commit. Do not weaken an assertion to make it pass.
 
@@ -930,7 +928,14 @@ class _FakeStore:
         return [{k: r[k] for k in columns if k in r} for r in self.rows]
 
     def upsert_chunks(self, name, rows):
-        self.written.append(list(rows))
+        rows = list(rows)
+        self.written.append(rows)
+        # APPLY the write, as the real store does. The verification step
+        # re-reads the store and must see the new values land; a fake that
+        # only records the call makes the correct implementation fail with
+        # "section_path did not land" (6 of 8 apply tests, second draft).
+        by_id = {r["chunk_id"]: r for r in rows}
+        self.rows = [dict(by_id.get(r["chunk_id"], r)) for r in self.rows]
 
     def build_fts_index(self, name):
         self.fts_built.append(name)
@@ -1330,7 +1335,6 @@ Append to `tests/test_repair_section_paths.py`:
 class _FakeLock:
     def __init__(self):
         self.entered = 0
-        self.beats = 0
 
     def __enter__(self):
         self.entered += 1
@@ -1338,9 +1342,6 @@ class _FakeLock:
 
     def __exit__(self, *exc):
         return False
-
-    def heartbeat(self):
-        self.beats += 1
 
 
 def _full_rows() -> list[dict]:
@@ -1440,20 +1441,55 @@ def test_apply_refuses_when_the_snapshot_fails(root: Path, tmp_path: Path):
     assert store.written == []
 
 
-def test_apply_with_nothing_to_do_writes_nothing_and_skips_the_index_rebuild(
+def test_apply_with_nothing_to_do_takes_no_snapshot_writes_nothing_and_skips_the_index_rebuild(
     root: Path, tmp_path: Path
 ):
+    """A snapshot zips the whole corpus under the lock -- minutes. It must
+    come AFTER the "is there anything to write?" check, not before."""
     rows = _full_rows()
     rows[1]["section_path"] = ["Acupuncture Examiners, Board of"]
     rows[1]["text"] = "Acupuncture Examiners, Board of\nAcupuncture Examiners, Board of"
     store = _FakeStore(rows)
+    snapshots: list[str] = []
+    lock = _FakeLock()
     result = repair_section_paths(
         store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
-        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        lock=lock, snapshot_and_verify=lambda: snapshots.append("snap.zip") or "snap.zip",
+        reversal_dir=tmp_path,
     )
     assert result.changed == 0
+    assert snapshots == []
+    assert lock.entered == 0
     assert store.written == []
     assert store.fts_built == []
+
+
+class _MovedStore(_FakeStore):
+    """A row was re-ingested between the plan and the write: the planning
+    scan (PLAN_COLUMNS) saw the old text, the full-column fetch at write
+    time sees new text under the same chunk_id."""
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        out = super().scan(name, columns, where=where, limit=limit)
+        if "vector" in columns:
+            for r in out:
+                if r["chunk_id"] == "doc-a-0001":
+                    r["text"] = "Table of Contents\nREINGESTED SINCE THE PLAN"
+        return out
+
+
+def test_apply_refuses_a_row_whose_text_changed_since_the_plan(root: Path, tmp_path: Path):
+    """The plan is computed BEFORE the lock (tens of minutes of reading
+    extractor JSON). A document re-ingested in that window carries the same
+    chunk_ids and different text; writing the planned text over it would
+    clobber a fresh ingest with a sentence derived from a stale one."""
+    store = _MovedStore(_full_rows())
+    with pytest.raises(RuntimeError, match="moved under the plan"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    assert store.written == []
 
 
 class _DriftingStore(_FakeStore):
@@ -1480,7 +1516,7 @@ def test_apply_samples_untouched_rows_and_refuses_when_one_drifted(root: Path, t
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -k apply -v`
-Expected: all 8 FAIL with `NotImplementedError: apply path lands in Task 5`.
+Expected: all 9 FAIL with `NotImplementedError: apply path lands in Task 5`.
 
 - [ ] **Step 3: Implement the apply path**
 
@@ -1529,6 +1565,12 @@ def _write_changed_rows(
     Batched because `upsert_chunks` deletes the batch's chunk_ids and then
     adds the replacements as two separate LanceDB commits: batching bounds a
     crash landing between them to one batch instead of the whole corpus.
+
+    Compare-and-swap per row: the plan was computed BEFORE the lock, so
+    each row's current `text` must still be the `old_text` the plan was
+    built on. A document re-ingested in between keeps its chunk_ids and
+    changes its text; without this check the planned line-0 edit would be
+    written over a fresh ingest.
     """
     by_id = {c.chunk_id: c for c in changes}
     ordered = sorted(by_id)
@@ -1542,6 +1584,12 @@ def _write_changed_rows(
             change = by_id.get(str(row.get("chunk_id")))
             if change is None:
                 continue
+            if str(row.get("text")) != change.old_text:
+                raise RuntimeError(
+                    f"{change.chunk_id}: its text is no longer what the plan was built "
+                    "on -- the corpus moved under the plan (a re-ingest between planning "
+                    "and writing). Nothing from this batch on is written; re-run the dry run"
+                )
             new_row = dict(row)
             new_row["section_path"] = list(change.new_path)
             new_row["text"] = change.new_text
@@ -1550,9 +1598,13 @@ def _write_changed_rows(
         if len(pending) != len(ids):
             raise RuntimeError(
                 f"batch {batch_num}: asked for {len(ids)} rows, the store returned "
-                f"{len(pending)} -- the corpus moved under the plan; re-run the dry run"
+                f"{len(pending)} -- rows vanished under the plan; re-run the dry run"
             )
-        vectors = embedder.embed_batch([r["text"] for r in pending])
+        # input_type="document" is the embedder's default, but it is stated
+        # here because it is not a formality (ingest/worker.py::_embed): the
+        # model is asymmetric, and a passage embedded with the QUERY
+        # instruction quietly degrades every future search against it.
+        vectors = embedder.embed_batch([r["text"] for r in pending], input_type="document")
         for row, vector in zip(pending, vectors):
             row["vector"] = vector
         store.upsert_chunks(table, pending)
@@ -1594,7 +1646,11 @@ def _verify_nothing_was_lost(
     if seen != len(expected):
         raise RuntimeError(f"verified {seen} rows, expected {len(expected)}")
 
-    # Bounded, deterministic sample of rows nothing was supposed to touch.
+    # The first UNCHANGED_SAMPLE_SIZE untouched ids in sort order -- in
+    # practice ~200 rows of ONE document, the shape identity/relabel.py uses.
+    # This is an in-process smoke check that the delete landed on the right
+    # ids, not a spread; the corpus-wide comparison of every untouched column
+    # is Task 7 Step 4 (on the copy) and Task 8 Step 4 (live).
     untouched = sorted(set(before_by_id) - set(expected))[:UNCHANGED_SAMPLE_SIZE]
     after = {str(r["chunk_id"]): r for r in store.scan(table, PLAN_COLUMNS, where=_in_list(untouched))} if untouched else {}
     for chunk_id in untouched:
@@ -1629,19 +1685,20 @@ Then replace the `raise NotImplementedError(...)` line with:
         from store.config import data_dir
         reversal_dir = data_dir()
 
-    # `IngestLock.acquire()` runs its own heartbeat thread; the explicit
-    # beats below are belt-and-braces between phases, not what keeps the
-    # lock alive through a 30-60 minute embed.
+    # BEFORE the lock and BEFORE the snapshot: a snapshot zips the whole
+    # corpus under the lock and takes minutes; spending that on a no-op is
+    # the kind of thing an operator learns to skip, and then skips it once
+    # when it mattered.
+    if not changes:
+        progress("nothing to change; no lock, no snapshot, no write, no index rebuild")
+        return result
+
+    # `IngestLock.acquire()` runs its own heartbeat thread through the whole
+    # 30-60 minute embed; nothing here beats it by hand.
     with lock:
-        lock.heartbeat()
         snapshot = snapshot_and_verify()
         progress(f"snapshot: {snapshot}")
-        lock.heartbeat()
-        if not changes:
-            progress("nothing to change; no write, no index rebuild")
-            return result
         _write_changed_rows(store, table, changes, embedder, batch_size, progress)
-        lock.heartbeat()
         _verify_nothing_was_lost(store, table, changes, before_by_id, progress)
         # Re-added rows are invisible to BM25 until the index is rebuilt --
         # the ingest contract funds/unstamp.py had to learn the hard way.
@@ -1667,7 +1724,7 @@ def _reversal_stamp() -> str:
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -v`
-Expected: 19 passed.
+Expected: 20 passed.
 
 `sql_str` lives at `store/chunk_store.py:76` (verified) — do not inline a
 quoting expression.
@@ -1683,7 +1740,13 @@ Add `new_row["agency_canonical_ids"] = []` inside `_write_changed_rows`; run
 Delete the untouched-sample loop from `_verify_nothing_was_lost`; run
 `uv run pytest tests/test_repair_section_paths.py -k drifted -v` → FAIL. Restore.
 
-Re-run the file: 19 passed.
+Delete the `old_text` compare in `_write_changed_rows`; run
+`uv run pytest tests/test_repair_section_paths.py -k changed_since -v` → FAIL. Restore.
+
+Move the `if not changes:` block back inside `with lock:` after the snapshot; run
+`uv run pytest tests/test_repair_section_paths.py -k nothing_to_do -v` → FAIL. Restore.
+
+Re-run the file: 20 passed.
 
 - [ ] **Step 6: Commit**
 
@@ -1691,9 +1754,10 @@ Re-run the file: 19 passed.
 git add chunking/repair_section_paths.py tests/test_repair_section_paths.py
 git commit -m "chunking: section_path repair — the apply path
 
-lock -> snapshot+verify -> batched write -> full re-read verification ->
-FTS rebuild -> optimize -> reversal record. Four columns written; agency
-and fund columns asserted byte-identical."
+lock -> snapshot+verify -> batched write (compare-and-swap on each row's
+text against what the plan saw) -> full re-read verification -> FTS
+rebuild -> optimize -> reversal record. Four columns written; agency and
+fund columns asserted byte-identical; a no-op apply takes no snapshot."
 ```
 
 ---
@@ -1819,7 +1883,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the whole test file plus the full suite**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -v`
-Expected: 20 passed.
+Expected: 21 passed.
 
 Run: `uv run pytest -q 2>&1 | tail -5`
 Expected: no new failures.
@@ -1859,7 +1923,7 @@ uv run python -m chunking.repair_section_paths --table fiscal_note_chunks \
 This reads every planned document's extractor JSON off disk (several GB in
 total); expect tens of minutes, not seconds. **Expected, from spec §3.5:**
 
-- budget: `rows changed` ≈ **10,200 − 351 ≈ 9,850**; fiscal notes ≈ **351**. The spec gives no tolerance. Treat ±15% as "the model held" and anything beyond as a stop — and say in the record which it was.
+- budget: `rows changed` ≈ **10,200 − 351 ≈ 9,850**; fiscal notes ≈ **351**. **These two totals are ESTIMATES, not gates** — the spec derived them by weighting a 234-document sample and says so ("sound to within ~8%"). Report each against its estimate with the percentage difference, and say in the record whether it sits inside that sampling error. The numbers that STOP the plan are the per-document ones in Step 5, which the spec measured exactly on the named documents; a corpus total that lands well outside ~8% with the per-document numbers all holding is a finding about the sample's weighting, to be recorded, not a reason to tune anything.
 - `documents skipped` ≈ **399** with `no cached extractor output` (measured 2026-08-26 — the migration-era entries), **plus one** `docx document` (`legislature-budget-bill-fy2026-sb1735-2025`), plus whatever fails the body gate.
 - **Two of the spec's eight bad-heading-run documents are in that 399 and cannot be repaired by this pass:** `governor-governors-budget-fy2027` and `agao-afr-fy2025` (verified: no `extractor-output/` folder for either). Name them in the record so nobody reads "repaired" as "all eight".
 
@@ -1881,9 +1945,40 @@ extractor output on the share no longer corresponds to what was ingested for
 those documents, and they simply cannot be repaired by this pass. Record the
 count and a few examples; do not loosen the gate to absorb them.
 
+- [ ] **Step 7b: Print which eval ground-truth rows this write touches**
+
+The eval can only see a status flip on a query whose ground-truth chunk is
+in the change set. Print that set NOW, before any write, so G-T2's verdict
+is read with its coverage known:
+
+```bash
+uv run python -c "
+import json, sys, yaml
+q = yaml.safe_load(open('eval/queries.yaml'))
+items = q if isinstance(q, list) else q.get('queries', [])
+gt = {}
+for e in items:
+    for c in (e.get('expected') or e.get('expected_chunks') or e.get('ground_truth') or []):
+        cid = c.get('chunk_id') if isinstance(c, dict) else c
+        if cid: gt.setdefault(cid, []).append(e.get('id'))
+changed = {r['chunk_id']: r for r in json.load(open(sys.argv[1]))['rows']}
+hit = sorted(set(gt) & set(changed))
+print(len(gt), 'ground-truth ids;', len(hit), 'are in the change set:')
+for cid in hit:
+    r = changed[cid]
+    print('  ', cid, 'queries', gt[cid], ':', r['before']['section_path'], '->', r['after']['section_path'])
+" $SCRATCH/section-path-plan-budget.json
+```
+
+Expected (measured 2026-08-26 against the stored rows): 51 ground-truth
+ids, 14 of them table chunks, 9 of those in the two unrepairable documents
+— so **about 5 ids in the change set**. Those are the only queries G-T2 can
+flip on the ground truth itself. Record the list; it is what "no status
+flipped" will actually mean in Task 8.
+
 - [ ] **Step 8: Write the dry-run record**
 
-Create `docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md` containing: the exact commands, the headline counts for BOTH tables, the skip-reason table (with the two unrepairable heading-run documents named), the per-document numbers from Step 5 against the spec's predictions, and **ten example changes copied from the report** — five from the JLBC per-agency to-blank case (`before` path → nothing) and five from the Governor relabel case (`'Table of Contents'` → agency). State plainly whether each prediction matched.
+Create `docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md` containing: the exact commands, the headline counts for BOTH tables against the spec's estimates (with the percentage difference and whether it is inside ~8%), the skip-reason table (with the two unrepairable heading-run documents named), the per-document numbers from Step 5 against the spec's predictions, the Step 7b ground-truth list, and **ten example changes copied from the report** — five from the JLBC per-agency to-blank case (`before` path → nothing) and five from the Governor relabel case (`'Table of Contents'` → agency). State plainly whether each per-document prediction matched.
 
 - [ ] **Step 9: Commit**
 
@@ -1897,54 +1992,121 @@ old->new. Dry-run counts for both tables recorded against the spec's
 predictions."
 ```
 
-- [ ] **Step 10: ⏸ CHECKPOINT — Destin's go/no-go. Do NOT start Task 7 until he says go.**
+- [ ] **Step 10: Task 6 ends here — the checkpoint is at the end of Task 7**
 
-This is the one place in the plan where a person's judgement is needed, and
-it sits before the only step that is expensive to undo. Show him, in plain
-words and few of them:
-
-1. the counts vs the spec's predictions (both tables), and whether they held;
-2. the ten example before/after breadcrumbs from Step 8 — this is what the
-   change LOOKS like: ~22% of table results will show **no breadcrumb**
-   under the document name where they showed a wrong one before (spec D2,
-   already his decision — but nobody has shown him one);
-3. the skip list: ~399 unrepairable migration-era documents, including two
-   of the eight bad-heading-run documents;
-4. what the apply costs: the ingest lock held for the snapshot plus the
-   re-embed (30–60 min on this machine), during which office uploads wait.
-
-If he wants to see it rendered rather than read: start the dev server, ask
-AI Mode a question that retrieves a JLBC agency summary table, screenshot
-the breadcrumb line — that is the before; the after needs the write. Offer
-it; do not block on it.
-
-**Stop here.** The reversal record and the CRC-verified snapshot make the
-write recoverable, but "recoverable" is not "free", and the decision to
-rewrite 12% of the corpus is his.
+The second draft put the go/no-go here, with a "before" screenshot and a
+description of the after. That asks Destin to approve a picture of one half
+and prose about the other. Task 7 rehearses the apply on a copy of the
+database first, so the checkpoint can show the real after.
 
 ---
 
-### Task 7: Gates, the apply run, and STATUS
+### Task 7: Rehearse the apply on a COPY of the database, then the checkpoint
 
-**Pre-condition: Destin said go at Task 6 Step 10.**
-
-**Files:**
-- Modify: `STATUS.md`
-- Modify: `docs/superpowers/specs/2026-08-26-table-section-path-design.md` (status line only)
-- Create: `eval/results/<UTC>-<sha>.{json,md}` × 2 (control + post-write)
+**Files:** nothing in the repo. Everything lands under `$SCRATCH/rehearsal-data/`.
 
 **Interfaces:**
-- Consumes: everything above.
+- Consumes: Task 6's CLI and plan JSON.
+- Produces: an applied copy of both tables, G-T3/G-T4/G-T6 results against it, before/after screenshots, and Destin's go/no-go.
 
-- [ ] **Step 1: G-T6 — the repair must equal a re-chunk**
+> **Why this task exists.** Every apply test in Task 5 runs against a fake
+> store. The 2,000-id `IN (...)` filter, writing scan-shaped rows back
+> through `upsert_chunks`, the FTS rebuild, `optimize`, and the untouched-row
+> re-read have never touched a real LanceDB. The two precedents
+> (`identity/relabel.py`, `funds/unstamp.py`) also went live on their first
+> real run; this is the largest write of the three. LanceDB is 833 MB here —
+> copying it costs nothing, so the live write becomes a REPEAT of something
+> already watched, and the checkpoint can show the real after instead of
+> describing it.
+
+- [ ] **Step 1: Build the scratch data dir**
+
+```bash
+R=$SCRATCH/rehearsal-data
+LIVE=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data
+mkdir -p $R
+cp -r $LIVE/lancedb $R/lancedb                       # 833 MB
+cp $LIVE/documents.json $R/documents.json
+cp $LIVE/settings.json $R/settings.json              # so AI Mode works on the copy (same machine, same key)
+ln -s $LIVE/extractor-output $R/extractor-output     # read-only input; never written by this pass
+ln -s $LIVE/pdfs $R/pdfs                             # the viewer streams from here
+export JLBC_DATA_DIR=$R
+cd ~/ask-the-budget-az-worktrees/table-section-path
+uv run python -c "from store.chunk_store import ChunkStore; from store.config import resolve_data_dir; s=ChunkStore(root=resolve_data_dir(), create=False); print({t: s.count(t) for t in ('budget_chunks','fiscal_note_chunks')})"
+```
+
+Expected: the same two counts the Task 6 dry run printed as `scanned`.
+**Everything below runs with `JLBC_DATA_DIR=$R` exported.** The apply's
+snapshot lands in `$R/backups/`, its lock in `$R/`, its reversal records in
+`$R/` — nothing reaches the live corpus.
+
+- [ ] **Step 2: G-T3 baseline on the copy — dump the columns that must not move, BOTH tables**
+
+```bash
+uv run python -c "
+import json, sys
+from store.chunk_store import ChunkStore
+from store.config import resolve_data_dir
+s = ChunkStore(root=resolve_data_dir())
+out = {}
+for t in ('budget_chunks', 'fiscal_note_chunks'):
+    rows = s.scan(t, ['chunk_id','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
+    out[t] = {r['chunk_id']: [list(r['agency_canonical_ids'] or []), list(r['fund_mentions'] or []), r['page'], list(r['bbox'] or []), r['doc_type'], r['fiscal_year']] for r in rows}
+    print(t, len(rows))
+json.dump(out, open(sys.argv[1], 'w'))
+" $SCRATCH/gt3-before-copy.json
+```
+
+- [ ] **Step 3: Apply on the copy — both tables, budget first**
+
+```bash
+uv run python -m chunking.repair_section_paths --apply --table budget_chunks 2>&1 | tee $SCRATCH/rehearsal-apply-budget.log
+uv run python -m chunking.repair_section_paths --apply --table fiscal_note_chunks 2>&1 | tee $SCRATCH/rehearsal-apply-fiscal.log
+```
+
+Confirm from each log: a snapshot path under `$R/backups/`; `rows changed`
+equals that table's Task 6 dry-run count **exactly** (G-T5); `verified N
+changed rows in full, 200 untouched rows sampled` with N equal to that
+count; `full-text index rebuilt`; a reversal record path under `$R/`.
+**Any exception here is the whole point of this task** — it was going to
+happen on the live corpus. Fix it, add the test that would have caught it,
+re-copy `lancedb/` from LIVE (the copy is now half-written), and re-run.
+
+- [ ] **Step 4: G-T3 on the copy — nothing but the four columns moved, corpus-wide, BOTH tables**
+
+```bash
+uv run python -c "
+import json, sys
+from pathlib import Path
+from store.chunk_store import ChunkStore
+from store.config import resolve_data_dir
+root = resolve_data_dir(); s = ChunkStore(root=root)
+before = json.load(open(sys.argv[1]))
+for t in ('budget_chunks', 'fiscal_note_chunks'):
+    rev = json.load(open(sorted(Path(root).glob(f'section-path-reversal-{t}-*.json'))[-1]))
+    rows = s.scan(t, ['chunk_id','section_path','text','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
+    by = {r['chunk_id']: r for r in rows}
+    ids = {r['chunk_id'] for r in rev['rows']}
+    missing = [i for i in ids if i not in by]
+    wrong = [r['chunk_id'] for r in rev['rows'] if by[r['chunk_id']]['text'] != r['after']['text'] or list(by[r['chunk_id']]['section_path'] or []) != r['after']['section_path']]
+    drift = [c for c, v in before[t].items() if c not in by or [list(by[c]['agency_canonical_ids'] or []), list(by[c]['fund_mentions'] or []), by[c]['page'], list(by[c]['bbox'] or []), by[c]['doc_type'], by[c]['fiscal_year']] != v]
+    print(t, 'chunks', len(rows), '(before:', len(before[t]), ') reversal rows', len(ids), 'missing', len(missing), 'not landed', len(wrong), 'agency/fund/page/bbox drift corpus-wide', len(drift))
+" $SCRATCH/gt3-before-copy.json
+```
+
+Expected, for both tables: chunk count unchanged (budget 83,016 at the time
+of writing — read it from the dry run's `scanned` figure), `missing 0`,
+`not landed 0`, **`drift 0`** — that last number is spec G-T3's
+"`agency_canonical_ids` and `fund_mentions` byte-identical corpus-wide".
+
+- [ ] **Step 5: G-T6 — the repair must equal a re-chunk**
 
 The gate the 2026-08-16 attempt did not have. For one document of each
 shape, run the NEW `chunk_doc` end-to-end over cached extractor output and
 compare against what the repair PLANS to write:
 
 ```bash
-JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data \
-uv run python -c "
+uv run python -c "   # JLBC_DATA_DIR is the copy, exported in Step 1
 import json, sys
 from pathlib import Path
 from chunking.builder import chunk_doc
@@ -1981,9 +2143,106 @@ sys.exit(1 if bad else 0)
 " $SCRATCH/section-path-plan-budget.json
 ```
 
-Expected: `mismatches: 0`. **A non-zero count blocks the apply** — the
+Expected: `mismatches: 0`. **A non-zero count blocks the live apply** — the
 repair and a future re-ingest would disagree, so the next time anyone
-re-uploads one of these documents it silently reverts.
+re-uploads one of these documents it silently reverts. (The plan JSON is
+the same file the live apply will re-derive, so this gate is run ONCE, here.)
+Pass `stamper=` a stub if the default `EntityStamper.from_default_paths()`
+is slow — its output is not compared.
+
+- [ ] **Step 6: G-T4 on the copy — read the documents**
+
+Run Task 8 Step 6's script (it reads `resolve_data_dir()`, which is the
+copy here). Expected: `governor-governors-budget-fy2026` TOC-labelled
+**0**; `agao-afr-fy2024` units-claiming **51**. A different number means
+the model of the defect was wrong — STOP and report; do not proceed to the
+checkpoint with a number that disagrees with the spec.
+
+- [ ] **Step 7: See it — the same two screens, before and after**
+
+The live dev server (port 9300, live corpus) is the BEFORE; a second
+server on the copy is the AFTER. Do not upload anything on either.
+
+```bash
+# after: the copy
+JLBC_DATA_DIR=$R uv run uvicorn app.main:create_app --factory --port 9301 &
+# before: the live corpus, unmodified code is fine (retrieval is untouched)
+uv run uvicorn app.main:create_app --factory --port 9300 &
+```
+
+Screenshot, on BOTH ports:
+
+1. **Budget Documents** — search `corrections operating budget`, expand the
+   matching passages on a Baseline agency card. On 9300 the summary table's
+   snippet opens with whatever heading the text search reached; on 9301 it
+   opens with the first data row. This is the ≈3,400-row to-blank case on
+   the most-used page, and nobody has seen it.
+2. **AI Mode** — ask a question that retrieves a Governor's Budget table
+   (e.g. *"what does the FY 2026 executive budget propose for the
+   Acupuncture Examiners board"*). On 9300 the tool card's breadcrumb reads
+   `Table of Contents`; on 9301 it reads the agency's name.
+3. **AI Mode** — a JLBC agency summary table: on 9301 the group shows the
+   document name with NO breadcrumb beneath it (spec D2).
+
+Save the six screenshots under `$SCRATCH/` and name them in the checkpoint.
+Stop the 9301 server when done; leave 9300 as Destin normally runs it.
+
+- [ ] **Step 8: ⏸ CHECKPOINT — Destin's go/no-go. Do NOT start Task 8 until he says go.**
+
+This is the one place in the plan where a person's judgement is needed, and
+it sits before the only step that is expensive to undo. Show him, in plain
+words and few of them:
+
+1. the six screenshots from Step 7 — this is what the change LOOKS like on
+   the two pages analysts use. Say which is before and which is after;
+   the Budget Documents snippet and the missing breadcrumb (spec D2,
+   already his decision — but nobody had shown him one) are the two things
+   to point at;
+2. the counts vs the spec's predictions (per document exact; per table as
+   an estimate with its percentage), and whether they held;
+3. the rehearsal result: the apply ran end-to-end on a copy, G-T3 `drift 0`,
+   G-T6 `mismatches: 0`, G-T4's two numbers — so the live run is a repeat;
+4. the skip list: ~399 unrepairable migration-era documents, including two
+   of the eight bad-heading-run documents;
+5. Step 7b's list — which ~5 eval queries can actually see this change;
+6. what the live apply costs: the ingest lock held for the snapshot plus
+   the re-embed (30–60 min on this machine), during which office uploads
+   wait.
+
+**Stop here.** The reversal record and the CRC-verified snapshot make the
+write recoverable, but "recoverable" is not "free", and the decision to
+rewrite 12% of the corpus is his.
+
+---
+
+### Task 8: The live apply, its gates, and STATUS
+
+**Pre-condition: Destin said go at Task 7 Step 8. Unset `JLBC_DATA_DIR` from the rehearsal (`set -e JLBC_DATA_DIR` in fish) — every command below must hit the LIVE corpus, and the wrong export here is the one mistake this plan cannot undo cheaply.**
+
+**Files:**
+- Modify: `STATUS.md`
+- Modify: `docs/superpowers/specs/2026-08-26-table-section-path-design.md` (status line only)
+- Create: `eval/results/<UTC>-<sha>.{json,md}` × 2 (control + post-write)
+
+**Interfaces:**
+- Consumes: everything above.
+
+- [ ] **Step 1: Re-run the dry run for BOTH tables against the live corpus, now**
+
+Time has passed since Task 6 while Destin decided, and ingest is on on this
+machine. G-T5 says a dry run precedes every write; a dry run from days ago
+is not that.
+
+```bash
+cd ~/ask-the-budget-az-worktrees/table-section-path
+uv run python -m chunking.repair_section_paths --table budget_chunks --report $SCRATCH/section-path-plan-budget-live.json 2>&1 | tail -8
+uv run python -m chunking.repair_section_paths --table fiscal_note_chunks --report $SCRATCH/section-path-plan-fiscal-live.json 2>&1 | tail -8
+```
+
+Expected: `rows changed` identical to Task 6 for both tables. A different
+number means the corpus moved (something was ingested); read the
+difference before continuing — it is fine if it is explained, and a stop
+if it is not.
 
 - [ ] **Step 2: G-T2 control — run the eval on UNMODIFIED master, now**
 
@@ -1998,23 +2257,10 @@ Record recall@5 / @15 / @20 / refusal precision and the result filename.
 run, on this machine** — a recorded number from an earlier day is not a
 control (CLAUDE.md).
 
-- [ ] **Step 2b: G-T3 baseline — dump the columns that must not move, BOTH tables**
+- [ ] **Step 2b: G-T3 baseline — the same dump as Task 7 Step 2, against the LIVE corpus**
 
-```bash
-export JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data
-uv run python -c "
-import json, sys
-from store.chunk_store import ChunkStore
-from store.config import resolve_data_dir
-s = ChunkStore(root=resolve_data_dir())
-out = {}
-for t in ('budget_chunks', 'fiscal_note_chunks'):
-    rows = s.scan(t, ['chunk_id','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
-    out[t] = {r['chunk_id']: [list(r['agency_canonical_ids'] or []), list(r['fund_mentions'] or []), r['page'], list(r['bbox'] or []), r['doc_type'], r['fiscal_year']] for r in rows}
-    print(t, len(rows))
-json.dump(out, open(sys.argv[1], 'w'))
-" $SCRATCH/gt3-before.json
-```
+Run Task 7 Step 2's command with `JLBC_DATA_DIR` unset (the dev default is
+the live corpus in a checkout) and the output at `$SCRATCH/gt3-before.json`.
 
 - [ ] **Step 3: Apply — one table at a time, budget first**
 
@@ -2030,32 +2276,12 @@ full, 200 untouched rows sampled` printed with N equal to that count,
 `full-text index rebuilt`, and a reversal record path. The second run takes
 its own snapshot; that is the price of two tables and it is fine.
 
-- [ ] **Step 4: G-T3 — nothing but the four columns moved, corpus-wide, BOTH tables**
+- [ ] **Step 4: G-T3 — the same check as Task 7 Step 4, against the LIVE corpus**
 
-```bash
-uv run python -c "
-import json, sys
-from pathlib import Path
-from store.chunk_store import ChunkStore
-from store.config import resolve_data_dir
-root = resolve_data_dir(); s = ChunkStore(root=root)
-before = json.load(open(sys.argv[1]))
-for t in ('budget_chunks', 'fiscal_note_chunks'):
-    rev = json.load(open(sorted(Path(root).glob(f'section-path-reversal-{t}-*.json'))[-1]))
-    rows = s.scan(t, ['chunk_id','section_path','text','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
-    by = {r['chunk_id']: r for r in rows}
-    ids = {r['chunk_id'] for r in rev['rows']}
-    missing = [i for i in ids if i not in by]
-    wrong = [r['chunk_id'] for r in rev['rows'] if by[r['chunk_id']]['text'] != r['after']['text'] or list(by[r['chunk_id']]['section_path'] or []) != r['after']['section_path']]
-    drift = [c for c, v in before[t].items() if c not in by or [list(by[c]['agency_canonical_ids'] or []), list(by[c]['fund_mentions'] or []), by[c]['page'], list(by[c]['bbox'] or []), by[c]['doc_type'], by[c]['fiscal_year']] != v]
-    print(t, 'chunks', len(rows), '(before:', len(before[t]), ') reversal rows', len(ids), 'missing', len(missing), 'not landed', len(wrong), 'agency/fund/page/bbox drift corpus-wide', len(drift))
-" $SCRATCH/gt3-before.json
-```
-
-Expected, for both tables: chunk count unchanged (budget 83,016 at the time
-of writing — read it from the dry run's `scanned` figure), `missing 0`,
-`not landed 0`, **`drift 0`** — that last number is spec G-T3's
-"`agency_canonical_ids` and `fund_mentions` byte-identical corpus-wide".
+Run Task 7 Step 4's command with `$SCRATCH/gt3-before.json`. Expected, for
+both tables: chunk count unchanged, `missing 0`, `not landed 0`, **`drift 0`**
+— spec G-T3's "`agency_canonical_ids` and `fund_mentions` byte-identical
+corpus-wide".
 
 - [ ] **Step 5: G-T2 post-write — re-run the eval**
 
@@ -2085,9 +2311,12 @@ print('rank moved:', len(moved), moved[:10]); print('STATUS FLIPPED:', flipped)
 
 Expected: `STATUS FLIPPED: []`. Rank movement is reported, not failed.
 
-**If a query flipped, the first place to look is spec §D2** — the ~3,400
-JLBC per-agency summary tables that lost a keyword from line 0 — not the
-relabelled majority.
+**Read this verdict with Task 6 Step 7b's list in hand.** The eval's ground
+truth touches ~5 of the ≈10,200 rewritten rows, so a clean verdict says
+"nothing broke on the queries we have", not "the write is right" — G-T4 and
+G-T6 said that. **If a query flipped, the first place to look is spec §D2** —
+the ~3,400 JLBC per-agency summary tables that lost a keyword from line 0 —
+not the relabelled majority.
 
 - [ ] **Step 6: G-T4 — read the documents, do not count them**
 
@@ -2137,9 +2366,17 @@ closed:
   stamper still mints them** (spec §5.3) — every upload re-splits those
   agencies; the corpus is clean only because nothing has been ingested since
   2026-08-16.
-- **Nobody has looked at this in a browser.** The breadcrumb in
-  `RetrieveView` and on a fiscal note is unwitnessed; jsdom applies no
-  stylesheet.
+- **Saved AI-Mode chats still show the OLD breadcrumbs** in their tool
+  cards — they render the retrieve JSON stored in the transcript, not the
+  live row. Not a defect; a new question shows the repaired label.
+- **The Budget Documents passage card changed too**, on every repaired
+  table — its snippet is `text[:280]`, and line 0 is now the owning heading
+  or (for the ≈3,400 JLBC summary tables) the first data row. The spec named
+  only AI Mode and fiscal notes. Seen in Task 7 Step 7 on the rehearsal copy
+  and approved at the checkpoint; the LIVE rendering after the write was
+  {seen / not seen — say which}.
+- **The fiscal-note breadcrumb (`FiscalNoteResult`) has not been looked at
+  on either the copy or the live corpus**; jsdom applies no stylesheet.
 
 - [ ] **Step 8: Full suite, then merge**
 
@@ -2149,7 +2386,9 @@ cd webapp && npx tsc -b && npm run build && npx vitest run 2>&1 | tail -3
 ```
 
 Expected: no new failures. The webapp is untouched by this plan, so its
-counts must be unchanged.
+counts must be unchanged. Delete `$SCRATCH/rehearsal-data/` — it holds a
+second copy of the corpus plus its snapshot, ~2 GB, and nothing points at
+it once the live write is done.
 
 ```bash
 cd /home/destin/YouCoded/Projects/ask-the-budget-az-dev
@@ -2164,12 +2403,16 @@ git branch -d table-section-path
 
 ## Self-Review
 
-**Spec coverage.** D1 → Task 2. D2 → Task 2 Step 2 (`test_a_table_under_no_heading_gets_an_empty_path_and_no_heading_line`) and Task 4. D3 → nothing built for §5, and §5.1–5.3 are carried into STATUS in Task 7 Step 7. §3.1 surgical-not-re-ingest → Task 4's module docstring and Task 5's apply path. §3.2 mapping gate → Task 4 Steps 3, 6. §3.3 four columns, and to-blank REMOVING line 0 → Task 4 `_compose`, Task 5 `test_apply_leaves_the_agency_and_fund_columns_byte_identical`. §3.4 coverage → Task 6 Steps 6–7 (both tables; the two unrepairable heading-run documents named). §3.5 counts → Task 6 Steps 5–6 predictions, per document and per table. §4 rejected alternatives → nothing to build. G-T1 → Task 3 (plus a spec that the fixture really holds the trap). G-T2 → Task 7 Steps 2, 5 (field names verified against a real result file). G-T3 → Task 5's untouched-row sample + Task 7 Steps 2b/4 (corpus-wide, both tables). G-T4 → Task 7 Step 6. G-T5 → Task 7 Step 3. G-T6 → Task 7 Step 1.
+**Spec coverage.** D1 → Task 2. D2 → Task 2 Step 2 (`test_a_table_under_no_heading_gets_an_empty_path_and_no_heading_line`) and Task 4. D3 → nothing built for §5, and §5.1–5.3 are carried into STATUS in Task 8 Step 7. §3.1 surgical-not-re-ingest → Task 4's module docstring and Task 5's apply path. §3.2 mapping gate → Task 4 Steps 3, 6; plus the write-time compare-and-swap in Task 5 (the plan is computed before the lock). §3.3 four columns, and to-blank REMOVING line 0 → Task 4 `_compose`, Task 5 `test_apply_leaves_the_agency_and_fund_columns_byte_identical`. §3.4 coverage → Task 6 Steps 6–7 (both tables; the two unrepairable heading-run documents named). §3.5 counts → Task 6 Steps 5–6 (per document exact and gating; per table an estimate reported against ~8%). §4 rejected alternatives → nothing to build. G-T1 → Task 3 (plus a spec that the fixture really holds the trap). G-T2 → Task 8 Steps 2, 5 (field names verified against a real result file), read against Task 6 Step 7b's coverage list. G-T3 → Task 5's untouched-row sample + Task 7 Steps 2/4 on the copy + Task 8 Steps 2b/4 live (corpus-wide, both tables). G-T4 → Task 7 Step 6 (copy) and Task 8 Step 6 (live). G-T5 → Task 8 Steps 1, 3. G-T6 → Task 7 Step 5. **The rehearsal (Task 7) is not a spec gate; it is what makes every spec gate a second run rather than a first.**
 
-**Placeholder scan.** No TBD/TODO. Every code step carries runnable code. The two `<CONTROL>` / `<AFTER>` tokens in Task 7 Step 5 are filenames produced by Steps 2 and 5 and cannot be known in advance; the step says where they come from. `$SCRATCH` is the executing session's scratchpad directory.
+**Placeholder scan.** No TBD/TODO. Every code step carries runnable code. The two `<CONTROL>` / `<AFTER>` tokens in Task 8 Step 5 are filenames produced by Steps 2 and 5 and cannot be known in advance; the step says where they come from. `$SCRATCH` is the executing session's scratchpad directory; `$R` is `$SCRATCH/rehearsal-data`. The one `{seen / not seen}` in Task 8 Step 7 is a sentence the executor fills in with what actually happened.
 
 **Type consistency.** `resolve_extract_dir(doc_id, root, *, method=None) -> tuple[Path, str] | None` is defined in Task 3 (`ingest/extract_dirs.py`) and imported unchanged in Tasks 4 and 7. `plan_document(..., *, method=None)` in Task 4 is called with the sidecar's method by `_plan_corpus` and without one by the tests. `_plan_corpus` returns a 3-tuple `(changes, result, before_by_id)` and both callers (Task 4's dry run, Task 5's apply) unpack three. `_verify_nothing_was_lost(store, table, changes, before_by_id, progress)` takes five arguments in Task 5's definition and call. `RowChange` fields are used identically in Tasks 4 and 5. `RepairResult.documents_skipped` is `dict[str, str]` and `per_document` is `dict[str, dict[str, int]]` everywhere. `owner_path(block) -> list[str]` is defined in Task 1 and consumed in Tasks 2, 3, 4.
 
 **Claims in this plan verified against the code and data on 2026-08-26, so the executor need not re-derive them:** `doc.tables` and `OutlineNode.body_blocks` hold the SAME `Table` objects (MinerU's multi-page reassembly runs BEFORE `_build_outline`, and ODL has none), so identity matching is sound; `sql_str` is at `store/chunk_store.py:76`; `IngestLock()` takes no required arguments and `acquire()` starts its own heartbeat thread; `identity.relabel._default_snapshot_and_verify` exists; eval `per_query` rows carry `id`/`status`/`rank`; the Governor's Budget contents heading is on page 2; `agao-afr-fy2024` has both `mineru/` and `mineru-ocr/` and the sidecar says `mineru`; 399 documents have no `extractor-output/` folder, including `governor-governors-budget-fy2027` and `agao-afr-fy2025`; the one DOCX document is `legislature-budget-bill-fy2026-sb1735-2025`; `scripts/` ships in the bundle and `ingest/` already imports from it, so `chunking/` importing `ingest.extract_dirs` introduces nothing new.
 
 **One known risk in this plan's own code, stated rather than hidden:** Task 4's `plan_document` imports `_build_text` from `chunking.builders.table_chunk` — a private function. If Task 2's implementer renames or inlines it, Task 4 breaks. It is imported rather than reimplemented on purpose: a second copy of the text format is exactly how the repair and a re-chunk would silently diverge (G-T6). If it must move, make it public rather than duplicating it.
+
+**A second, smaller one:** `plan_document` picks its reader with its own string rule (`"opendataloader" in extractor.lower()`), a second copy of `chunk_doc`'s `_READER_REGISTRY` dispatch keyed on a different string (the page file's `extractor` field, not `doc_meta.extractor`). The two agree today for every value on disk (`opendataloader-2.4.1`, `mineru-3.1.6`, and OCR output carries the same `mineru-…` name); G-T6 is what catches them disagreeing. If a third extractor ever lands, key both off one table.
+
+**Test counts, for the executor:** Task 1 → 5; Task 4 → 11; Task 5 → +9 = 20; Task 6 → +1 = 21. The second draft said 6 / 11 / 19 / 20; the differences are one can't-fail memo test removed and one compare-and-swap test added.
