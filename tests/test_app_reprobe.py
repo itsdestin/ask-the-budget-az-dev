@@ -141,3 +141,50 @@ def test_saving_the_folder_swaps_at_once_and_resets_the_pipeline(monkeypatch, tm
     assert "restart_required" not in r.json()
     assert app.state.provider.name == "lance"
     assert resets == [1]
+
+
+def test_pick_folder_route_reports_unsupported_off_windows(monkeypatch):
+    app, _ = _app(monkeypatch, [None])
+    client = TestClient(app)
+    r = client.post("/api/config/pick-folder")
+    assert r.status_code == 200
+    assert r.json() == {"supported": False, "path": None}
+
+
+def test_pick_folder_route_returns_the_pick_and_does_not_save_it(monkeypatch, tmp_path):
+    from app import folder_picker
+    from app.machine_config import read_data_dir
+
+    app, _ = _app(monkeypatch, [None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+    monkeypatch.setattr(folder_picker, "pick_folder", lambda: str(tmp_path / "picked"))
+    client = TestClient(app)
+    r = client.post("/api/config/pick-folder")
+    assert r.json() == {"supported": True, "path": str(tmp_path / "picked")}
+    assert read_data_dir() is None  # the page saves through /api/config/data-dir
+
+
+def test_pick_folder_route_409s_while_a_dialog_is_open(monkeypatch):
+    from app import folder_picker
+
+    app, _ = _app(monkeypatch, [None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+
+    def busy():
+        raise folder_picker.PickerBusy()
+
+    monkeypatch.setattr(folder_picker, "pick_folder", busy)
+    assert TestClient(app).post("/api/config/pick-folder").status_code == 409
+
+
+def test_health_detail_reports_can_pick(monkeypatch):
+    from app import folder_picker
+
+    # Two probe results, not one: create_app()'s _default_provider() call
+    # consumes the first; GET /api/health/detail's own reprobe() (the
+    # provider is still stub, and this is its first call so nothing rate-
+    # limits it) consumes the second. See the other tests in this file for
+    # the same accounting.
+    app, _ = _app(monkeypatch, [None, None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+    assert TestClient(app).get("/api/health/detail").json()["can_pick"] is True

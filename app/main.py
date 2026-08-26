@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+from app import folder_picker
 from app.routes.admin import router as admin_router
 from app.routes.books import router as books_router
 from app.routes.agencies import router as agencies_router
@@ -370,7 +371,29 @@ def create_app(
         reprobe = getattr(app.state, "reprobe", None)
         if reprobe is not None:
             reprobe()
-        return health_detail()
+        report = health_detail()
+        # Whether the Choose folder… button can render at all (spec §2.5) —
+        # Linux/macOS have no Windows Forms dialog, so the button is simply
+        # absent there rather than failing when clicked.
+        report["can_pick"] = folder_picker.supported()
+        return report
+
+    @app.post("/api/config/pick-folder")
+    def pick_folder_route():
+        """Open Windows' folder dialog and return the choice (spec §2.5).
+
+        Does NOT save it — the page submits the chosen path through
+        /api/config/data-dir, the existing validate-and-save route, so
+        nothing here can bypass that validation.
+        """
+        if not folder_picker.supported():
+            return {"supported": False, "path": None}
+        try:
+            return {"supported": True, "path": folder_picker.pick_folder()}
+        except folder_picker.PickerBusy:
+            raise HTTPException(
+                status_code=409, detail="The folder window is already open."
+            )
 
     @app.post("/api/config/data-dir")
     def set_data_dir_route(body: DataDirBody):

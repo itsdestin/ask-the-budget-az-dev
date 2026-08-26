@@ -85,10 +85,10 @@ def test_a_folder_without_a_corpus_still_records(tmp_path, config_dir):
     result = run("--set-data-dir", str(plain), config_dir=config_dir)
 
     assert result.returncode == 0
-    # MSG_NO_CORPUS names the corpus, not the storage engine — Task 7 moved
-    # the wording off "lancedb" so it reads the same whether the folder is
-    # missing entirely or holds an index with nothing in it.
-    assert "corpus" in result.stderr.lower()
+    # MSG_NO_CORPUS names "lancedb" again (spec §2.5, 2026-08-25) — it is
+    # the one concrete thing an analyst can look for in File Explorer to
+    # tell whether they picked the right folder.
+    assert "lancedb" in result.stderr.lower()
     assert _written(config_dir)["data_dir"] == str(plain)
 
 

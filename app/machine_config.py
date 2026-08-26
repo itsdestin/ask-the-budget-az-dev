@@ -55,17 +55,18 @@ _INGEST_ENV_VAR = "JLBC_INGEST_ENABLED"
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off", ""})
 
-MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Search corpus (no budget documents "
-    "in its search index)."
-)
+# Spec §2.5 (2026-08-25): the `lancedb` name survives in exactly this ONE
+# sentence — the wrong-folder refusal — because it is the one concrete thing
+# an analyst can look for in File Explorer to tell whether they picked the
+# right folder.
+MSG_NO_CORPUS = 'That\'s not it — the budget folder has a folder named "lancedb" inside.'
 MSG_CANT_OPEN = (
-    "That folder is there, but the search index inside it can't be opened. "
-    "Copy the folder's address from File Explorer's address bar and try again."
+    "JLBC Search can't open the data in that folder. Try choosing it with "
+    "the button."
 )
 MSG_DIFFERENT_INDEX = (
-    "That folder holds a search index made by a different version of the app. "
-    "Ask whoever maintains the shared drive to re-copy the corpus for this build."
+    "That data was made by a different version of JLBC Search. Ask whoever "
+    "maintains it to re-copy it."
 )
 
 
