@@ -182,7 +182,7 @@ export function AliasesPanel() {
                     <td>
                       <button
                         type="button"
-                        className="adm-link"
+                        className="adm-btn adm-btn-quiet adm-btn-sm"
                         disabled={busy}
                         onClick={() => remove(row.alias)}
                       >

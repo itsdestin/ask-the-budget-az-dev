@@ -2795,7 +2795,6 @@ fieldset.adm-field{border:0;padding:0;}
 /* The one destructive action in the app. Distinct, but it still only fires
    after the admin has typed the word — the colour is a signal, not the guard. */
 .adm-btn-danger{background:var(--az-red);}
-.adm-link{border:0;background:none;padding:0;font:inherit;font-size:12.5px;font-weight:800;color:var(--az-gold-d);text-decoration:underline;cursor:pointer;}
 
 /* The save bar. Sticks to the bottom of the viewport and exists only while
    something is pending — it replaced a "Save changes" button parked in the
@@ -2810,7 +2809,9 @@ fieldset.adm-field{border:0;padding:0;}
 .adm-savebar-error{color:#ffd7d7;font-weight:800;flex:1 1 100%;}
 .adm-savebar-actions{display:flex;align-items:center;gap:14px;flex:0 0 auto;}
 .adm-savebar .adm-btn{background:#fff;color:var(--navy);}
-.adm-savebar .adm-link{color:#c9cbe6;}
+/* Discard on the navy save bar: an outlined pill in the bar's own ink, not
+   a bare link (Destin, 2026-08-25). */
+.adm-savebar .adm-btn-quiet{background:transparent;color:#fff;border-color:#c9cbe6;}
 /* Room for the bar so it never sits on top of the last card's content. */
 .page-admin .wrap{padding-bottom:96px;}
 .adm-ok{font-size:13px;font-weight:800;color:var(--teal);}
@@ -2953,8 +2954,9 @@ fieldset.adm-field{border:0;padding:0;}
 
 /* --- People (spec U13, mockup 2026-08-25) ---------------------------------
    Every action on this page is a pill. `.adm-btn-sm` is the row-sized one;
-   `.adm-link` — bare blue underlined text as a control — is gone from the
-   sheet entirely (Destin, 2026-08-25: "shouldn't be used anywhere"). */
+   bare underlined link-as-control styling is gone from the sheet entirely
+   (Destin, 2026-08-25: "shouldn't be used anywhere"; pinned repo-wide by
+   styles/no-bare-links.test.ts). */
 .adm-btn-sm{padding:4px 12px;font-size:12px;}
 .adm-people-sortable{cursor:pointer;user-select:none;}
 .adm-people-sort{border:0;background:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;}

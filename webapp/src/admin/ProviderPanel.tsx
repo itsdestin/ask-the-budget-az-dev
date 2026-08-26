@@ -95,7 +95,7 @@ export function ProviderPanel({
             testId="admin-key-card"
             action={
               editingKey ? (
-                <button type="button" className="adm-link" onClick={() => onApiKeyChange(null)}>
+                <button type="button" className="adm-btn adm-btn-quiet adm-btn-sm" onClick={() => onApiKeyChange(null)}>
                   Cancel
                 </button>
               ) : (
@@ -190,7 +190,7 @@ export function ProviderPanel({
 
               {isCustom ? null : (
                 <p className="adm-hint">
-                  <button type="button" className="adm-link" onClick={onRefreshModels}>
+                  <button type="button" className="adm-btn adm-btn-quiet adm-btn-sm" onClick={onRefreshModels}>
                     Check for new models
                   </button>
                 </p>
@@ -284,7 +284,7 @@ export function ProviderPanel({
                       </ul>
                       <button
                         type="button"
-                        className="adm-link"
+                        className="adm-btn adm-btn-quiet adm-btn-sm"
                         onClick={() => onProviderChange("openrouter")}
                       >
                         Go back to OpenRouter

@@ -10,8 +10,9 @@ import type * as api from "../api";
 // messy"), and a box announcing a limit stored for a username nobody has
 // logged in as ("wasteful and confusing"). What stands: one row per person,
 // the limit as a dropdown on the row, ONE pill per row, hidden people as a
-// single line beneath. Every action is a pill — never `adm-link` (Destin's
-// standing rule).
+// single line beneath. Every action is a pill — never a bare underlined
+// link control (Destin's standing rule, pinned repo-wide by
+// styles/no-bare-links.test.ts).
 //
 // PURE. Admin.tsx fetches `people` and owns the settings draft; this edits
 // the draft through the two callbacks and the page's save bar writes it.
