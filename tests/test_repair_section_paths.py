@@ -164,6 +164,52 @@ def test_plan_skips_a_document_with_a_malformed_chunk_id_instead_of_crashing(roo
     assert result.documents_skipped.get("doc-a") == skipped
 
 
+def _ids_in_predicate(where: str | None) -> set[str] | None:
+    """The ids out of `chunk_id IN ('a', 'b')` as `_in_list` writes it.
+
+    `sql_str` escapes a literal apostrophe by DOUBLING it, so this walks the
+    string rather than splitting on commas -- an id containing `\'` would
+    otherwise be read as two ids and the row silently dropped.
+    """
+    if not where:
+        return None
+    inner = where[where.index("(") + 1:where.rindex(")")]
+    ids: list[str] = []
+    i = 0
+    while i < len(inner):
+        if inner[i] != "'":
+            i += 1
+            continue
+        i += 1
+        buf: list[str] = []
+        while i < len(inner):
+            if inner[i] == "'":
+                if i + 1 < len(inner) and inner[i + 1] == "'":
+                    buf.append("'")
+                    i += 2
+                    continue
+                i += 1
+                break
+            buf.append(inner[i])
+            i += 1
+        ids.append("".join(buf))
+    return set(ids)
+
+
+def test_the_id_predicate_quotes_every_literal_through_sql_str():
+    """`_in_list` is the only place this pass builds a SQL predicate, and a
+    LanceDB filter is a STRING with no parameter binding -- an unquoted id
+    is a parse error at best and a rewritten predicate at worst."""
+    from chunking.repair_section_paths import _in_list
+    assert _in_list(["doc-a-0001"]) == "chunk_id IN ('doc-a-0001')"
+    assert _in_list(["a", "b"]) == "chunk_id IN ('a', 'b')"
+    awkward = "doc-o'brien-0001"
+    assert _in_list([awkward]) == "chunk_id IN ('doc-o''brien-0001')"
+    # ...and the fake's parser reads back exactly the id that went in, so a
+    # test store filtering on this predicate agrees with the real one.
+    assert _ids_in_predicate(_in_list([awkward])) == {awkward}
+
+
 class _FakeStore:
     def __init__(self, rows: list[dict]):
         self.rows = rows
@@ -172,7 +218,16 @@ class _FakeStore:
         self.optimized: list[str] = []
 
     def scan(self, name, columns, *, where=None, limit=None):
-        return [{k: r[k] for k in columns if k in r} for r in self.rows]
+        # WHY this parses the predicate instead of ignoring it: while the
+        # fake returned every row for every scan, the batched
+        # `chunk_id IN (...)` fetch and the "rows vanished under the plan"
+        # refusal were both structurally unreachable from any test -- the
+        # store always answered with exactly the rows that were asked for.
+        rows = self.rows
+        wanted = _ids_in_predicate(where)
+        if wanted is not None:
+            rows = [r for r in rows if r["chunk_id"] in wanted]
+        return [{k: r[k] for k in columns if k in r} for r in rows]
 
     def upsert_chunks(self, name, rows):
         rows = list(rows)
@@ -300,6 +355,40 @@ def test_apply_leaves_the_agency_and_fund_columns_byte_identical(root: Path, tmp
     assert written["fund_mentions"] == ["fund:general"]
     assert written["page"] == 1
     assert written["table_html"] == "<table></table>"
+    # ...and, the half that matters, what the STORE holds afterwards. The
+    # dict handed to upsert_chunks only records what this pass intended;
+    # G-T3 is about what survived the write.
+    stored = {r["chunk_id"]: r for r in store.rows}["doc-a-0001"]
+    assert stored["agency_canonical_ids"] == ["agency:ost"]
+    assert stored["fund_mentions"] == ["fund:general"]
+    assert stored["page"] == 1
+    assert stored["table_html"] == "<table></table>"
+
+
+class _DroppingStore(_FakeStore):
+    """A store that loses a pass-through column on the way in -- the exact
+    shape spec G-T3 refuses, and invisible to a row COUNT because
+    upsert_chunks deletes then adds."""
+
+    def upsert_chunks(self, name, rows):
+        # Copied first: these dicts are the same objects the write path
+        # keeps as its record of what was sent, and mutating them in place
+        # would make the corrupted value look like the intended one.
+        rows = [dict(r) for r in rows]
+        for row in rows:
+            row["agency_canonical_ids"] = []
+        super().upsert_chunks(name, rows)
+
+
+def test_apply_refuses_when_the_store_dropped_a_pass_through_column(root: Path, tmp_path: Path):
+    """The verifier used to re-read every column and check only three of
+    them, so a write that dropped `agency_canonical_ids` passed in silence."""
+    store = _DroppingStore(_full_rows())
+    with pytest.raises(RuntimeError, match="agency_canonical_ids"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
 
 
 def test_apply_recomputes_the_vector_and_the_token_count(root: Path, tmp_path: Path):
@@ -426,3 +515,137 @@ def test_apply_samples_untouched_rows_and_refuses_when_one_drifted(root: Path, t
             store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
             lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
         )
+
+
+class _ExplodingStore(_FakeStore):
+    """The share goes away part-way through the write."""
+
+    def upsert_chunks(self, name, rows):
+        raise RuntimeError("the share went away mid-write")
+
+
+def test_the_reversal_record_is_on_disk_before_the_first_row_moves(
+    root: Path, tmp_path: Path
+):
+    """It is computed at PLAN time, so nothing about it needs the write to
+    have happened -- and writing it last (the first version) meant a crash
+    anywhere in the write left a half-rewritten corpus with no row-level
+    undo, only a whole-corpus snapshot restore that also discards every
+    upload since. `identity/relabel.py` writes its record inside the lock
+    for the same reason."""
+    store = _ExplodingStore(_full_rows())
+    with pytest.raises(RuntimeError, match="share went away"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    assert store.written == []
+    files = list(tmp_path.glob("section-path-reversal-*.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert [r["chunk_id"] for r in payload["rows"]] == ["doc-a-0001"]
+    assert payload["rows"][0]["before"]["text"] == (
+        "Table of Contents\nAcupuncture Examiners, Board of"
+    )
+    # No `.tmp` left beside it -- that reads as corruption to the next person.
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+class _CorruptingStore(_FakeStore):
+    """The write lands and then the stored row is not what was sent."""
+
+    def upsert_chunks(self, name, rows):
+        super().upsert_chunks(name, rows)
+        for row in self.rows:
+            if row["chunk_id"] == "doc-a-0001":
+                row["section_path"] = ["NOT WHAT WAS WRITTEN"]
+
+
+def test_a_failed_verification_still_rebuilds_the_index_and_names_both_restore_points(
+    root: Path, tmp_path: Path
+):
+    """Once a batch has landed the rows exist, so search must be consistent
+    with them: skipping the FTS rebuild (the first version did, whenever
+    verification raised) leaves every analyst's keyword search silently
+    missing those passages. And the message has to tell the operator what
+    state the corpus is in, not just which check failed."""
+    store = _CorruptingStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    assert "section_path did not land" in message
+    assert "1 row(s) in 1 batch(es) are ALREADY written" in message
+    assert "snap.zip" in message
+    assert "section-path-reversal-budget_chunks-" in message
+    assert "WAS rebuilt over them" in message
+    assert store.fts_built == ["budget_chunks"]
+    assert store.optimized == ["budget_chunks"]
+
+
+class _VanishedStore(_FakeStore):
+    """A planned row is gone by the time the write path fetches it in full
+    -- someone re-ingested the document during the (tens of minutes of)
+    planning and its chunk_ids changed."""
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        out = super().scan(name, columns, where=where, limit=limit)
+        if "vector" in columns:
+            return [r for r in out if r["chunk_id"] != "doc-a-0001"]
+        return out
+
+
+def test_apply_refuses_when_a_planned_row_vanished_before_the_write(
+    root: Path, tmp_path: Path
+):
+    store = _VanishedStore(_full_rows())
+    with pytest.raises(RuntimeError) as caught:
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    message = str(caught.value)
+    assert "rows vanished under the plan" in message
+    # The store's row count and the matched count are different questions
+    # and are reported separately.
+    assert "asked for 1 rows, the store returned 0, of which 0 matched" in message
+    assert store.written == []
+    assert store.fts_built == []
+
+
+class _ReingestedBeforeTheLockStore(_FakeStore):
+    """An UNTOUCHED document was legitimately re-ingested between the plan
+    scan and the lock -- the window is tens of minutes of reading extractor
+    JSON off the share, with ingest running on somebody's PC throughout."""
+
+    def __init__(self, rows: list[dict]):
+        super().__init__(rows)
+        self._drifted = False
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        # The first predicate-bearing scan is the untouched-sample baseline,
+        # taken under the lock; drift immediately before it answers.
+        if where is not None and not self._drifted:
+            self._drifted = True
+            self.rows[0] = dict(self.rows[0], text="RE-INGESTED BEFORE THE LOCK")
+        return super().scan(name, columns, where=where, limit=limit)
+
+
+def test_an_untouched_row_reingested_before_the_lock_does_not_fail_the_write(
+    root: Path, tmp_path: Path
+):
+    """The sample used to be compared against the PLAN-time rows, so a
+    benign concurrent re-ingest of a document this pass never touches would
+    have told the operator to restore a snapshot over a completely correct
+    write. Reading the baseline lock-to-lock means only this pass's own
+    damage can fail it -- which `_DriftingStore` above still proves it does."""
+    store = _ReingestedBeforeTheLockStore(_full_rows())
+    result = repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    assert store._drifted
+    assert result.changed == 1
+    assert store.fts_built == ["budget_chunks"]

@@ -287,8 +287,46 @@ def _norm(value: Any) -> Any:
 
 
 def _in_list(chunk_ids: Iterable[str]) -> str:
+    """`chunk_id IN ('a', 'b', ...)`, every literal through `sql_str`.
+
+    Never build this predicate by hand: LanceDB filters are SQL STRINGS with
+    no parameter binding, so an id carrying an apostrophe would either break
+    the parse or rewrite the predicate (`store/chunk_store.py::sql_str`).
+    """
     from store.chunk_store import sql_str
     return "chunk_id IN (" + ", ".join(sql_str(c) for c in chunk_ids) + ")"
+
+
+@dataclass
+class _WriteState:
+    """What an operator needs told once ANY row has moved.
+
+    Every failure raised after the first `upsert_chunks` is re-raised through
+    `hint()`. A bare "text did not land" says nothing about the two questions
+    the person reading it actually has -- is the corpus half-written, and is
+    search consistent with what is now in it -- nor which of the two restore
+    points to reach for. The sentence is composed AFTER the index rebuild in
+    `repair_section_paths`'s `finally`, so `index_rebuilt` reports what really
+    happened rather than what was true at the moment the error was raised.
+    """
+
+    snapshot: str | None
+    reversal_path: Path
+    rows_written: int = 0
+    batches_written: int = 0
+    index_rebuilt: bool = False
+
+    def hint(self) -> str:
+        if not self.rows_written:
+            state = "No rows were written, so the corpus is unchanged"
+        else:
+            index = "WAS rebuilt over them" if self.index_rebuilt else "was NOT rebuilt"
+            state = (
+                f"{self.rows_written} row(s) in {self.batches_written} batch(es) are "
+                f"ALREADY written and the full-text index {index}"
+            )
+        snapshot = self.snapshot or "(no snapshot -- the corpus was empty)"
+        return f"{state}. Restore from {snapshot} or replay {self.reversal_path}."
 
 
 def _write_changed_rows(
@@ -298,6 +336,7 @@ def _write_changed_rows(
     embedder: EmbedderLike,
     batch_size: int,
     progress: Callable[[str], None],
+    state: _WriteState,
 ) -> list[dict[str, Any]]:
     """Fetch the changed rows in full, rewrite four columns, embed, write.
 
@@ -328,10 +367,16 @@ def _write_changed_rows(
             if change is None:
                 continue
             if str(row.get("text")) != change.old_text:
+                # NOT "nothing is written": this check runs before THIS
+                # batch's upsert but after every earlier batch's, so the
+                # honest scope is "batch N and everything after it". How
+                # much did land is in `state.hint()`, appended by the
+                # caller once the index rebuild has or has not run.
                 raise RuntimeError(
                     f"{change.chunk_id}: its text is no longer what the plan was built "
                     "on -- the corpus moved under the plan (a re-ingest between planning "
-                    "and writing). Nothing from this batch on is written; re-run the dry run"
+                    f"and writing). Batch {batch_num} and every batch after it is NOT "
+                    "written; re-run the dry run"
                 )
             new_row = dict(row)
             new_row["section_path"] = list(change.new_path)
@@ -339,9 +384,16 @@ def _write_changed_rows(
             new_row["token_count"] = count_tokens(change.new_text)
             pending.append(new_row)
         if len(pending) != len(ids):
+            # `len(rows)` and `len(pending)` answer different questions --
+            # how many rows came back, and how many of those the plan still
+            # recognises. Reporting `pending` as "what the store returned"
+            # (the first version) hides the case where the store answered in
+            # full and the ids no longer match the plan.
             raise RuntimeError(
                 f"batch {batch_num}: asked for {len(ids)} rows, the store returned "
-                f"{len(pending)} -- rows vanished under the plan; re-run the dry run"
+                f"{len(rows)}, of which {len(pending)} matched the plan -- rows vanished "
+                f"under the plan. Batch {batch_num} and every batch after it is NOT "
+                "written; re-run the dry run"
             )
         # input_type="document" is the embedder's default, but it is stated
         # here because it is not a formality (ingest/worker.py::_embed): the
@@ -352,67 +404,184 @@ def _write_changed_rows(
             row["vector"] = vector
         store.upsert_chunks(table, pending)
         written.extend(pending)
+        state.rows_written = len(written)
+        state.batches_written = batch_num
         progress(f"wrote batch {batch_num}/{total_batches} ({len(written)}/{len(changes)} rows)")
     return written
+
+
+def _list_len(value: Any) -> int:
+    """Length of a list column, whatever container the store handed back."""
+    normalised = _norm(value)
+    return len(normalised) if isinstance(normalised, list) else 0
+
+
+def _passthrough_mismatch(now: Mapping[str, Any], sent: Mapping[str, Any]) -> str | None:
+    """The first column that came back different from what was sent, or None.
+
+    WHY compare against what was SENT rather than against the pre-write row:
+    four columns are supposed to differ, and every other column is passed
+    through by value (`_write_changed_rows` copies the fetched row and
+    replaces four keys) -- so the dict handed to `upsert_chunks` IS the
+    expected post-write row, `token_count` included.
+
+    WHY it exists at all: the first version of this verifier re-read every
+    column and then checked only `section_path`, `text` and that the vector
+    was non-empty. A write path that dropped `agency_canonical_ids` or
+    `fund_mentions` would have passed it in silence, which is exactly the
+    loss spec G-T3 exists to refuse -- and `upsert_chunks` deletes then adds,
+    so the row COUNT would have matched either way.
+
+    `vector` is compared by LENGTH only: it round-trips through Arrow
+    float32, so the values that come back are not bit-for-bit the Python
+    floats that went in and an equality test would fail on every correct
+    write.
+    """
+    for col in _all_columns():
+        if col == "vector":
+            if _list_len(now.get(col)) != _list_len(sent.get(col)):
+                return col
+            continue
+        if _norm(now.get(col)) != _norm(sent.get(col)):
+            return col
+    return None
+
+
+def _untouched_baseline(
+    store: ChunkStoreLike,
+    table: str,
+    before_by_id: Mapping[str, Mapping[str, Any]],
+    changed_ids: set[str],
+    batch_size: int,
+    progress: Callable[[str], None],
+) -> dict[str, Mapping[str, Any]]:
+    """Re-read the untouched sample UNDER THE LOCK, before the first write.
+
+    WHY not just keep the plan-time rows (what the first version did):
+    planning reads ~4,500 documents' extractor JSON off the share and takes
+    tens of minutes, and ingest may be running on somebody's PC throughout.
+    An untouched document legitimately re-ingested inside that window would
+    have failed the post-write comparison and told the operator to restore a
+    snapshot over a write that was entirely correct. Reading the baseline
+    lock-to-lock means every difference the sample sees really was caused by
+    this pass.
+
+    The sample ids still come from the plan-time scan, so WHICH rows are
+    watched is deterministic and does not depend on when the lock was won.
+    """
+    untouched = sorted(set(before_by_id) - changed_ids)[:UNCHANGED_SAMPLE_SIZE]
+    baseline: dict[str, Mapping[str, Any]] = {}
+    for start in range(0, len(untouched), batch_size):
+        ids = untouched[start:start + batch_size]
+        for row in store.scan(table, PLAN_COLUMNS, where=_in_list(ids)):
+            baseline[str(row["chunk_id"])] = row
+    missing = len(untouched) - len(baseline)
+    if missing:
+        # Already gone before this pass wrote anything, so not ours. Keeping
+        # them in the sample would make this write answer for somebody
+        # else's re-ingest.
+        progress(
+            f"{missing} of {len(untouched)} sampled untouched rows were already gone "
+            "before the first write; dropped from the sample"
+        )
+    return baseline
 
 
 def _verify_nothing_was_lost(
     store: ChunkStoreLike,
     table: str,
     changes: list[RowChange],
-    before_by_id: Mapping[str, Mapping[str, Any]],
+    written: list[dict[str, Any]],
+    untouched_baseline: Mapping[str, Mapping[str, Any]],
+    batch_size: int,
     progress: Callable[[str], None],
 ) -> None:
-    """Re-read every changed row and confirm exactly the four intended
-    columns moved; then re-read a bounded sample of rows this pass was NEVER
-    supposed to touch and confirm they still read as they did before the
-    write. A matching ROW COUNT proves nothing -- `upsert_chunks` deletes
+    """Re-read every changed row and confirm it is exactly what was sent --
+    the four intended columns moved and NOTHING else did; then re-read the
+    untouched sample and confirm it still reads as it did when the lock was
+    taken. A matching ROW COUNT proves neither -- `upsert_chunks` deletes
     then adds, so a lost column and a lost value both leave the count
     identical (`identity/relabel.py`'s trap 3). The untouched sample is the
     half of spec G-T3 that catches a delete landing on the wrong ids."""
     expected = {c.chunk_id: c for c in changes}
+    # What was actually handed to the store, which is the authority on what
+    # every pass-through column should read back as.
+    sent_by_id = {str(r["chunk_id"]): r for r in written}
     seen = 0
     ordered = sorted(expected)
-    for start in range(0, len(ordered), DEFAULT_BATCH_SIZE):
-        ids = ordered[start:start + DEFAULT_BATCH_SIZE]
+    for start in range(0, len(ordered), batch_size):
+        ids = ordered[start:start + batch_size]
         for row in store.scan(table, _all_columns(), where=_in_list(ids)):
             change = expected.get(str(row.get("chunk_id")))
             if change is None:
                 continue
             seen += 1
-            if list(row.get("section_path") or []) != change.new_path:
+            if _norm(row.get("section_path") or []) != change.new_path:
                 raise RuntimeError(f"{change.chunk_id}: section_path did not land")
             if str(row.get("text")) != change.new_text:
                 raise RuntimeError(f"{change.chunk_id}: text did not land")
-            if not row.get("vector"):
+            if not _norm(row.get("vector")):
                 raise RuntimeError(f"{change.chunk_id}: vector is empty after the write")
+            sent = sent_by_id.get(change.chunk_id)
+            if sent is None:
+                raise RuntimeError(
+                    f"{change.chunk_id}: is in the corpus as a changed row but was never "
+                    "in the batch this pass wrote"
+                )
+            lost = _passthrough_mismatch(row, sent)
+            if lost is not None:
+                raise RuntimeError(
+                    f"{change.chunk_id}: column {lost!r} is not what was written -- this "
+                    "pass sends every column but section_path/text/token_count/vector "
+                    "through by value, so any other column differing means the write "
+                    "lost it (spec G-T3)"
+                )
     if seen != len(expected):
         raise RuntimeError(f"verified {seen} rows, expected {len(expected)}")
 
-    # The first UNCHANGED_SAMPLE_SIZE untouched ids in sort order -- in
-    # practice ~200 rows of ONE document, the shape identity/relabel.py uses.
-    # This is an in-process smoke check that the delete landed on the right
-    # ids, not a spread; the corpus-wide comparison of every untouched column
-    # is Task 7 Step 4 (on the copy) and Task 8 Step 4 (live).
-    untouched = sorted(set(before_by_id) - set(expected))[:UNCHANGED_SAMPLE_SIZE]
-    after = {str(r["chunk_id"]): r for r in store.scan(table, PLAN_COLUMNS, where=_in_list(untouched))} if untouched else {}
-    for chunk_id in untouched:
-        before, now = before_by_id[chunk_id], after.get(chunk_id)
+    # ~200 rows (in practice one document's worth) that this pass was never
+    # supposed to touch, read again now and compared with the copy taken
+    # after the lock. An in-process smoke check that the delete landed on the
+    # right ids, not a spread; the corpus-wide comparison of every untouched
+    # column is Task 7 Step 4 (on the copy) and Task 8 Step 4 (live).
+    sampled = sorted(untouched_baseline)
+    after: dict[str, Mapping[str, Any]] = {}
+    for start in range(0, len(sampled), batch_size):
+        ids = sampled[start:start + batch_size]
+        for row in store.scan(table, PLAN_COLUMNS, where=_in_list(ids)):
+            after[str(row["chunk_id"])] = row
+    for chunk_id in sampled:
+        before, now = untouched_baseline[chunk_id], after.get(chunk_id)
         if now is None:
-            raise RuntimeError(f"{chunk_id}: was never supposed to change and is GONE after the write")
+            raise RuntimeError(
+                f"{chunk_id}: was never supposed to change and is GONE after the write"
+            )
         for col in ("text", "section_path", "is_table", "doc_id"):
             if _norm(now.get(col)) != _norm(before.get(col)):
                 raise RuntimeError(
-                    f"{chunk_id}: was never supposed to change but its {col!r} drifted; "
-                    "restore from the snapshot this pass just took"
+                    f"{chunk_id}: was never supposed to change but its {col!r} changed "
+                    "during the write"
                 )
-    progress(f"verified {seen} changed rows in full, {len(untouched)} untouched rows sampled")
+    progress(f"verified {seen} changed rows in full, {len(sampled)} untouched rows sampled")
 
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
+    """tmp + replace, through the share's retry (`store/fs.py`).
+
+    `Path.replace` is an unconditional POSIX rename. This record is written
+    to the shared drive, where another PC's open handle turns a rename into a
+    sharing violation and `replace_with_retry` -- the one implementation the
+    job files, documents.json and the ingest lock all go through -- waits it
+    out and cleans up the `.tmp` if it never clears. `ensure_ascii=False`
+    keeps a section heading's real characters readable to whoever may have to
+    replay this file by hand.
+    """
+    from store.fs import replace_with_retry
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    replace_with_retry(tmp, path)
 
 
 def repair_section_paths(
@@ -465,16 +634,62 @@ def repair_section_paths(
     with lock:
         snapshot = snapshot_and_verify()
         progress(f"snapshot: {snapshot}")
-        _write_changed_rows(store, table, changes, embedder, batch_size, progress)
-        _verify_nothing_was_lost(store, table, changes, before_by_id, progress)
-        # Re-added rows are invisible to BM25 until the index is rebuilt --
-        # the ingest contract funds/unstamp.py had to learn the hard way.
-        store.build_fts_index(table)
-        store.optimize(table)
-        progress("full-text index rebuilt and table optimized")
 
-    stamp = _reversal_stamp()
-    path = Path(reversal_dir) / f"section-path-reversal-{table}-{stamp}.json"
-    _atomic_write_json(path, {"table": table, "snapshot": snapshot, "rows": result.reversal})
-    progress(f"reversal record: {path}")
+        # The reversal record goes in AFTER the snapshot and BEFORE the first
+        # row moves -- `identity/relabel.py`'s order, and the reason is the
+        # failure it protects against. It is computed at PLAN time, so
+        # nothing about it needs the write to have happened; writing it last
+        # (the first version) meant that a crash, a lost share or a killed
+        # process anywhere in the write left the corpus half-rewritten with
+        # no row-level undo at all -- only a whole-corpus snapshot restore,
+        # which also throws away every upload since. Both paths are printed
+        # before any row moves so an operator has them in scrollback even if
+        # the process dies without ever returning.
+        stamp = _reversal_stamp()
+        reversal_path = Path(reversal_dir) / f"section-path-reversal-{table}-{stamp}.json"
+        progress(f"reversal record: {reversal_path}")
+        _atomic_write_json(
+            reversal_path,
+            {"table": table, "snapshot": snapshot, "rows": result.reversal},
+        )
+
+        changed_ids = {c.chunk_id for c in changes}
+        untouched_baseline = _untouched_baseline(
+            store, table, before_by_id, changed_ids, batch_size, progress
+        )
+
+        state = _WriteState(snapshot=snapshot, reversal_path=reversal_path)
+        failure: Exception | None = None
+        try:
+            written = _write_changed_rows(
+                store, table, changes, embedder, batch_size, progress, state
+            )
+            _verify_nothing_was_lost(
+                store, table, changes, written, untouched_baseline, batch_size, progress
+            )
+        except Exception as exc:  # noqa: BLE001 -- re-raised below, enriched
+            failure = exc
+        finally:
+            # Re-added rows are invisible to BM25 until the index is rebuilt
+            # -- the ingest contract funds/unstamp.py had to learn the hard
+            # way. WHY it runs on the failure path too: once any batch has
+            # landed, the rows exist and search must be consistent with them.
+            # Leaving the index un-rebuilt while the rows are already written
+            # (the first version, which skipped the rebuild whenever
+            # verification raised) means every analyst's keyword search
+            # silently misses those passages until somebody notices -- a
+            # worse state than the one that raised. The rebuild is idempotent
+            # and does not write chunk data.
+            if state.rows_written:
+                store.build_fts_index(table)
+                store.optimize(table)
+                state.index_rebuilt = True
+                progress("full-text index rebuilt and table optimized")
+        if failure is not None:
+            # Composed HERE, after the `finally`, so it can state whether the
+            # index really was rebuilt rather than what was true when the
+            # error was raised. Every failure past this point reaches the
+            # operator carrying both restore points and how much landed.
+            raise RuntimeError(f"{failure} -- {state.hint()}") from failure
+
     return result
