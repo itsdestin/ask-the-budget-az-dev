@@ -1,5 +1,7 @@
 # JLBC Search
 
+> **Developer notes.** If you are an analyst installing JLBC Search, read `docs/QUICKSTART.md` instead — everything below assumes a development checkout.
+
 A Q&A tool over Arizona state budget documents — JLBC Appropriations Reports, Baseline Books, AGAO Annual Financial Reports, and the Governor's Executive Budget proposals.
 
 **Audience:** JLBC staff and fiscal analysts (initially). Public-facing access is a possible Phase 4, gated on internal trust metrics.

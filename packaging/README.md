@@ -3,7 +3,10 @@
 Everything in this folder produces one artefact: `dist/JLBC-Search-<version>.zip`.
 Double-clicking `Install-JLBC-Search.cmd` on the USB, next to the zip, is the
 entire install — no admin rights, no Python on the machine, no Java on the
-machine, and no downloads the first time it runs.
+machine, and no downloads the first time it runs. It installs into
+`%LOCALAPPDATA%\JLBC-Search\program\`; `%LOCALAPPDATA%\JLBC-Search\` itself
+holds only per-machine data (`machine.json`, `logs\`, `running.json`,
+`mineru.json`, `conversations\`, `documents\`).
 
 | File | What it is |
 |---|---|
