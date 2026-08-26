@@ -9,6 +9,7 @@ unit tests.
 | `odl-afr-p163.json` | OpenDataLoader-PDF v2.4.1 per-page output (`<out>/page-N.json`) | Exercises ODLReader: heading hierarchy (Doctitle→H1→H2), paragraph in section, nested-cell table, image block |
 | `mineru-jlbc-approps-p513.json` | MinerU 3.x `_content_list.json` | Exercises MinerU reader: text_level→heading, HTML table parsing, multi-page table reassembly |
 | `docx-sb1735-sample.json` | python-docx output of `scripts/run_docx_ingest.py` | Exercises DOCX reader: bill heading parsing, SEC 06-* style detection, A.R.S. capture |
+| `odl-gov-toc-slice/` | OpenDataLoader-PDF per-page output, pages 2 + 10 of `governor-governors-budget-fy2026` (a public document) | The real contents-page-captures-every-table defect (spec 2026-08-26): page 2 is the `Table of Contents` heading plus every agency name as paragraphs; page 10 is one agency's heading and its budget table. Two files, read as a directory. Untrimmed. |
 
 **Synthetic ≠ real.** Phase 0 source PDFs and DOCX (in
 `samples/raw-pdfs/` / `samples/raw-docx/`) are gitignored and not present in
