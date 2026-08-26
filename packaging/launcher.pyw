@@ -6,15 +6,17 @@ Run by a Start-Menu or Desktop shortcut as `python\\pythonw.exe launcher.pyw`.
 Behaviour, in order:
   1. If running.json names a port that answers /health with OUR body, open a
      window at it and exit — whatever port that is, so a server that had to
-     fall back is reused too. If the recorded pid is alive but not answering
-     yet, wait for it: that is a second click during a slow start, not a
-     second server.
+     fall back is reused too. If that record is FRESH (started under 180 s
+     ago) and its pid is alive, wait for it: that is a second click during a
+     slow start, not a second server. A stale record is ignored — Windows
+     recycles pids, so an old one can name a stranger.
   2. Otherwise take port 9300 if it is free. The BIND is the single-instance
      lock; a stranger holding 9300 costs one fallback port and nothing else.
   3. Start uvicorn *in this process* and record the port and pid.
-  4. Wait up to 180 s for /health. On timeout, show a message box saying it is
-     still starting and naming the log file — never a traceback (nobody here
-     can read one).
+  4. Wait up to 180 s for /health. On timeout, show a message box saying it
+     is still starting and naming the log file; if the server CRASHED, say so
+     instead and name the same file — never a traceback (nobody here can read
+     one), and never "try again" for a fault that will just repeat.
   5. Open the UI as an ordinary browser tab: Chrome, else Edge, else whatever
      the default browser is. Deliberately NOT Chrome's --app mode — see
      open_window() for why that was reversed.
@@ -111,12 +113,19 @@ def prepare_environment() -> None:
 
 
 def write_mineru_config(install_dir: Path, target: Path) -> None:
+    # tmp + os.replace, exactly like record_port below. This file is shared
+    # state: a MinerU child process reads it, and a plain write_text is
+    # briefly a truncated file on disk. Rewriting it on EVERY start means
+    # that window comes round every launch, so it has to be atomic.
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({
+    payload = json.dumps({
         "models-dir": {"pipeline": str(install_dir / "models" / "mineru"), "vlm": ""},
         "model-source": "local",
         "config_version": "1.3.2",
-    }, indent=2), encoding="utf-8")
+    }, indent=2)
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    os.replace(tmp, target)
 
 
 # ---------------------------------------------------------------------------
@@ -174,18 +183,49 @@ def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
+    except PermissionError:
+        # The process exists and belongs to another user — alive, not dead.
+        # Reporting it dead would start a second server beside a live one.
+        return True
     except OSError:
         return False
 
 
-def recorded() -> tuple[int, int] | None:
-    """(port, pid) from running.json, or None. A missing or corrupt file
-    means 'no server', not a crash."""
+def recorded() -> dict | None:
+    """{"port", "pid", "started_at"} from running.json, or None. A missing or
+    corrupt file means 'no server', not a crash."""
     try:
         d = json.loads(RUNNING_FILE.read_text(encoding="utf-8"))
-        return int(d["port"]), int(d["pid"])
+        return {"port": int(d["port"]), "pid": int(d["pid"]),
+                "started_at": d.get("started_at")}
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def _sibling_worth_waiting_for(rec: dict) -> bool:
+    """Is the recorded server plausibly still STARTING, so a second click
+    should wait for it rather than start its own?
+
+    WHY the age bound, and why `_pid_alive` alone is not enough: an unclean
+    shutdown (a kill, a crash, a power cut) leaves running.json on disk with
+    a pid nobody owns any more, and Windows RECYCLES pids — so the next click
+    can find that pid alive, belonging to a total stranger, and poll it for
+    the full three minutes with no window and no message. `started_at` is
+    what separates the two: a server that has not answered /health within
+    HEALTH_TIMEOUT_S of its own recorded start is not "still starting" by
+    this launcher's own definition, so the record is stale whoever holds
+    that pid now. A record with no stamp is pre-2026-08-25 and unjudgeable —
+    treat it as stale; the cost is one extra server on a fallback port, and
+    the cost of the other mistake is a three-minute silent hang.
+    """
+    started = rec.get("started_at")
+    if not isinstance(started, str):
+        return False
+    try:
+        age = (datetime.now() - datetime.fromisoformat(started)).total_seconds()
+    except ValueError:
+        return False
+    return age < HEALTH_TIMEOUT_S
 
 
 def record_port(port: int) -> None:
@@ -199,6 +239,14 @@ def record_port(port: int) -> None:
 def log_path_for_today() -> Path:
     """The log file this run writes to. One per day, appended."""
     return LOG_DIR / f"server-{datetime.now():%Y-%m-%d}.log"
+
+
+# Set the moment stdout/stderr are redirected. NOT `log_path.exists()`: the
+# log is one file per DAY, so a successful run at 9am makes that file exist
+# for every later failure, and the exception line — the only detail a crash
+# BEFORE redirection ever produces — would be suppressed exactly when it is
+# the only evidence there is.
+_LOGGED = False
 
 
 # ---------------------------------------------------------------------------
@@ -266,13 +314,14 @@ def main() -> int:
         log_path = log_path_for_today()
         text = (f"{APP_NAME} could not start.\n\n"
                 f"Send this file to support:\n{log_path}")
-        if not log_path.exists():
+        if not _LOGGED:
             text += f"\n\n{type(exc).__name__}: {exc}"
         message_box(text)
         return 1
 
 
 def _main() -> int:
+    global _LOGGED
     prepare_environment()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = log_path_for_today()
@@ -281,11 +330,11 @@ def _main() -> int:
     #    on WHATEVER port it recorded, so a fallback-port server is reused too.
     rec = recorded()
     if rec is not None:
-        port, pid = rec
+        port, pid = rec["port"], rec["pid"]
         if health_json(port) is not None:
             open_window(port)
             return 0
-        if _pid_alive(pid):
+        if _sibling_worth_waiting_for(rec) and _pid_alive(pid):
             # Our own sibling is mid-start (a second click). Wait for IT —
             # never for a stranger: a foreign process on the port has a
             # different pid, or no running.json at all.
@@ -300,8 +349,10 @@ def _main() -> int:
         import uvicorn
         from app.main import create_app
     except Exception as exc:  # noqa: BLE001 — the user gets a sentence, the log gets the detail
-        log_path.write_text(f"{datetime.now().isoformat()} startup import failed\n{exc!r}\n",
-                            encoding="utf-8")
+        # Append: this is one file per DAY, and truncating it would destroy
+        # the record of an earlier run on the same day.
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} startup import failed\n{exc!r}\n")
         message_box(
             f"{APP_NAME} could not start.\n\n"
             f"Send this file to support:\n{log_path}"
@@ -324,6 +375,7 @@ def _main() -> int:
     log_file = open(log_path, "a", encoding="utf-8", buffering=1)
     sys.stdout = log_file
     sys.stderr = log_file
+    _LOGGED = True
     print(f"\n=== {datetime.now().isoformat()} starting on port {port} ===")
 
     server_error: list[BaseException] = []
@@ -346,7 +398,13 @@ def _main() -> int:
     deadline = time.monotonic() + HEALTH_TIMEOUT_S
     while time.monotonic() < deadline:
         if server_error:
-            break
+            # A crash is not slowness. The timeout box says "wait a minute,
+            # then click the icon again" — for a crash that repeats the same
+            # crash forever and never tells anyone to send the log. serve()
+            # has already written the traceback to log_path.
+            message_box(f"{APP_NAME} could not start.\n\n"
+                        f"Send this file to support:\n{log_path}")
+            return 1
         body = health_json(port)
         if body is not None:
             print(f"=== serving on {port}; search provider: {body.get('provider')} ===")

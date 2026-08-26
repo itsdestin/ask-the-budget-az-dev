@@ -127,6 +127,18 @@ if exist "%INSTALL_DIR%\launcher.pyw" if exist "%INSTALL_DIR%\VERSION" (
     echo   Removing the previous version...
     rmdir /s /q "%INSTALL_DIR%"
 )
+rem  rmdir fails and says nothing when Windows is still holding
+rem  python312.dll - the stop step above was skipped, or 2 s was not long
+rem  enough for taskkill to release it. tar then fails and the message
+rem  below blamed the USB drive, which is never the cause of THAT. Name
+rem  the real one instead, while it is still fixable by closing the app.
+if exist "%INSTALL_DIR%\python\python.exe" (
+    echo.
+    echo   JLBC Search is still open. Close it, then run this installer again.
+    echo.
+    pause
+    exit /b 1
+)
 mkdir "%INSTALL_DIR%" 2>nul
 echo   Extracting into the install folder (36,000 files; please wait)...
 rem  tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.

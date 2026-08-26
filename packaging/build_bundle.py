@@ -26,7 +26,6 @@ own source tree, so this mirrors the repo root):
       models/
         fastembed/       the two ONNX models, HF cache layout, symlinks resolved
         mineru/          PDF-Extract-Kit-1.0 weights
-        mineru.json      points models-dir.pipeline at ./mineru
         tiktoken/        pre-seeded cl100k_base
       launcher.pyw  QUICKSTART.md  VERSION  MANIFEST.json
 
@@ -188,7 +187,6 @@ REQUIRED_ENTRIES = (
     "webapp/dist/index.html",
     "models/fastembed/models--Snowflake--snowflake-arctic-embed-m",
     "models/fastembed/models--Xenova--ms-marco-MiniLM-L-12-v2",
-    "models/mineru.json",
     "models/tiktoken",
     "launcher.pyw",
     "QUICKSTART.md",
@@ -460,17 +458,11 @@ def step_models(out: Path, cache: Path) -> None:
         raise SystemExit(f"MinerU pipeline weights not found at {mineru_src}")
     snap = next((mineru_src / "snapshots").iterdir())
     _copy_resolving_symlinks(snap, out / "models" / "mineru")
-    # MinerU reads models-dir.pipeline out of this file; the launcher points
-    # MINERU_TOOLS_CONFIG_JSON at it as an absolute path
-    # (mineru/utils/config_reader.py:17-22). The path is rewritten at install
-    # time by Install-JLBC-Search.cmd (install.cmd deleted 2026-08-25, spec S1),
-    # because it must be absolute and the install location is not known at
-    # build time.
-    (out / "models" / "mineru.json").write_text(json.dumps({
-        "models-dir": {"pipeline": "__INSTALL_DIR__/models/mineru", "vlm": ""},
-        "model-source": "local",
-        "config_version": "1.3.2",
-    }, indent=2))
+    # No mineru.json is shipped: the launcher writes it into the state dir at
+    # every start, from the real install path (2026-08-25). A placeholder here
+    # was a trap for anyone setting JLBC_MINERU_MODELS — mineru_runner reads
+    # <models>/mineru.json when that variable is set, and would have found a
+    # literal __INSTALL_DIR__ path.
     _log("models  MinerU pipeline weights copied")
 
     tk = out / "models" / "tiktoken"

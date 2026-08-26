@@ -3,7 +3,9 @@ used to (a .pyw is not importable by spec)."""
 from __future__ import annotations
 
 import json
+import re
 import socket
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -87,3 +89,67 @@ def test_health_json_rejects_a_foreign_ok_true(launcher, monkeypatch):
 
 def test_timeout_is_three_minutes(launcher):
     assert launcher["HEALTH_TIMEOUT_S"] == 180
+
+
+# ---------------------------------------------------------------------------
+# Which recorded server is worth waiting three minutes for
+# ---------------------------------------------------------------------------
+def test_a_stale_running_json_is_not_waited_on(launcher):
+    """An unclean shutdown leaves running.json behind, and Windows recycles
+    pids — so a live pid is NOT evidence that our own server is starting.
+    Only a fresh `started_at` is."""
+    worth = launcher["_sibling_worth_waiting_for"]
+    hour_old = (datetime.now() - timedelta(hours=1)).isoformat()
+    assert worth({"port": 9300, "pid": 4321, "started_at": hour_old}) is False
+
+
+def test_a_server_that_started_seconds_ago_is_waited_on(launcher):
+    worth = launcher["_sibling_worth_waiting_for"]
+    fresh = (datetime.now() - timedelta(seconds=5)).isoformat()
+    assert worth({"port": 9300, "pid": 4321, "started_at": fresh}) is True
+
+
+def test_a_record_with_no_or_unreadable_timestamp_is_not_waited_on(launcher):
+    worth = launcher["_sibling_worth_waiting_for"]
+    assert worth({"port": 9300, "pid": 4321}) is False
+    assert worth({"port": 9300, "pid": 4321, "started_at": None}) is False
+    assert worth({"port": 9300, "pid": 4321, "started_at": "not a date"}) is False
+
+
+def test_recorded_carries_the_start_time(launcher, tmp_path):
+    """`started_at` is what the wait decision reads; recorded() must pass it on."""
+    running = launcher["RUNNING_FILE"]
+    running.parent.mkdir(parents=True, exist_ok=True)
+    running.write_text(json.dumps({"port": 9301, "pid": 42, "started_at": "2026-08-25T09:00:00"}))
+    assert launcher["recorded"]() == {"port": 9301, "pid": 42,
+                                      "started_at": "2026-08-25T09:00:00"}
+
+
+# ---------------------------------------------------------------------------
+# Spec 2.5 wording — final copy, pinned so a later edit fails a test
+# ---------------------------------------------------------------------------
+LAUNCHER_SRC = SRC.read_text(encoding="utf-8")
+INSTALLER_SRC = (REPO / "packaging" / "Install-JLBC-Search.cmd").read_text(encoding="utf-8")
+
+
+def _as_rendered(src: str) -> str:
+    """The launcher's source with the two things that split a message box's
+    sentence removed: the `\\n` escapes, and the quote/f-quote join between
+    adjacent string literals. What is left is what the box shows."""
+    return " ".join(re.sub(r'"\s*f?"', "", src.replace("\\n", " ")).split())
+
+
+@pytest.mark.parametrize("sentence", [
+    "is still starting. Wait a minute, then click the icon again.",
+    "could not start. Send this file to support:",
+])
+def test_the_launcher_keeps_its_final_wording(sentence):
+    assert sentence in _as_rendered(LAUNCHER_SRC), f"2.5 wording changed: {sentence!r}"
+
+
+@pytest.mark.parametrize("sentence", [
+    "The install didn't finish. Run this installer again.",
+    "JLBC Search is still open. Close it, then run this installer again.",
+])
+def test_the_installer_keeps_its_final_wording(sentence):
+    assert sentence in INSTALLER_SRC, f"§2.5 wording changed: {sentence!r}"
