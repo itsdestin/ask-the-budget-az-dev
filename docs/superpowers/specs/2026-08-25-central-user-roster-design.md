@@ -1,8 +1,8 @@
 # Central user roster — design
 
 **Date:** 2026-08-25 (revised same day after review)
-**Status:** **SHIPPED 2026-08-26** (branch `user-roster`; merge pending a
-fix pass on three Important defects found at final review — see
+**Status:** **SHIPPED AND MERGED 2026-08-26** — merge `9bad6db` on master. The
+plan is executed; deviations are recorded in STATUS.md's "Central user roster" section.
 STATUS.md → "Central user roster"). Design approved by Destin; spec
 revised after review; UI shape approved from the mockup 2026-08-25
 (G-U0 passed); G-U1–G-U3 executed live and passed.
@@ -136,7 +136,7 @@ saying so on screen is the honest version.
 **Scope of the fold is the app's own comparisons only.** The ledger keeps
 writing the observed username verbatim (an accounting record must not
 rewrite what it saw); the fold happens when the People panel groups those
-rows. `harness/settings.py` implements U0 as a self-contained three-line
+rows. `harness/settings.py` implements U0 as a self-contained one-line
 fold with no new import — **Invariant 7 unchanged**.
 
 **Amended 2026-08-26 (final review): the fold also has to reach the CAP
@@ -556,8 +556,8 @@ the second for its stray-limit notice. What that approval fixes:
 | `app/identity.py` | Re-exports `current_user` from `users.whoami` so no existing caller changes. `is_admin` compares under U0. `display_name()` gains the cached, fail-fast roster source (U6). | + `users.registry` |
 | `ingest/{jobs,claim,lock}.py` | Their three private `_current_user()` copies are replaced by `users.whoami.current_user`. **Behaviour note:** those copies fell back to the string `"unknown"`; the resolver falls back to `""`. The three call sites keep `or "unknown"` so job records, claim files and the lock owner read the same in Notepad as before — the only change is that `JLBC_USER` is now honoured there too. | + `users.whoami` |
 | `app/routes/admin.py` | `GET /api/admin/users` (merged payload). `/api/me` gains the background touch. `PUT /api/me/display-name` writes both stores. `PUT /api/admin/settings` accepts `hidden_users`. | + `users.registry` |
-| `harness/settings.py` | `hidden_users` field; `limit_for` folds per U0 with a three-line self-contained fold. No new import. | unchanged |
-| `webapp/src/admin/PeoplePanel.tsx` (new) | The one table, the sort, the per-row limit control, hide/unhide (a settings write), the status column. | `api.ts` |
+| `harness/settings.py` | `hidden_users` field; `limit_for`/`is_exempt`/`is_hidden` fold per U0 with a one-line self-contained `fold` (public, also used by `harness/ledger.py::month_total`). No new import. | unchanged |
+| `webapp/src/admin/PeoplePanel.tsx` (new) | The one table, the sort, the per-row limit control (read from the settings DRAFT), hide/unhide (a settings write), the collapsed hidden line. No status column. | `api.ts` |
 | `webapp/src/admin/{AdvancedPanel,ProviderPanel}.tsx` | Typed boxes → picker; per-person limit rows deleted. | `api.ts` |
 
 **`users/` is a new top-level package**, matching `funds/`, `citation/`,

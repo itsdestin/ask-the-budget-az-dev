@@ -106,6 +106,7 @@ One repo, one process. Every directory here is live code.
 | `ingest/` | GUI ingest queue — jobs, SMB-safe lock, worker, MinerU runner, LanceDB writer |
 | `chunking/` | Per-publisher extractors + chunkers, entity stamper, agency catalog loader |
 | `funds/` | Fund catalog + parser (corpus-side fund resolution) |
+| `users/` | Who is running this process (`whoami.py`, the ONE username resolver + same-person rule) and the shared roster of people who have opened the app (`registry.py`, one JSON file per person under `<data_dir>/users/`, written only by that person's own machine). Admin decisions about people (limits, no-limit, hidden) stay in `settings.json` |
 | `primer/` | Domain primer/glossary tooling + fiscal-note chunker |
 | `eval/` | Layer 1 retrieval eval, Layer 2 agent eval, calibration sweeps |
 | `packaging/` | Windows bundle builder + launcher |

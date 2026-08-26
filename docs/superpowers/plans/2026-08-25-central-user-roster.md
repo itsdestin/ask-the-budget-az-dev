@@ -1,5 +1,14 @@
 # Central User Roster Implementation Plan
 
+> **⚠ EXECUTED 2026-08-25/26 — DO NOT RE-RUN.** Merged to master as `9bad6db`.
+> This file is the record of design intent. What was actually built differs
+> in places found by execution and review — the casefold guard is scoped to
+> app/, harness/, ingest/, users/; `harness/settings.py` exports `fold` and
+> `harness/ledger.py::month_total` folds too; the People row's limit control
+> reads the settings draft, not the server row; a client-side `samePerson`
+> helper replaces the inline `toLowerCase()` folds; the hand-over picker has
+> a loading state — all recorded in STATUS.md's "Central user roster" section.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Record every person who opens the app in a shared roster, show the admin real names and spend in a People panel, and replace every typed-username box with a dropdown — with ONE rule deciding when two usernames are the same person.
