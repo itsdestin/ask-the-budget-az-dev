@@ -1,5 +1,11 @@
 # Windows Beta Fixes Implementation Plan
 
+> **EXECUTED 2026-08-25 — merged to master as `cf2fb3b`. Do not re-run.** Every task
+> is done; the code blocks below were sketches and several were corrected during
+> execution (STATUS.md → "Windows beta fixes" records what actually shipped and what
+> the reviews changed). The Windows acceptance run is the only open item.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the Windows bundle actually work for the 3-person beta — MinerU launches, titles and links render, installers run, upgrades are safe, a bad share pointer is fixable on screen — and fix the three app bugs the audit verified.

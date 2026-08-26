@@ -194,13 +194,15 @@ repair screens in headless Chrome; the four Windows-only strings (launcher
 still-starting / could-not-start, installer still-open / didn't-finish) have
 never been seen rendered.
 
-**Acceptance is on Destin's laptop, and the installer gets exactly two
-runs before any beta PC sees it:** rebuild
+**Acceptance is on Destin's laptop:** rebuild
 (`uv run python packaging/build_bundle.py --version 0.9.2`), copy the zip
-and `dist/Install-JLBC-Search.cmd` to the USB, run the installer **over the
-existing 0.9.1 install** (upgrade path: server stopped, old root layout
-cleaned, chats intact) and then **again over the result** (re-install
-path: `program\` replaced, `machine.json` untouched). Then spec §5: the
+and `dist/Install-JLBC-Search.cmd` to the USB, run the installer ONCE over
+the existing 0.9.1 install (that is the upgrade path: server stopped, old
+root layout cleaned, chats intact). Running it a second time over the
+result is OPTIONAL — a two-minute rehearsal of the path every future
+version bump takes (`program\` replaced, `machine.json` untouched); the
+beta PCs themselves take a third path, a fresh install into an empty
+folder, which the first beta PC is the test of. Then spec §5: the
 `program\` layout and shortcuts; Budget Documents showing titles, Open
 links **and real rows through the normalised UNC pointer** (if LanceDB
 refuses `\\bcpool\…`, the fallback is a mapped drive letter — record it);
