@@ -656,7 +656,7 @@ export interface Me {
   /** A reset file is waiting to be used up by the next claim. */
   admin_reset_pending: boolean;
   /** The name printed on documents this analyst generates. Resolved by the
-   *  SERVER (per-machine override > Windows > username, see
+   *  SERVER (roster typed name > per-machine override > Windows > username, see
    *  `app/identity.py::display_name`) so the Settings field shows the same
    *  string the memo will carry — a client-side guess could disagree with it.
    *

@@ -29,6 +29,7 @@ from harness.settings import (
 )
 from store.config import data_dir
 
+from users import registry
 from users.whoami import USER_ENV_VAR, current_user, same_person  # noqa: F401 — re-exported
 
 # `current_user` MOVED to users/whoami.py (2026-08-25, spec U0) so that
@@ -97,8 +98,6 @@ def display_name(user: str | None = None) -> str:
     """
     resolved = current_user() if user is None else user
     try:
-        from users import registry  # local import: keeps identity importable by store.config's lazy import chain
-
         shared = registry.typed_name(resolved)
     except Exception:  # noqa: BLE001 — the fallback below IS the handling
         shared = ""

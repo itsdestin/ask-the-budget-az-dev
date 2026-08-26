@@ -278,8 +278,16 @@ share read there, contradicting U4. So:
 `PUT /api/me/display-name` writes the roster **and** the local machine
 file. Writing both is not redundancy: the local copy is the offline
 fallback. If the roster write fails, the local write still succeeds and
-the endpoint still returns 200 — the analyst's memo is correct on the
-machine they are sitting at, which is the thing they asked for.
+the endpoint still returns 200 — but the response is whatever
+`display_name()` resolves at that moment, not necessarily the name just
+typed, because `display_name()` reads the roster first. If a roster row
+with a typed name already exists and only this roster write fails, the
+response carries the PREVIOUS roster name — the ladder is telling the
+truth about what a memo generated on this machine WILL print (the roster
+name, whenever the share can be read). The Settings page renders the
+returned value, so the analyst sees the save did not fully take and can
+retry once the share is back, rather than being told a name took effect
+that the roster does not actually hold. (Found in review, 2026-08-25.)
 
 **Known limit, accepted:** a name typed on two different PCs before this
 ships can leave the roster and one local file disagreeing; online the

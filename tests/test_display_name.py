@@ -163,3 +163,23 @@ def test_saving_a_name_still_succeeds_when_the_roster_write_fails(monkeypatch):
     r = client.put("/api/me/display-name", json={"display_name": "Danielle Moss"})
     assert r.status_code == 200
     assert r.json()["display_name"] == "Danielle Moss"
+
+
+def test_a_failed_roster_save_echoes_the_name_that_will_actually_print(monkeypatch):
+    """Reproduced in review: with a roster typed name already stored, a save
+    whose roster half fails must NOT claim the new name took. The response is
+    what display_name() resolves — the previous roster name — so the Settings
+    page shows the truth and the analyst can retry."""
+    from users import registry
+    registry.set_typed_name(identity.current_user(), "Destin J")
+
+    def boom(*a, **k):
+        raise OSError("read-only share")
+
+    monkeypatch.setattr(registry, "set_typed_name", boom)
+    client = TestClient(create_app(provider=StubSearchProvider()))
+    r = client.put("/api/me/display-name", json={"display_name": "Destin Jarrett"})
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "Destin J"
+    # The local file DID take, so this machine's offline fallback is the new name.
+    assert machine_config.read_display_name(identity.current_user()) == "Destin Jarrett"

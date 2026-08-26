@@ -239,7 +239,16 @@ def set_my_display_name(body: DisplayNameBody) -> dict:
     Writes BOTH stores (spec U6): the local machine file first — it is the
     offline fallback and the thing the analyst sitting here asked for — then
     the shared roster. A roster failure is logged and the request still
-    returns 200 with the name that WILL print on this machine's memos.
+    returns 200, but NOT necessarily with the name just typed: the response
+    is whatever `display_name()` resolves at that moment, and `display_name()`
+    reads the roster FIRST. If a roster row with a typed name already exists
+    and only this roster write fails, that means the PREVIOUS roster name —
+    not the new one — because the ladder is still telling the truth about
+    what a memo generated on this machine WILL print (the roster name,
+    whenever the share can be read). The Settings page renders the returned
+    value, so the analyst sees the save did not fully take and can retry
+    once the share is back, rather than being told a name took effect that
+    the next machine to read the share will not see.
     """
     user = current_user()
     machine_config.set_display_name(user, body.display_name)
