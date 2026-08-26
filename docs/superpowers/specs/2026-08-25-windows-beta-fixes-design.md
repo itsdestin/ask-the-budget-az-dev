@@ -318,6 +318,60 @@ nothing. Replaced:
 on the next search and the store reset was called; `Repair.test.tsx` asserts the new
 copy and the retry button.
 
+### 2.5 A folder picker, and the minimum of words (Destin, at the checkpoint, 2026-08-25)
+
+Seen rendered, the repair screen was judged *"too complicated for no reason"*: typing
+an address where a picker would do, and explanation where a sentence would do.
+**This section supersedes every sentence in §2.3, §2.4 and §3.3 that it re-words.**
+
+**The picker.** A web page cannot learn a folder's real address from the browser
+(the browser withholds it), but the server runs on the same PC, so it opens the
+real Windows *Browse for Folder* dialog itself. `app/folder_picker.py`:
+`supported() -> bool` (`os.name == "nt"`), `pick_folder() -> str | None` — runs
+`powershell -NoProfile -ExecutionPolicy Bypass -STA -Command …` with
+`System.Windows.Forms.FolderBrowserDialog` (`RootFolder = MyComputer`, no
+new-folder button, owner form `TopMost` so the dialog is not lost behind the
+browser), UTF-8 console output, `CREATE_NO_WINDOW`, 5-minute timeout; `None` on
+Cancel. One dialog at a time (a module lock; a second request gets 409).
+`POST /api/config/pick-folder` → `{"supported": bool, "path": str | None}` — the
+pick is NOT saved by that route; the page then submits it through the existing
+validate-and-save route, so nothing bypasses §2.2. `GET /api/health/detail` gains
+`"can_pick": supported()`. On Linux the button is simply absent.
+
+**Repairable rungs.** `can_repair` is true for `machine_config`, `share`, and the
+`corpus` rung's *no-tables* case (the wrong-parent-folder mistake — exactly what a
+picker fixes); the corpus *can't-open* and *different-version* cases stay
+non-repairable. `_check_corpus` marks its no-tables result with the constant
+`FIX_CHOOSE_AGAIN` so `health_detail` needs no string matching.
+
+**The words.** Every row replaces the earlier wording; nothing else on these
+screens is added.
+
+| where | text |
+|---|---|
+| repair heading | JLBC Search needs the budget folder |
+| corrupt pointer | The saved location couldn't be read. |
+| fresh install (no pointer) | No location is set on this computer yet. |
+| drive not connected | Can't find *X*. Check the network drive is connected, or choose the folder again. |
+| pointer is a file | *X* is a file, not a folder. |
+| folder has no data (repairable) | *X* has no JLBC Search data in it. / fix: Choose the folder again. |
+| folder can't be opened | JLBC Search can't open the data in *X*. Ask whoever maintains it. |
+| different version | That data was made by a different version of JLBC Search. Ask whoever maintains it to re-copy it. |
+| form | **[Choose folder…]** · *or type its location:* [box] · **Use this folder** · Check again |
+| while the dialog is open | Waiting for the folder window… |
+| saved | Saved. Click **Check again**. |
+| `MSG_NO_CORPUS` | That's not it — the budget folder has a folder named "lancedb" inside. |
+| `MSG_CANT_OPEN` | JLBC Search can't open the data in that folder. Try choosing it with the button. |
+| `MSG_DIFFERENT_INDEX` | That data was made by a different version of JLBC Search. Ask whoever maintains it to re-copy it. |
+| sample-results note | Sample results only — JLBC Search can't reach the budget folder right now. |
+| launcher, still starting | JLBC Search is still starting. Wait a minute, then click the icon again. *(second line:)* If it still won't open, send this file to support: *path* |
+| launcher, failed | JLBC Search could not start. Send this file to support: *path* |
+| installer, running copy | JLBC Search is running and must be stopped to upgrade. Press any key to stop it. (An upload in progress will start over afterwards.) |
+| installer, incomplete | The install didn't finish. Run this installer again. |
+
+The `lancedb` name survives in exactly one sentence — the wrong-folder refusal —
+because it is the one concrete thing an analyst can look for in File Explorer.
+
 ---
 
 ## 3. The three app bugs (Tier 2)

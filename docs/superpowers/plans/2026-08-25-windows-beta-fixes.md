@@ -1642,6 +1642,313 @@ Send the screenshots with `SendUserFile`, and paste — verbatim, in the same me
 
 ---
 
+### Task 10b: A folder picker, and the minimum of words (spec §2.5)
+
+Added at the Task 10 checkpoint, 2026-08-25: Destin judged the rendered repair
+screen "too complicated for no reason". Every sentence in this task comes from the
+spec §2.5 table — use it verbatim; add no other text.
+
+**Files:**
+- Create: `app/folder_picker.py`, `tests/test_folder_picker.py`
+- Modify: `app/main.py` (new route + `can_pick`), `app/health.py` (sentences, `FIX_CHOOSE_AGAIN`, `can_repair`), `app/machine_config.py` (the three `MSG_*` constants), `webapp/src/api.ts`, `webapp/src/pages/Repair.tsx`, `webapp/src/pages/Search.tsx`, `webapp/src/HealthGate.test.tsx`, `webapp/src/pages/Search.test.tsx`, `tests/test_health_ladder.py`, `tests/test_machine_config.py` (only if an assertion pins old wording)
+
+**Interfaces:**
+- Produces: `app.folder_picker.supported() -> bool`, `pick_folder(timeout_s: float = 300) -> str | None`, `class PickerBusy(RuntimeError)`; `POST /api/config/pick-folder` → `{"supported": bool, "path": str | None}` (409 when a dialog is already open); `GET /api/health/detail` → adds `"can_pick": bool`; `app.health.FIX_CHOOSE_AGAIN = "Choose the folder again."`; `api.pickFolder(): Promise<{supported: boolean; path: string | null}>`; `HealthReport.can_pick`.
+
+- [ ] **Step 1: Write the failing backend tests**
+
+`tests/test_folder_picker.py`:
+
+```python
+"""The Windows Browse-for-Folder dialog, driven from the server (spec §2.5).
+
+A web page cannot learn a folder's real address; the server runs on the same
+PC and can. Everything here is faked — the suite must never open a dialog."""
+from __future__ import annotations
+
+import os
+import subprocess
+
+import pytest
+
+from app import folder_picker
+
+
+def test_unsupported_off_windows(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    assert folder_picker.supported() is False
+
+
+def test_supported_on_windows(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    assert folder_picker.supported() is True
+
+
+def _fake_run(stdout: str, returncode: int = 0):
+    def run(cmd, **kw):
+        assert cmd[0] == "powershell" and "-STA" in cmd
+        assert kw.get("encoding") == "utf-8"
+        return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
+    return run
+
+
+def test_pick_returns_the_chosen_path(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(subprocess, "run", _fake_run("\\\\bcpool\\JLBCSearch\r\n"))
+    assert folder_picker.pick_folder() == "\\\\bcpool\\JLBCSearch"
+
+
+def test_cancel_returns_none(monkeypatch):
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(subprocess, "run", _fake_run(""))
+    assert folder_picker.pick_folder() is None
+
+
+def test_a_second_dialog_is_refused_while_one_is_open(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(os, "name", "nt")
+    started, release = threading.Event(), threading.Event()
+
+    def slow(cmd, **kw):
+        started.set()
+        release.wait(5)
+        return subprocess.CompletedProcess(cmd, 0, stdout="C:\\x", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    t = threading.Thread(target=folder_picker.pick_folder)
+    t.start()
+    started.wait(5)
+    with pytest.raises(folder_picker.PickerBusy):
+        folder_picker.pick_folder()
+    release.set()
+    t.join(5)
+
+
+def test_pick_off_windows_returns_none_without_running_anything(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    assert folder_picker.pick_folder() is None
+```
+
+Append to `tests/test_app_reprobe.py` (it already has the isolated app fixtures):
+
+```python
+def test_pick_folder_route_reports_unsupported_off_windows(monkeypatch):
+    app, _ = _app(monkeypatch, [None])
+    client = TestClient(app)
+    r = client.post("/api/config/pick-folder")
+    assert r.status_code == 200
+    assert r.json() == {"supported": False, "path": None}
+
+
+def test_pick_folder_route_returns_the_pick_and_does_not_save_it(monkeypatch, tmp_path):
+    from app import folder_picker
+    from app.machine_config import read_data_dir
+
+    app, _ = _app(monkeypatch, [None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+    monkeypatch.setattr(folder_picker, "pick_folder", lambda: str(tmp_path / "picked"))
+    client = TestClient(app)
+    r = client.post("/api/config/pick-folder")
+    assert r.json() == {"supported": True, "path": str(tmp_path / "picked")}
+    assert read_data_dir() is None  # the page saves through /api/config/data-dir
+
+
+def test_pick_folder_route_409s_while_a_dialog_is_open(monkeypatch):
+    from app import folder_picker
+
+    app, _ = _app(monkeypatch, [None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+
+    def busy():
+        raise folder_picker.PickerBusy()
+
+    monkeypatch.setattr(folder_picker, "pick_folder", busy)
+    assert TestClient(app).post("/api/config/pick-folder").status_code == 409
+
+
+def test_health_detail_reports_can_pick(monkeypatch):
+    from app import folder_picker
+
+    app, _ = _app(monkeypatch, [None])
+    monkeypatch.setattr(folder_picker, "supported", lambda: True)
+    assert TestClient(app).get("/api/health/detail").json()["can_pick"] is True
+```
+
+In `tests/test_health_ladder.py`: update every assertion that pins a sentence this task rewrites (grep for `hasn't been told`, `holds no search index`, `can't be read`, `Delete this file`, `below`) to the §2.5 wording, and change `test_a_lancedb_folder_with_no_tables_fails_the_corpus_rung` to assert `report["can_repair"] is True` and `rung(report, "corpus")["fix"] == "Choose the folder again."`. Add:
+
+```python
+def test_a_corpus_that_cannot_be_opened_is_not_repairable(client, tmp_path, monkeypatch):
+    make_corpus(tmp_path)
+    import store.chunk_store as cs
+
+    def boom(*a, **k):
+        raise ValueError("Invalid input, Failed to connect to namespace")
+
+    monkeypatch.setattr(cs.lancedb, "connect", boom)
+    report = client.get("/api/health/detail").json()
+    assert rung(report, "corpus")["ok"] is False
+    assert report["can_repair"] is False
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+`uv run pytest tests/test_folder_picker.py tests/test_app_reprobe.py tests/test_health_ladder.py -q` → ImportError / 404 / wording assertions red.
+
+- [ ] **Step 3: Backend implementation**
+
+`app/folder_picker.py`:
+
+```python
+"""Open Windows' own Browse-for-Folder dialog from the server (spec §2.5).
+
+WHY the server and not the page: a browser never reveals a folder's real
+address to a web page. The server runs on the analyst's own PC under their
+login, so it can show the dialog and hand the address back — the one thing
+that turns "type \\\\server\\share\\..." into a click.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import threading
+
+_lock = threading.Lock()
+
+# -STA: WinForms dialogs need a single-threaded apartment. The owner form is
+# TopMost so the dialog is not lost behind the browser window (a dialog with no
+# owner opens behind the foreground app).
+_SCRIPT = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true; $owner.ShowInTaskbar = $false; $owner.Opacity = 0
+$owner.Size = New-Object System.Drawing.Size 1,1
+$owner.StartPosition = 'Manual'; $owner.Location = New-Object System.Drawing.Point -32000,-32000
+$owner.Show(); $owner.Activate()
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = 'Choose the JLBC Search budget folder'
+$d.ShowNewFolderButton = $false
+$d.RootFolder = 'MyComputer'
+if ($d.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }
+$owner.Close()
+"""
+
+
+class PickerBusy(RuntimeError):
+    """A dialog is already open; the analyst must answer it first."""
+
+
+def supported() -> bool:
+    return os.name == "nt"
+
+
+def pick_folder(timeout_s: float = 300) -> str | None:
+    """The chosen folder's address, or None if cancelled / unsupported."""
+    if not supported():
+        return None
+    if not _lock.acquire(blocking=False):
+        raise PickerBusy()
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-STA",
+             "-Command", _SCRIPT],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout_s, creationflags=flags,
+        )
+        chosen = (proc.stdout or "").strip()
+        return chosen or None
+    finally:
+        _lock.release()
+```
+
+`app/main.py`: import `from app import folder_picker`; in `create_app` beside the data-dir route:
+
+```python
+    @app.post("/api/config/pick-folder")
+    def pick_folder_route():
+        """Open Windows' folder dialog and return the choice. Does NOT save —
+        the page submits it through /api/config/data-dir so validation
+        (spec §2.2) is never bypassed."""
+        if not folder_picker.supported():
+            return {"supported": False, "path": None}
+        try:
+            return {"supported": True, "path": folder_picker.pick_folder()}
+        except folder_picker.PickerBusy:
+            raise HTTPException(status_code=409, detail="The folder window is already open.")
+```
+
+and in `health_detail_route` add `report["can_pick"] = folder_picker.supported()` before returning (import inside the function is fine).
+
+`app/health.py`: add `FIX_CHOOSE_AGAIN = "Choose the folder again."`; rewrite the sentences per the §2.5 table (`_check_machine_config`: "The saved location couldn't be read." with fix `None`; "No location is set on this computer yet." fix `None`; not-an-object → same as unreadable. `_check_share`: `f"Can't find {root}. Check the network drive is connected, or choose the folder again."` fix `None`; `f"{root} is a file, not a folder."`. `_check_corpus`: no `lancedb/` dir and no-tables both → `f"{root} has no JLBC Search data in it."`, fix `FIX_CHOOSE_AGAIN`; can't-open → `f"JLBC Search can't open the data in {root}. Ask whoever maintains it."` (keep the dim discrimination → the different-version sentence); `can_repair`:
+
+```python
+    repairable = first_failure in ("machine_config", "share") or (
+        first_failure == "corpus"
+        and next(r for r in rungs if r["name"] == "corpus")["fix"] == FIX_CHOOSE_AGAIN
+    )
+```
+
+`app/machine_config.py`: the three `MSG_*` constants → the §2.5 wording. Check `tests/test_machine_config_cli.py::test_a_folder_without_a_corpus_still_records` — it matches a substring of `MSG_NO_CORPUS`; update the substring to `"lancedb"`.
+
+- [ ] **Step 4: Backend green**
+
+`uv run pytest tests/test_folder_picker.py tests/test_app_reprobe.py tests/test_health_ladder.py tests/test_machine_config.py tests/test_machine_config_cli.py -q` → all pass. Commit: `repair: a folder picker from the server, and the §2.5 wording (backend)`.
+
+- [ ] **Step 5: Webapp — failing specs**
+
+`HealthGate.test.tsx`: fixtures gain `can_pick`; update every asserted sentence to §2.5; add:
+
+```tsx
+  it("offers Choose folder… when the server can open a dialog, and saves the pick", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: true });
+    vi.spyOn(api, "pickFolder").mockResolvedValue({ supported: true, path: "\\\\bcpool\\JLBCSearch" });
+    const save = vi.spyOn(api, "setDataDir").mockResolvedValue({ path: "\\\\bcpool\\JLBCSearch" });
+    render(<HealthGate><App /></HealthGate>);
+    fireEvent.click(await screen.findByRole("button", { name: /choose folder/i }));
+    await screen.findByTestId("repair-done");
+    expect(save).toHaveBeenCalledWith("\\\\bcpool\\JLBCSearch");
+  });
+
+  it("hides Choose folder… when the server cannot open a dialog", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: false });
+    render(<HealthGate><App /></HealthGate>);
+    await screen.findByTestId("repair-form");
+    expect(screen.queryByRole("button", { name: /choose folder/i })).toBeNull();
+  });
+
+  it("a cancelled dialog leaves the form as it was", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: true });
+    vi.spyOn(api, "pickFolder").mockResolvedValue({ supported: true, path: null });
+    const save = vi.spyOn(api, "setDataDir");
+    render(<HealthGate><App /></HealthGate>);
+    fireEvent.click(await screen.findByRole("button", { name: /choose folder/i }));
+    await screen.findByRole("button", { name: /choose folder/i });
+    expect(save).not.toHaveBeenCalled();
+  });
+```
+
+`Search.test.tsx`: the stub-note assertion becomes `/Sample results only/`.
+
+- [ ] **Step 6: Webapp implementation**
+
+`api.ts`: `can_pick: boolean` on `HealthReport`; `export async function pickFolder(): Promise<{ supported: boolean; path: string | null }>` (POST, `fail(r, "open the folder window")`).
+
+`Repair.tsx`: heading "JLBC Search needs the budget folder"; the form becomes: `[Choose folder…]` button (rendered only when `report.can_pick`; while awaiting it shows "Waiting for the folder window…" and is disabled) → on a non-null path, `setPath(path)` and call the same `submit` logic (extract `save(path)` from `submit`); then a label "or type its location:" (just "Type its location:" when no picker), the input, "Use this folder", the saved block "Saved. Click **Check again**.", and the Check again link. Drop the "Open the folder in File Explorer…" helper line. `RungRow` unchanged.
+
+`Search.tsx`: the note's text → "Sample results only — JLBC Search can't reach the budget folder right now."
+
+- [ ] **Step 7: Webapp green + gates**
+
+`bash -c 'cd …/webapp && npx tsc -b && npx vitest run && npm run build'` → tsc 0, vitest = previous count + 3, build clean. Commit: `repair: Choose folder… button and the §2.5 wording (webapp)`.
+
+- [ ] **Step 8: Re-screenshot the four states (controller)** — same recipe as Task 10 Step 6; send to Destin with the §2.5 launcher/installer lines. Wait for "ok".
+
+---
+
 ### Task 11: The locate cache evicts instead of crashing, and closes on shutdown
 
 **Files:**
@@ -2291,12 +2598,15 @@ def _main() -> int:
         time.sleep(0.4)
 
     message_box(
-        f"{APP_NAME} is still starting.\n\nWait a minute, then click the icon "
-        f"again. If it still does not open, send this file:\n{log_path}\n\n"
-        f"to whoever supports this app."
+        f"{APP_NAME} is still starting. Wait a minute, then click the icon again.\n\n"
+        f"If it still won't open, send this file to support:\n{log_path}"
     )
     return 1
 ```
+
+(§2.5 wording — Destin, 2026-08-25. The "could not start" box in `main()` reads
+`f"{APP_NAME} could not start. Send this file to support:\n{log_path}"` with the
+one-line exception appended on a third line only when `log_path` was never written.)
 
 The pre-log `write_text` in the import-failure branch gains `encoding="utf-8"`. Delete the old `health_ok` (replaced by `health_json`) and `recorded_port` (replaced by `recorded`); `record_port` stays and keeps writing `port`, `pid` and `started_at` (the spec's "no other state" meant no start-up flag; `started_at` is harmless and useful in a log). Add `import ctypes` if it is not already imported (it is — `message_box` uses it).
 
@@ -2391,12 +2701,10 @@ if exist "%RUNNING%" (
 if defined OLDPID (
     tasklist /FI "PID eq %OLDPID%" /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
     if not errorlevel 1 (
-        echo   JLBC Search is running on this PC and must be stopped to upgrade.
-        echo   If THIS computer processes uploads, wait for the queue to finish
-        echo   first ^(Admin -^> Corpus shows it^). Stopping it mid-document is safe
-        echo   for the corpus but the document has to be processed again.
-        echo.
-        pause
+        echo   JLBC Search is running and must be stopped to upgrade.
+        echo   Press any key to stop it. ^(An upload in progress will start
+        echo   over afterwards.^)
+        pause >nul
         echo   Stopping the running copy of JLBC Search...
         taskkill /PID %OLDPID% /T /F >nul 2>&1
         timeout /t 2 /nobreak >nul
@@ -2493,14 +2801,14 @@ exit /b 0
 
 :incomplete
 echo.
-echo   This install is missing files that should have been in the zip.
-echo   The most likely cause is that the zip did not finish extracting.
-echo   Delete the "program" folder inside %ROOT_DIR% (only that one),
-echo   then run this script again.
+echo   The install didn't finish. Run this installer again.
 echo.
 pause
 exit /b 1
 ```
+
+(Re-running is safe: `tar` overwrites in place, and the guarded `rmdir` only fires
+when `launcher.pyw` + `VERSION` both exist.)
 
 Update the header comment (lines 4–12) to describe the new steps and remove the sentence about reusing `install.cmd`. Remove the "make MinerU's model path absolute" block entirely.
 
