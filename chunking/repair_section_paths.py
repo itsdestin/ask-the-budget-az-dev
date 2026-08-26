@@ -100,6 +100,11 @@ def _default_progress(message: str) -> None:
     print(message, flush=True)
 
 
+def _reversal_stamp() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ")
+
+
 def _body(text: str, section_path: list[str]) -> str:
     """Everything after the heading line.
 
@@ -261,6 +266,155 @@ def _plan_corpus(
     return changes, result, before_by_id
 
 
+_ALL_COLUMNS_CACHE: list[str] | None = None
+
+
+def _all_columns() -> list[str]:
+    """Every column, read from the schema rather than typed out -- a
+    hand-maintained list silently drops a column added later, and a dropped
+    column is written as null on every row this pass touches."""
+    global _ALL_COLUMNS_CACHE
+    if _ALL_COLUMNS_CACHE is None:
+        from store.schema import chunk_schema
+        _ALL_COLUMNS_CACHE = [f.name for f in chunk_schema(dim=1)]
+    return _ALL_COLUMNS_CACHE
+
+
+def _norm(value: Any) -> Any:
+    """Lance hands list columns back as lists or arrays depending on the
+    path; compare by value, not by container type."""
+    return list(value) if isinstance(value, (list, tuple)) or hasattr(value, "tolist") else value
+
+
+def _in_list(chunk_ids: Iterable[str]) -> str:
+    from store.chunk_store import sql_str
+    return "chunk_id IN (" + ", ".join(sql_str(c) for c in chunk_ids) + ")"
+
+
+def _write_changed_rows(
+    store: ChunkStoreLike,
+    table: str,
+    changes: list[RowChange],
+    embedder: EmbedderLike,
+    batch_size: int,
+    progress: Callable[[str], None],
+) -> list[dict[str, Any]]:
+    """Fetch the changed rows in full, rewrite four columns, embed, write.
+
+    Fetched by chunk_id list per batch -- ~5 scans for ~10,200 rows -- not
+    one `doc_id = ...` scan per document, which would be ~4,500 filtered
+    scans over the share for the same rows.
+
+    Batched because `upsert_chunks` deletes the batch's chunk_ids and then
+    adds the replacements as two separate LanceDB commits: batching bounds a
+    crash landing between them to one batch instead of the whole corpus.
+
+    Compare-and-swap per row: the plan was computed BEFORE the lock, so
+    each row's current `text` must still be the `old_text` the plan was
+    built on. A document re-ingested in between keeps its chunk_ids and
+    changes its text; without this check the planned line-0 edit would be
+    written over a fresh ingest.
+    """
+    by_id = {c.chunk_id: c for c in changes}
+    ordered = sorted(by_id)
+    written: list[dict[str, Any]] = []
+    total_batches = math.ceil(len(ordered) / batch_size) if ordered else 0
+    for batch_num, start in enumerate(range(0, len(ordered), batch_size), start=1):
+        ids = ordered[start:start + batch_size]
+        rows = store.scan(table, _all_columns(), where=_in_list(ids))
+        pending: list[dict[str, Any]] = []
+        for row in rows:
+            change = by_id.get(str(row.get("chunk_id")))
+            if change is None:
+                continue
+            if str(row.get("text")) != change.old_text:
+                raise RuntimeError(
+                    f"{change.chunk_id}: its text is no longer what the plan was built "
+                    "on -- the corpus moved under the plan (a re-ingest between planning "
+                    "and writing). Nothing from this batch on is written; re-run the dry run"
+                )
+            new_row = dict(row)
+            new_row["section_path"] = list(change.new_path)
+            new_row["text"] = change.new_text
+            new_row["token_count"] = count_tokens(change.new_text)
+            pending.append(new_row)
+        if len(pending) != len(ids):
+            raise RuntimeError(
+                f"batch {batch_num}: asked for {len(ids)} rows, the store returned "
+                f"{len(pending)} -- rows vanished under the plan; re-run the dry run"
+            )
+        # input_type="document" is the embedder's default, but it is stated
+        # here because it is not a formality (ingest/worker.py::_embed): the
+        # model is asymmetric, and a passage embedded with the QUERY
+        # instruction quietly degrades every future search against it.
+        vectors = embedder.embed_batch([r["text"] for r in pending], input_type="document")
+        for row, vector in zip(pending, vectors):
+            row["vector"] = vector
+        store.upsert_chunks(table, pending)
+        written.extend(pending)
+        progress(f"wrote batch {batch_num}/{total_batches} ({len(written)}/{len(changes)} rows)")
+    return written
+
+
+def _verify_nothing_was_lost(
+    store: ChunkStoreLike,
+    table: str,
+    changes: list[RowChange],
+    before_by_id: Mapping[str, Mapping[str, Any]],
+    progress: Callable[[str], None],
+) -> None:
+    """Re-read every changed row and confirm exactly the four intended
+    columns moved; then re-read a bounded sample of rows this pass was NEVER
+    supposed to touch and confirm they still read as they did before the
+    write. A matching ROW COUNT proves nothing -- `upsert_chunks` deletes
+    then adds, so a lost column and a lost value both leave the count
+    identical (`identity/relabel.py`'s trap 3). The untouched sample is the
+    half of spec G-T3 that catches a delete landing on the wrong ids."""
+    expected = {c.chunk_id: c for c in changes}
+    seen = 0
+    ordered = sorted(expected)
+    for start in range(0, len(ordered), DEFAULT_BATCH_SIZE):
+        ids = ordered[start:start + DEFAULT_BATCH_SIZE]
+        for row in store.scan(table, _all_columns(), where=_in_list(ids)):
+            change = expected.get(str(row.get("chunk_id")))
+            if change is None:
+                continue
+            seen += 1
+            if list(row.get("section_path") or []) != change.new_path:
+                raise RuntimeError(f"{change.chunk_id}: section_path did not land")
+            if str(row.get("text")) != change.new_text:
+                raise RuntimeError(f"{change.chunk_id}: text did not land")
+            if not row.get("vector"):
+                raise RuntimeError(f"{change.chunk_id}: vector is empty after the write")
+    if seen != len(expected):
+        raise RuntimeError(f"verified {seen} rows, expected {len(expected)}")
+
+    # The first UNCHANGED_SAMPLE_SIZE untouched ids in sort order -- in
+    # practice ~200 rows of ONE document, the shape identity/relabel.py uses.
+    # This is an in-process smoke check that the delete landed on the right
+    # ids, not a spread; the corpus-wide comparison of every untouched column
+    # is Task 7 Step 4 (on the copy) and Task 8 Step 4 (live).
+    untouched = sorted(set(before_by_id) - set(expected))[:UNCHANGED_SAMPLE_SIZE]
+    after = {str(r["chunk_id"]): r for r in store.scan(table, PLAN_COLUMNS, where=_in_list(untouched))} if untouched else {}
+    for chunk_id in untouched:
+        before, now = before_by_id[chunk_id], after.get(chunk_id)
+        if now is None:
+            raise RuntimeError(f"{chunk_id}: was never supposed to change and is GONE after the write")
+        for col in ("text", "section_path", "is_table", "doc_id"):
+            if _norm(now.get(col)) != _norm(before.get(col)):
+                raise RuntimeError(
+                    f"{chunk_id}: was never supposed to change but its {col!r} drifted; "
+                    "restore from the snapshot this pass just took"
+                )
+    progress(f"verified {seen} changed rows in full, {len(untouched)} untouched rows sampled")
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 def repair_section_paths(
     *,
     store: ChunkStoreLike,
@@ -287,4 +441,40 @@ def repair_section_paths(
     if dry_run:
         progress(f"DRY RUN: {result.changed} rows would change; nothing written")
         return result
-    raise NotImplementedError("apply path lands in Task 5")
+
+    if lock is None:
+        from ingest.lock import IngestLock
+        lock = IngestLock()
+    if snapshot_and_verify is None:
+        from identity.relabel import _default_snapshot_and_verify
+        snapshot_and_verify = _default_snapshot_and_verify
+    if reversal_dir is None:
+        from store.config import data_dir
+        reversal_dir = data_dir()
+
+    # BEFORE the lock and BEFORE the snapshot: a snapshot zips the whole
+    # corpus under the lock and takes minutes; spending that on a no-op is
+    # the kind of thing an operator learns to skip, and then skips it once
+    # when it mattered.
+    if not changes:
+        progress("nothing to change; no lock, no snapshot, no write, no index rebuild")
+        return result
+
+    # `IngestLock.acquire()` runs its own heartbeat thread through the whole
+    # 30-60 minute embed; nothing here beats it by hand.
+    with lock:
+        snapshot = snapshot_and_verify()
+        progress(f"snapshot: {snapshot}")
+        _write_changed_rows(store, table, changes, embedder, batch_size, progress)
+        _verify_nothing_was_lost(store, table, changes, before_by_id, progress)
+        # Re-added rows are invisible to BM25 until the index is rebuilt --
+        # the ingest contract funds/unstamp.py had to learn the hard way.
+        store.build_fts_index(table)
+        store.optimize(table)
+        progress("full-text index rebuilt and table optimized")
+
+    stamp = _reversal_stamp()
+    path = Path(reversal_dir) / f"section-path-reversal-{table}-{stamp}.json"
+    _atomic_write_json(path, {"table": table, "snapshot": snapshot, "rows": result.reversal})
+    progress(f"reversal record: {path}")
+    return result

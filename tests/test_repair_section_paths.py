@@ -245,3 +245,184 @@ def test_only_restricts_the_plan_to_the_named_documents(root: Path):
     )
     assert set(result.per_document) == {"doc-a"}
     assert "doc-b" not in result.documents_skipped
+
+
+class _FakeLock:
+    def __init__(self):
+        self.entered = 0
+
+    def __enter__(self):
+        self.entered += 1
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _full_rows() -> list[dict]:
+    base = {
+        "page": 1, "bbox": None, "source_anchor": None,
+        "agency_canonical_ids": ["agency:ost"], "fund_canonical_id": None,
+        "fund_mentions": ["fund:general"], "fiscal_year": 2026,
+        "doc_type": "governors-budget", "table_html": "<table></table>",
+        "token_count": 7, "publisher": "governor", "vector": [0.0, 0.0, 0.0, 0.0],
+    }
+    rows = []
+    for row in _stored_rows():
+        merged = dict(base)
+        merged.update(row)
+        rows.append(merged)
+    return rows
+
+
+def test_apply_writes_only_the_changed_row(root: Path, tmp_path: Path):
+    store = _FakeStore(_full_rows())
+    lock = _FakeLock()
+    result = repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=lock, snapshot_and_verify=lambda: "snap.zip",
+        reversal_dir=tmp_path,
+    )
+    assert result.changed == 1
+    assert lock.entered == 1
+    written = [r for batch in store.written for r in batch]
+    assert [r["chunk_id"] for r in written] == ["doc-a-0001"]
+
+
+def test_apply_leaves_the_agency_and_fund_columns_byte_identical(root: Path, tmp_path: Path):
+    store = _FakeStore(_full_rows())
+    repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    written = [r for batch in store.written for r in batch][0]
+    assert written["agency_canonical_ids"] == ["agency:ost"]
+    assert written["fund_mentions"] == ["fund:general"]
+    assert written["page"] == 1
+    assert written["table_html"] == "<table></table>"
+
+
+def test_apply_recomputes_the_vector_and_the_token_count(root: Path, tmp_path: Path):
+    store = _FakeStore(_full_rows())
+    repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    written = [r for batch in store.written for r in batch][0]
+    # _FakeEmbedder encodes len(text) in the first component.
+    assert written["vector"][0] == float(len(written["text"]))
+    from chunking.builders._tokens import count_tokens
+    assert written["token_count"] == count_tokens(written["text"])
+    assert written["token_count"] != 7
+
+
+def test_apply_rebuilds_the_full_text_index_then_optimizes(root: Path, tmp_path: Path):
+    """funds/unstamp.py's lesson: rows re-added by upsert_chunks are
+    invisible to BM25 until the FTS index is rebuilt. identity/relabel.py
+    does NOT do this and is a known follow-up; this pass must."""
+    store = _FakeStore(_full_rows())
+    repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    assert store.fts_built == ["budget_chunks"]
+    assert store.optimized == ["budget_chunks"]
+
+
+def test_apply_writes_a_reversal_record_carrying_the_old_text(root: Path, tmp_path: Path):
+    store = _FakeStore(_full_rows())
+    repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    files = list(tmp_path.glob("section-path-reversal-*.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert payload["rows"][0]["before"]["text"] == (
+        "Table of Contents\nAcupuncture Examiners, Board of"
+    )
+
+
+def test_apply_refuses_when_the_snapshot_fails(root: Path, tmp_path: Path):
+    def _no_snapshot():
+        raise RuntimeError("share unreachable")
+
+    store = _FakeStore(_full_rows())
+    with pytest.raises(RuntimeError, match="share unreachable"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=_no_snapshot, reversal_dir=tmp_path,
+        )
+    assert store.written == []
+
+
+def test_apply_with_nothing_to_do_takes_no_snapshot_writes_nothing_and_skips_the_index_rebuild(
+    root: Path, tmp_path: Path
+):
+    """A snapshot zips the whole corpus under the lock -- minutes. It must
+    come AFTER the "is there anything to write?" check, not before."""
+    rows = _full_rows()
+    rows[1]["section_path"] = ["Acupuncture Examiners, Board of"]
+    rows[1]["text"] = "Acupuncture Examiners, Board of\nAcupuncture Examiners, Board of"
+    store = _FakeStore(rows)
+    snapshots: list[str] = []
+    lock = _FakeLock()
+    result = repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=lock, snapshot_and_verify=lambda: snapshots.append("snap.zip") or "snap.zip",
+        reversal_dir=tmp_path,
+    )
+    assert result.changed == 0
+    assert snapshots == []
+    assert lock.entered == 0
+    assert store.written == []
+    assert store.fts_built == []
+
+
+class _MovedStore(_FakeStore):
+    """A row was re-ingested between the plan and the write: the planning
+    scan (PLAN_COLUMNS) saw the old text, the full-column fetch at write
+    time sees new text under the same chunk_id."""
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        out = super().scan(name, columns, where=where, limit=limit)
+        if "vector" in columns:
+            for r in out:
+                if r["chunk_id"] == "doc-a-0001":
+                    r["text"] = "Table of Contents\nREINGESTED SINCE THE PLAN"
+        return out
+
+
+def test_apply_refuses_a_row_whose_text_changed_since_the_plan(root: Path, tmp_path: Path):
+    """The plan is computed BEFORE the lock (tens of minutes of reading
+    extractor JSON). A document re-ingested in that window carries the same
+    chunk_ids and different text; writing the planned text over it would
+    clobber a fresh ingest with a sentence derived from a stale one."""
+    store = _MovedStore(_full_rows())
+    with pytest.raises(RuntimeError, match="moved under the plan"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
+    assert store.written == []
+
+
+class _DriftingStore(_FakeStore):
+    """A store whose write also corrupts a row the pass never touched --
+    the shape `identity/relabel.py`'s untouched-row sample exists to catch
+    (a delete-then-add that lands on the wrong ids)."""
+
+    def upsert_chunks(self, name, rows):
+        super().upsert_chunks(name, rows)
+        self.rows[0]["text"] = "CORRUPTED"
+
+
+def test_apply_samples_untouched_rows_and_refuses_when_one_drifted(root: Path, tmp_path: Path):
+    """G-T3's second half: changed rows verified in full AND a sample of
+    rows nothing was supposed to touch compared to their pre-write values."""
+    store = _DriftingStore(_full_rows())
+    with pytest.raises(RuntimeError, match="never supposed to change"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
