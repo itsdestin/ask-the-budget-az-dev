@@ -102,13 +102,19 @@ def test_only_whoami_asks_the_os_who_is_running():
 
 def test_only_two_places_fold_a_username():
     """U0 is one rule. harness/settings.py gets its own three-line copy
-    because Invariant 7 forbids it importing users/ — and the copy is pinned
-    to be the SAME expression, so the two cannot drift."""
+    because Invariant 7 forbids it importing users/ (Task 2 adds it and pins
+    it to the same expression).
+
+    Scoped to the packages that HANDLE USERNAMES — app/, harness/, ingest/,
+    users/. chunking/, funds/, identity/ and primer/ casefold agency and
+    fund text, which is a different job and none of this guard's business
+    (found by the Task 1 implementer: nine such calls)."""
     allowed = {ROOT / "users" / "whoami.py", ROOT / "harness" / "settings.py"}
+    scope = ("app/", "harness/", "ingest/", "users/")
     offenders = [
         p for p in _shipped_python()
-        if p not in allowed and ".casefold(" in p.read_text(encoding="utf-8")
+        if p not in allowed
+        and str(p.relative_to(ROOT)).startswith(scope)
+        and ".casefold(" in p.read_text(encoding="utf-8")
     ]
     assert offenders == [], f"use users.whoami.same_person()/fold(): {offenders}"
-    settings_src = (ROOT / "harness" / "settings.py").read_text(encoding="utf-8")
-    assert "return user.strip().casefold()" in settings_src
