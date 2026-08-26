@@ -6,10 +6,11 @@ Run by a Start-Menu or Desktop shortcut as `python\\pythonw.exe launcher.pyw`.
 Behaviour, in order:
   1. If running.json names a port that answers /health with OUR body, open a
      window at it and exit — whatever port that is, so a server that had to
-     fall back is reused too. If that record is FRESH (started under 180 s
-     ago) and its pid is alive, wait for it: that is a second click during a
-     slow start, not a second server. A stale record is ignored — Windows
-     recycles pids, so an old one can name a stranger.
+     fall back is reused too. If that record is FRESH (started within twice
+     the health timeout — see _sibling_worth_waiting_for) and its pid is
+     alive, wait for it: that is a second click during a slow start, not a
+     second server. A stale record is ignored — Windows recycles pids, so an
+     old one can name a stranger.
   2. Otherwise take port 9300 if it is free. The BIND is the single-instance
      lock; a stranger holding 9300 costs one fallback port and nothing else.
   3. Start uvicorn *in this process* and record the port and pid.
@@ -217,6 +218,18 @@ def _sibling_worth_waiting_for(rec: dict) -> bool:
     that pid now. A record with no stamp is pre-2026-08-25 and unjudgeable —
     treat it as stale; the cost is one extra server on a fallback port, and
     the cost of the other mistake is a three-minute silent hang.
+
+    WHY the bound is TWICE the timeout and not the timeout itself: the box the
+    first click ends on says "wait a minute, then click the icon again", so it
+    INVITES the second click at t > 180 s — precisely when a one-timeout bound
+    would call the record stale. The second click would then start a second
+    server, which dies on the port the first one already holds and shows a
+    "could not start" box while the first is still coming up. The freshness
+    bound has to outlive the message that sends the user back here.
+
+    The lower bound closes the other end: a record stamped in the FUTURE (a
+    clock change, a machine whose time syncs after boot) has a negative age,
+    which is under any upper bound, and would be waited on forever.
     """
     started = rec.get("started_at")
     if not isinstance(started, str):
@@ -225,7 +238,7 @@ def _sibling_worth_waiting_for(rec: dict) -> bool:
         age = (datetime.now() - datetime.fromisoformat(started)).total_seconds()
     except ValueError:
         return False
-    return age < HEALTH_TIMEOUT_S
+    return 0 <= age < 2 * HEALTH_TIMEOUT_S
 
 
 def record_port(port: int) -> None:
@@ -314,7 +327,13 @@ def main() -> int:
         log_path = log_path_for_today()
         text = (f"{APP_NAME} could not start.\n\n"
                 f"Send this file to support:\n{log_path}")
-        if not _LOGGED:
+        if _LOGGED:
+            # stdout/stderr ARE the log file by now, so write the traceback
+            # into it BEFORE the box names it. Without this the box asked for
+            # a file that said nothing about the failure it was reporting.
+            import traceback
+            traceback.print_exc()
+        else:
             text += f"\n\n{type(exc).__name__}: {exc}"
         message_box(text)
         return 1

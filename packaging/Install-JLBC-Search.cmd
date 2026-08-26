@@ -127,18 +127,44 @@ if exist "%INSTALL_DIR%\launcher.pyw" if exist "%INSTALL_DIR%\VERSION" (
     echo   Removing the previous version...
     rmdir /s /q "%INSTALL_DIR%"
 )
-rem  rmdir fails and says nothing when Windows is still holding
+rem  That rmdir fails and says nothing when Windows is still holding
 rem  python312.dll - the stop step above was skipped, or 2 s was not long
-rem  enough for taskkill to release it. tar then fails and the message
-rem  below blamed the USB drive, which is never the cause of THAT. Name
-rem  the real one instead, while it is still fixable by closing the app.
-if exist "%INSTALL_DIR%\python\python.exe" (
-    echo.
-    echo   JLBC Search is still open. Close it, then run this installer again.
-    echo.
-    pause
-    exit /b 1
-)
+rem  enough for taskkill to release it. tar then fails and the extraction
+rem  message blamed the USB drive, which is never the cause of THAT.
+rem
+rem  It also fails HALFWAY: the unlocked files go first, launcher.pyw and
+rem  VERSION among them, so the guard above can never match again. Without
+rem  this second, unguarded attempt the folder is unremovable for ever - the
+rem  user closes the app, runs the installer again, and is told it is "still
+rem  open" about a closed app, on every run, permanently. The retry is
+rem  deliberately unguarded: the guard files are exactly what a half-finished
+rem  delete takes first, and this is the folder the user just named to
+rem  install into, which is about to be written to either way.
+if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
+rmdir /s /q "%INSTALL_DIR%" 2>nul
+if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
+
+rem  Still there, so something really is holding it. Ask Windows WHICH -
+rem  the leftover folder alone is not evidence that the app is open, and a
+rem  message that is only sometimes true is what sent the user in circles.
+tasklist /FI "IMAGENAME eq pythonw.exe" | find /I "pythonw.exe" >nul
+if errorlevel 1 goto :folder_stuck
+echo.
+echo   JLBC Search is still open. Close it, then run this installer again.
+echo.
+pause
+exit /b 1
+
+:folder_stuck
+echo.
+echo   Couldn't clear the old program folder:
+echo     %INSTALL_DIR%
+echo   Delete it, then run this installer again.
+echo.
+pause
+exit /b 1
+
+:folder_clear
 mkdir "%INSTALL_DIR%" 2>nul
 echo   Extracting into the install folder (36,000 files; please wait)...
 rem  tar.exe ships with Windows 10 1803+; bsdtar handles the zip fine.

@@ -169,9 +169,10 @@ default call; an absent key becomes `false`.
 from `INSTALL_DIR` on every start (`models-dir.pipeline = <INSTALL_DIR>/models/mineru`,
 `model-source: local`) and points `MINERU_TOOLS_CONFIG_JSON` at it. Program files
 stay read-only; a moved or renamed folder can no longer strand MinerU on a stale
-absolute path. `build_bundle.py` still ships the `__INSTALL_DIR__` template under
-`models/` so the manifest and MinerU's own config reader find a file; the launcher's
-env var wins.
+absolute path. The launcher writes that file on every start, so the bundle ships no
+template at all — `build_bundle.py`'s `__INSTALL_DIR__` placeholder under `models/`
+was removed 2026-08-25 (a shipped placeholder is a wrong absolute path waiting to be
+read by anything that finds the file before the launcher rewrites it).
 
 ### 1.7 Launcher behaviour (D3, S3 + audit)
 

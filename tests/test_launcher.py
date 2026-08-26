@@ -109,6 +109,27 @@ def test_a_server_that_started_seconds_ago_is_waited_on(launcher):
     assert worth({"port": 9300, "pid": 4321, "started_at": fresh}) is True
 
 
+def test_the_wait_outlives_the_message_that_invites_the_second_click(launcher):
+    """The timeout box says "wait a minute, then click the icon again", so the
+    click it invites lands AFTER 180 s. At a one-timeout bound that click would
+    call the record stale and start a second server onto the held port. 200 s
+    must still be waited on; twice the timeout is where it stops."""
+    worth = launcher["_sibling_worth_waiting_for"]
+    timeout = launcher["HEALTH_TIMEOUT_S"]
+    just_after = (datetime.now() - timedelta(seconds=200)).isoformat()
+    assert worth({"port": 9300, "pid": 4321, "started_at": just_after}) is True
+    at_the_bound = (datetime.now() - timedelta(seconds=2 * timeout)).isoformat()
+    assert worth({"port": 9300, "pid": 4321, "started_at": at_the_bound}) is False
+
+
+def test_a_record_stamped_in_the_future_is_not_waited_on(launcher):
+    """A clock change (or a machine whose time syncs after boot) gives a
+    negative age, which is under any upper bound — it would wait for ever."""
+    worth = launcher["_sibling_worth_waiting_for"]
+    ahead = (datetime.now() + timedelta(hours=1)).isoformat()
+    assert worth({"port": 9300, "pid": 4321, "started_at": ahead}) is False
+
+
 def test_a_record_with_no_or_unreadable_timestamp_is_not_waited_on(launcher):
     worth = launcher["_sibling_worth_waiting_for"]
     assert worth({"port": 9300, "pid": 4321}) is False
@@ -116,7 +137,7 @@ def test_a_record_with_no_or_unreadable_timestamp_is_not_waited_on(launcher):
     assert worth({"port": 9300, "pid": 4321, "started_at": "not a date"}) is False
 
 
-def test_recorded_carries_the_start_time(launcher, tmp_path):
+def test_recorded_carries_the_start_time(launcher):
     """`started_at` is what the wait decision reads; recorded() must pass it on."""
     running = launcher["RUNNING_FILE"]
     running.parent.mkdir(parents=True, exist_ok=True)
@@ -139,17 +160,23 @@ def _as_rendered(src: str) -> str:
     return " ".join(re.sub(r'"\s*f?"', "", src.replace("\\n", " ")).split())
 
 
-@pytest.mark.parametrize("sentence", [
-    "is still starting. Wait a minute, then click the icon again.",
-    "could not start. Send this file to support:",
+# Counts, not just presence: "could not start" is written at THREE sites in
+# the launcher (the top-level catch, the import failure, the crashed server).
+# A presence test passes while two of the three say something else, and the
+# reader who meets one of those sites meets only one.
+@pytest.mark.parametrize("sentence,count", [
+    ("is still starting. Wait a minute, then click the icon again.", 1),
+    ("could not start. Send this file to support:", 3),
 ])
-def test_the_launcher_keeps_its_final_wording(sentence):
-    assert sentence in _as_rendered(LAUNCHER_SRC), f"2.5 wording changed: {sentence!r}"
+def test_the_launcher_keeps_its_final_wording(sentence, count):
+    rendered = _as_rendered(LAUNCHER_SRC)
+    assert rendered.count(sentence) == count, f"2.5 wording changed: {sentence!r}"
 
 
 @pytest.mark.parametrize("sentence", [
     "The install didn't finish. Run this installer again.",
     "JLBC Search is still open. Close it, then run this installer again.",
+    "Couldn't clear the old program folder:",
 ])
 def test_the_installer_keeps_its_final_wording(sentence):
     assert sentence in INSTALLER_SRC, f"§2.5 wording changed: {sentence!r}"
