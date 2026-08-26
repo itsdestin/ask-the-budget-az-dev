@@ -14,7 +14,29 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from store.fs import replace_with_retry
+
 _ENV_VAR = "JLBC_DATA_DIR"
+
+# The root of THIS checkout or bundle: `<root>/store/config.py`. Module-level
+# so tests can point it at a temp tree.
+_ROOT = Path(__file__).resolve().parent.parent
+
+# Written by packaging/build_bundle.py at the bundle root and required by its
+# manifest; absent from every dev checkout (untracked, never created). Its
+# presence is how the app knows it is a packaged install with no repo-default
+# corpus to fall back to.
+_BUNDLE_MARKER = "VERSION"
+
+
+class DataDirNotConfigured(OSError):
+    """A packaged install with no pointer and no env override.
+
+    Raised rather than returning a made-up folder: on the 2026-08-18 laptop the
+    fallback `<install>/data/insight-data` was silently CREATED, the health
+    ladder then passed the 'share' rung (the folder existed) and the app served
+    stub fixtures with nothing on screen naming the missing setting.
+    """
 
 # Document-level metadata (title, source_format, source_blob_path, …), keyed
 # by doc_id. A JSON sidecar rather than a LanceDB table because it is ~382
@@ -43,7 +65,8 @@ def resolve_data_dir() -> Path:
     the admin then sees an app with no documents and no explanation.
 
     Resolution order (S18): `JLBC_DATA_DIR` > this machine's `machine.json`
-    pointer > the repo default.
+    pointer > the repo default (dev checkouts only — a bundle, marked by
+    `VERSION` at its root, raises `DataDirNotConfigured` instead).
 
     The env var stays on TOP of the per-machine pointer deliberately. The
     Z13 backfill runs with it set, and a `machine.json` written on that box
@@ -65,9 +88,13 @@ def resolve_data_dir() -> Path:
         if configured is not None:
             root = configured
         else:
+            if (_ROOT / _BUNDLE_MARKER).is_file():
+                raise DataDirNotConfigured(
+                    "This computer hasn't been told where the shared budget folder is."
+                )
             # WHY repo-relative: dev machines have no share; keeping the dev
             # corpus inside data/ (already gitignored) means zero setup.
-            root = Path(__file__).resolve().parent.parent / "data" / "insight-data"
+            root = _ROOT / "data" / "insight-data"
     return root
 
 
@@ -76,7 +103,9 @@ def data_dir() -> Path:
 
     This is what every reader and writer in the app calls. The creation is
     load-bearing for a fresh dev clone (nothing else makes `data/`), and
-    harmless everywhere else.
+    harmless everywhere else. `DataDirNotConfigured` propagates — there is no
+    folder to create; the health ladder reports it and the repair screen
+    fixes it.
     """
     root = resolve_data_dir()
     try:
@@ -121,6 +150,11 @@ def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
     it: ingest writes this file on every upload now, and importing the
     migration script would pull psycopg into the ingest path that Plan 3
     exists to get Postgres out of. One writer, one definition, no Postgres.
+
+    WHY the retry: this write sits AFTER the LanceDB commit, so a Windows/SMB
+    sharing violation here used to fail the whole job over a document that
+    was already searchable -- the sidecar's title/date never landing while
+    the chunks were live.
     """
     path = documents_path()
     tmp = path.with_suffix(".json.tmp")
@@ -128,5 +162,5 @@ def write_documents_sidecar(docs: dict[str, dict[str, Any]]) -> Path:
         json.dumps(docs, indent=2, sort_keys=True, ensure_ascii=False),
         encoding="utf-8",
     )
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
     return path

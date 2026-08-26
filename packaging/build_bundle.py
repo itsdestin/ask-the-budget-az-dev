@@ -1,9 +1,9 @@
 """Build the distributable Windows bundle (Plan 5, Task 15 — spec S7).
 
-Produces `dist/JLBC-Search-<version>.zip`. Unzipping it into
-`%LOCALAPPDATA%\\JLBC-Search` and running `install.cmd` is the entire install:
-no admin rights, no Python on the machine, no PATH edits, no registry writes,
-and — the property that matters — **no downloads on first run**.
+Produces `dist/JLBC-Search-<version>.zip`. `Install-JLBC-Search.cmd` on
+the USB does the entire install: no admin rights, no Python on the machine,
+no PATH edits, no registry writes, and — the property that matters — **no
+downloads on first run**.
 
 Runs on Linux or Windows. Every Windows-specific artefact (the embeddable
 runtime, the wheel closure, the Java runtime) is downloaded rather than built,
@@ -26,9 +26,8 @@ own source tree, so this mirrors the repo root):
       models/
         fastembed/       the two ONNX models, HF cache layout, symlinks resolved
         mineru/          PDF-Extract-Kit-1.0 weights
-        mineru.json      points models-dir.pipeline at ./mineru
         tiktoken/        pre-seeded cl100k_base
-      launcher.pyw  install.cmd  QUICKSTART.md  VERSION  MANIFEST.json
+      launcher.pyw  QUICKSTART.md  VERSION  MANIFEST.json
 
 Usage:
     python packaging/build_bundle.py --version 1.0.0
@@ -134,6 +133,7 @@ EXCLUDED_PREFIXES = (
     "data/jlbc-book-sources/",  # crawl working files
     ".github/",
     "packaging/",               # the builder does not ship inside its own output
+    "mockups/",                 # HTML mockups — design record, not runtime
 )
 EXCLUDED_SUFFIXES = (".pyc",)
 EXCLUDED_NAMES = (
@@ -161,6 +161,16 @@ EXCLUDED_NAMES = (
     "scripts/verify_agent_query.py",
 )
 
+# Files re-admitted despite an EXCLUDED_PREFIXES hit. Each one is READ AT
+# RUNTIME by shipped code — check with `grep -rn "<name>" app store harness`
+# before removing an entry. Pinned by tests/test_packaging_manifest.py.
+INCLUDED_FILES = (
+    # app/search_provider.py::MOCKUP_INDEX_PATH — the vendored site index that
+    # supplies the Budget Documents meta line and the exact-URL join. Missing
+    # from 0.9.1: every row rendered as a humanised doc_id with no Open link.
+    "webapp/reference/assets/search/index-lite.js",
+)
+
 # Entries the launcher cannot start without. Asserted by
 # tests/test_packaging_manifest.py against a built manifest, and by
 # validate_manifest() below during the build itself.
@@ -177,10 +187,8 @@ REQUIRED_ENTRIES = (
     "webapp/dist/index.html",
     "models/fastembed/models--Snowflake--snowflake-arctic-embed-m",
     "models/fastembed/models--Xenova--ms-marco-MiniLM-L-12-v2",
-    "models/mineru.json",
     "models/tiktoken",
     "launcher.pyw",
-    "install.cmd",
     "QUICKSTART.md",
     "VERSION",
 )
@@ -203,7 +211,13 @@ FORBIDDEN_SUBSTRINGS = (
     "__pycache__",
     ".pdf",
     "node_modules/",
+    "site-packages/bin/",   # POSIX console scripts with the dev venv's shebang
+    "mockups/",
 )
+
+# Root-level handoff prompts, matched by prefix: the by-name list rotted
+# (seven newer PROMPT-*.md files were shipping on 0.9.1).
+FORBIDDEN_ROOT_PREFIXES = ("PROMPT-",)
 
 
 def validate_manifest(paths: list[str]) -> list[str]:
@@ -228,6 +242,8 @@ def validate_manifest(paths: list[str]) -> list[str]:
         for bad in FORBIDDEN_SUBSTRINGS:
             if bad in p:
                 problems.append(f"forbidden content in bundle: {p} (matched {bad!r})")
+        if "/" not in p and p.startswith(FORBIDDEN_ROOT_PREFIXES):
+            problems.append(f"forbidden content in bundle: {p} (root handoff prompt)")
     return problems
 
 
@@ -241,11 +257,13 @@ def source_files(repo_root: Path = REPO_ROOT) -> list[str]:
     ).stdout.splitlines()
     keep = []
     for rel in out:
-        if rel.startswith(EXCLUDED_PREFIXES):
+        if rel.startswith(EXCLUDED_PREFIXES) and rel not in INCLUDED_FILES:
             continue
         if rel.endswith(EXCLUDED_SUFFIXES):
             continue
         if rel in EXCLUDED_NAMES:
+            continue
+        if "/" not in rel and rel.startswith(FORBIDDEN_ROOT_PREFIXES):
             continue
         # Dotfiles are dev metadata, never runtime. Caught by
         # tests/test_packaging_manifest.py: `.gitignore` is tracked and was
@@ -355,6 +373,11 @@ def step_wheels(out: Path, cache: Path) -> None:
          "--find-links", str(wheels), *REQUIREMENTS],
         check=True,
     )
+    # uv lays console scripts into site-packages/bin/ with the BUILD machine's
+    # venv shebang (`#!/home/destin/.../.venv/bin/python3`). They cannot run
+    # on Windows and the bundle's own mineru rung is `-m mineru.cli.client`
+    # (ingest/mineru_runner.py), so nothing needs them.
+    shutil.rmtree(target / "bin", ignore_errors=True)
 
 
 def step_jre(out: Path, cache: Path) -> None:
@@ -435,16 +458,11 @@ def step_models(out: Path, cache: Path) -> None:
         raise SystemExit(f"MinerU pipeline weights not found at {mineru_src}")
     snap = next((mineru_src / "snapshots").iterdir())
     _copy_resolving_symlinks(snap, out / "models" / "mineru")
-    # MinerU reads models-dir.pipeline out of this file; the launcher points
-    # MINERU_TOOLS_CONFIG_JSON at it as an absolute path
-    # (mineru/utils/config_reader.py:17-22). The path is rewritten at install
-    # time by install.cmd, because it must be absolute and the install location
-    # is not known at build time.
-    (out / "models" / "mineru.json").write_text(json.dumps({
-        "models-dir": {"pipeline": "__INSTALL_DIR__/models/mineru", "vlm": ""},
-        "model-source": "local",
-        "config_version": "1.3.2",
-    }, indent=2))
+    # No mineru.json is shipped: the launcher writes it into the state dir at
+    # every start, from the real install path (2026-08-25). A placeholder here
+    # was a trap for anyone setting JLBC_MINERU_MODELS — mineru_runner reads
+    # <models>/mineru.json when that variable is set, and would have found a
+    # literal __INSTALL_DIR__ path.
     _log("models  MinerU pipeline weights copied")
 
     tk = out / "models" / "tiktoken"
@@ -457,8 +475,9 @@ def step_models(out: Path, cache: Path) -> None:
 
 def step_launcher(out: Path, version: str) -> None:
     here = Path(__file__).resolve().parent
-    for name in ("launcher.pyw", "install.cmd"):
-        shutil.copy2(here / name, out / name)
+    # install.cmd (the unzip-it-yourself path) was deleted 2026-08-25 (spec S1):
+    # the one-click Install-JLBC-Search.cmd on the USB is the only installer.
+    shutil.copy2(here / "launcher.pyw", out / "launcher.pyw")
     quickstart = REPO_ROOT / "docs" / "QUICKSTART.md"
     if quickstart.exists():
         shutil.copy2(quickstart, out / "QUICKSTART.md")
@@ -498,6 +517,15 @@ def step_zip(out: Path, version: str) -> Path:
             if p.is_file():
                 zf.write(p, f"{root_name}/{p.relative_to(out).as_posix()}")
     _log(f"zip     {zpath} ({zpath.stat().st_size / 1024**3:.2f} GB)")
+
+    # The one-click installer sits NEXT TO the zip on the USB and is the file
+    # that flashed-and-closed on 2026-08-18. Copying it here means the USB is
+    # assembled from one place, and the CRLF guard covers the copy.
+    installer = Path(__file__).resolve().parent / "Install-JLBC-Search.cmd"
+    shutil.copy2(installer, dist / installer.name)
+    if b"\r\n" not in (dist / installer.name).read_bytes():
+        raise SystemExit(f"{installer.name} is not CRLF — see tests/test_cmd_line_endings.py")
+    _log(f"copied  {installer.name} beside the zip")
     return zpath
 
 

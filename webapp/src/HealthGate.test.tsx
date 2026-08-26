@@ -12,7 +12,8 @@ import { HealthGate } from "./HealthGate";
 //   * The short-circuited rungs below the failure stay silent — printing
 //     "not checked" three times would bury the one line that matters.
 //   * The repair box appears only when relocating can help, and on success
-//     says plainly that a restart is needed and how to do it.
+//     says to check again — never to restart or reopen the app (2026-08-25:
+//     the server now swaps the folder in place; see Repair.tsx).
 
 function rung(over: Partial<api.HealthRung> = {}): api.HealthRung {
   return { name: "share", ok: true, detail: "fine", fix: null, ...over };
@@ -29,6 +30,7 @@ const HEALTHY: api.HealthReport = {
   ],
   data_dir: "/share/jlbc-insight-data",
   can_repair: false,
+  can_pick: false,
 };
 
 const SHARE_GONE: api.HealthReport = {
@@ -39,14 +41,15 @@ const SHARE_GONE: api.HealthReport = {
     rung({
       name: "share",
       ok: false,
-      detail: "The shared folder can't be found: S:\\jlbc-insight-data",
-      fix: "Check the shared drive is connected. If the folder has moved, enter its new location below.",
+      detail: "Can't find S:\\jlbc-insight-data. Check the network drive is connected, or choose the folder again.",
+      fix: null,
     }),
     rung({ name: "corpus", ok: null, detail: "Not checked — fix the problem above first." }),
     rung({ name: "models", ok: null, detail: "Not checked — fix the problem above first." }),
   ],
   data_dir: "S:\\jlbc-insight-data",
   can_repair: true,
+  can_pick: false,
 };
 
 const CORPUS_BROKEN: api.HealthReport = {
@@ -58,13 +61,14 @@ const CORPUS_BROKEN: api.HealthReport = {
     rung({
       name: "corpus",
       ok: false,
-      detail: "The shared folder is reachable, but it has no search index in it.",
-      fix: "This usually means the folder is the wrong one.",
+      detail: "JLBC Search can't open the data in /share/wrong-folder. Ask whoever maintains it.",
+      fix: null,
     }),
     rung({ name: "models", ok: null, detail: "Not checked — fix the problem above first." }),
   ],
   data_dir: "/share/wrong-folder",
   can_repair: false,
+  can_pick: false,
 };
 
 function App() {
@@ -112,8 +116,8 @@ describe("a failing rung", () => {
 
     await screen.findByTestId("repair");
     expect(screen.queryByText("the real app")).toBeNull();
-    expect(screen.getByText(/The shared folder can't be found/)).toBeInTheDocument();
-    expect(screen.getByText(/Check the shared drive is connected/)).toBeInTheDocument();
+    expect(screen.getByText(/Can't find S:/)).toBeInTheDocument();
+    expect(screen.getByText(/choose the folder again/)).toBeInTheDocument();
   });
 
   it("shows no stack trace, JSON or error code", async () => {
@@ -158,7 +162,46 @@ describe("the repair box", () => {
     expect(await screen.findByTestId("repair-form")).toBeInTheDocument();
     // Prefilled with where it is currently looking, so the reader can see
     // what is wrong with it rather than retyping from nothing.
-    expect(screen.getByLabelText(/new location/i)).toHaveValue("S:\\jlbc-insight-data");
+    expect(screen.getByLabelText(/type its location/i)).toHaveValue("S:\\jlbc-insight-data");
+  });
+
+  it("offers Choose folder… when the server can open a dialog, and saves the pick", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: true });
+    vi.spyOn(api, "pickFolder").mockResolvedValue({ supported: true, path: "\\\\bcpool\\JLBCSearch" });
+    const save = vi.spyOn(api, "setDataDir").mockResolvedValue({ path: "\\\\bcpool\\JLBCSearch" });
+    render(
+      <HealthGate>
+        <App />
+      </HealthGate>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /choose folder/i }));
+    await screen.findByTestId("repair-done");
+    expect(save).toHaveBeenCalledWith("\\\\bcpool\\JLBCSearch");
+  });
+
+  it("hides Choose folder… when the server cannot open a dialog", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: false });
+    render(
+      <HealthGate>
+        <App />
+      </HealthGate>,
+    );
+    await screen.findByTestId("repair-form");
+    expect(screen.queryByRole("button", { name: /choose folder/i })).toBeNull();
+  });
+
+  it("a cancelled dialog leaves the form as it was", async () => {
+    vi.spyOn(api, "healthDetail").mockResolvedValue({ ...SHARE_GONE, can_pick: true });
+    vi.spyOn(api, "pickFolder").mockResolvedValue({ supported: true, path: null });
+    const save = vi.spyOn(api, "setDataDir");
+    render(
+      <HealthGate>
+        <App />
+      </HealthGate>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /choose folder/i }));
+    await screen.findByRole("button", { name: /choose folder/i });
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("is NOT offered when relocating cannot help", async () => {
@@ -171,32 +214,63 @@ describe("the repair box", () => {
     await screen.findByTestId("repair");
     // Offering it here would walk someone through a fix that cannot work.
     expect(screen.queryByTestId("repair-form")).toBeNull();
-    expect(screen.getByText(/no search index in it/)).toBeInTheDocument();
+    expect(screen.getByText(/can't open the data/)).toBeInTheDocument();
   });
 
-  it("says plainly that a restart is needed, and how", async () => {
+  it("after saving, says to check again — never to restart", async () => {
     vi.spyOn(api, "healthDetail").mockResolvedValue(SHARE_GONE);
-    vi.spyOn(api, "setDataDir").mockResolvedValue({
-      path: "\\\\newserver\\share",
-      restart_required: true,
-    });
+    vi.spyOn(api, "setDataDir").mockResolvedValue({ path: "\\\\newserver\\share" });
     render(
       <HealthGate>
         <App />
       </HealthGate>,
     );
 
-    fireEvent.change(await screen.findByLabelText(/new location/i), {
+    fireEvent.change(await screen.findByLabelText(/type its location/i), {
       target: { value: "\\\\newserver\\share" },
     });
     fireEvent.click(screen.getByRole("button", { name: /use this folder/i }));
 
     const done = await screen.findByTestId("repair-done");
-    // Ground truth 10: handles resolve at startup, so this CANNOT take
-    // effect mid-session. Claiming otherwise would produce an app that says
-    // it is fixed and then serves errors from stale handles.
-    expect(done).toHaveTextContent(/Close this window and open JLBC Search again/i);
-    expect(done).toHaveTextContent(/can't switch over while it is running/i);
+    // The launcher reuses a running server, so "reopen the app" did nothing
+    // (2026-08-25). The server swaps in place; the button re-runs the ladder.
+    expect(done).toHaveTextContent(/Saved/);
+    expect(done).toHaveTextContent(/Check again/);
+    expect(done).not.toHaveTextContent(/open JLBC Search again/i);
+  });
+
+  it("offers the folder box when the pointer file itself is the problem", async () => {
+    const POINTER_BROKEN: api.HealthReport = {
+      ok: false,
+      rungs: [
+        rung({ name: "server" }),
+        rung({
+          name: "machine_config",
+          ok: false,
+          detail: "No location is set on this computer yet.",
+          fix: null,
+        }),
+        rung({ name: "share", ok: null, detail: "Not checked — fix the problem above first." }),
+        rung({ name: "corpus", ok: null, detail: "Not checked — fix the problem above first." }),
+        rung({ name: "models", ok: null, detail: "Not checked — fix the problem above first." }),
+      ],
+      data_dir: null,
+      can_repair: true,
+      can_pick: false,
+    };
+    vi.spyOn(api, "healthDetail").mockResolvedValue(POINTER_BROKEN);
+    render(
+      <HealthGate>
+        <App />
+      </HealthGate>,
+    );
+    await screen.findByTestId("repair-form");
+    // WHY: pin the EXACT rendered string, not just that a placeholder exists.
+    // A JSX attribute string literal doesn't process backslash escapes, so a
+    // regression back to placeholder="..." would render four leading
+    // backslashes instead of two and this assertion is what catches it.
+    const box = screen.getByPlaceholderText(/jlbc-search-data/) as HTMLInputElement;
+    expect(box.placeholder).toBe("\\\\server\\share\\jlbc-search-data");
   });
 
   it("surfaces the server's own rejection sentence", async () => {
@@ -212,7 +286,7 @@ describe("the repair box", () => {
       </HealthGate>,
     );
 
-    fireEvent.change(await screen.findByLabelText(/new location/i), {
+    fireEvent.change(await screen.findByLabelText(/type its location/i), {
       target: { value: "/wrong" },
     });
     fireEvent.click(screen.getByRole("button", { name: /use this folder/i }));

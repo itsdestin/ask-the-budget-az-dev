@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -144,13 +145,15 @@ def batch_timeout_s(count: int) -> int:
 def resolve_mineru_exe() -> list[str]:
     """The command prefix that runs MinerU, as an argv list.
 
-    Three rungs, in order:
+    Four rungs, in order:
       1. `JLBC_MINERU_EXE` — what the packaged install pins (spec S7). A
          stale value raises rather than falling through, because silently
          running a *different* mineru than the install bundled is how you
          get "works on my machine" bugs nobody can debug on a locked-down PC.
       2. `mineru` on PATH.
-      3. `uv run mineru` — dev machines, where it lives in the project venv.
+      3. The `mineru` module, run with the current interpreter — the
+         Windows bundle's shape (see below).
+      4. `uv run mineru` — dev machines, where it lives in the project venv.
     """
     pinned = os.environ.get(EXE_ENV)
     if pinned:
@@ -165,6 +168,19 @@ def resolve_mineru_exe() -> list[str]:
     found = shutil.which("mineru")
     if found:
         return [found]
+
+    # The Windows bundle (packaging/build_bundle.py) ships the `mineru`
+    # PACKAGE but no `mineru.exe` — the embeddable interpreter has no
+    # Scripts/ dir and the POSIX console scripts uv lays down are Linux
+    # shebangs. `mineru.cli.client:main` is what the console script wraps
+    # (mineru-3.1.6.dist-info/entry_points.txt), so run the module with the
+    # interpreter we are already inside. Under the launcher that is
+    # pythonw.exe, which also means: no console window. Found 2026-08-25 —
+    # before this rung the bundle fell through to `uv run mineru`.
+    import importlib.util
+
+    if importlib.util.find_spec("mineru") is not None:
+        return [sys.executable, "-m", "mineru.cli.client"]
     return ["uv", "run", "mineru"]
 
 
@@ -517,6 +533,14 @@ class MineruRunner:
         """Run one CLI invocation to completion, streaming its output."""
         # stderr folded into stdout: MinerU writes its progress to one and its
         # errors to the other depending on version, and we want both in order.
+        # A console-subsystem child spawned from pythonw.exe gets its own
+        # console window — a black box on the analyst's desktop for the length
+        # of the extraction, and closing it kills the job. The bundle runs
+        # MinerU via pythonw (see resolve_mineru_exe) so this is belt-and-
+        # braces for a dev running the server from python.exe; it does NOT
+        # reach OpenDataLoader's Java child, whose runner hardcodes its own
+        # Popen (spec §W).
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -526,6 +550,7 @@ class MineruRunner:
             errors="replace",
             bufsize=1,
             env=self.child_env(),
+            creationflags=flags,
         )
         with self._proc_lock:
             self._proc = proc

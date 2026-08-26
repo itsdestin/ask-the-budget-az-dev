@@ -523,3 +523,26 @@ def test_the_whoami_fold_is_the_same_expression_too():
     from pathlib import Path
     src = (Path(__file__).resolve().parent.parent / "users" / "whoami.py").read_text(encoding="utf-8")
     assert "return username.strip().casefold()" in src
+
+
+def test_a_transient_read_error_is_retried_next_call(tmp_path, monkeypatch):
+    """One OSError on settings.json used to cache DEFAULTS under the good
+    file's stamp: AI Mode reported 'no API key configured' until the admin
+    next saved settings."""
+    from pathlib import Path
+
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"admin_username": "dsmith"}), encoding="utf-8"
+    )
+    real = Path.read_text
+    calls = {"n": 0}
+
+    def flaky(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1 and self.name == "settings.json":
+            raise PermissionError("sharing violation")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    assert load_settings().admin_username != "dsmith"
+    assert load_settings().admin_username == "dsmith"

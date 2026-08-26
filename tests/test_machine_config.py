@@ -23,16 +23,15 @@ import pytest
 
 from app.machine_config import (
     MACHINE_FILE,
+    MSG_CANT_OPEN,
+    MSG_DIFFERENT_INDEX,
+    MSG_NO_CORPUS,
     machine_config_path,
     read_data_dir,
     set_data_dir,
     validate_data_dir,
 )
 from store.config import data_dir
-
-MSG_NO_CORPUS = (
-    "That folder doesn't contain a JLBC Search corpus (no lancedb folder inside)."
-)
 
 
 @pytest.fixture(autouse=True)
@@ -93,9 +92,50 @@ def test_the_repo_default_applies_when_nothing_is_configured():
 # ---------------------------------------------------------------------------
 
 
-def test_validate_accepts_a_folder_holding_a_corpus(tmp_path):
-    make_corpus(tmp_path / "share")
-    assert validate_data_dir(tmp_path / "share") is None
+def test_validate_refuses_an_empty_index_folder(tmp_path):
+    """lancedb.connect() on an empty directory SUCCEEDS and lists no tables
+    (measured, lancedb 0.36) — so this lands on MSG_NO_CORPUS, not on
+    'can't be opened'."""
+    (tmp_path / "lancedb").mkdir()
+    assert validate_data_dir(tmp_path) == MSG_NO_CORPUS
+
+
+def test_validate_refuses_a_folder_the_engine_cannot_open(tmp_path, monkeypatch):
+    """The laptop's InvalidUrl shape: pathlib says yes, the storage engine
+    says no. Only an actual open can tell."""
+    (tmp_path / "lancedb").mkdir()
+    import store.chunk_store as cs
+
+    def boom(*a, **k):
+        raise ValueError("Invalid input, Failed to connect to namespace")
+
+    monkeypatch.setattr(cs.lancedb, "connect", boom)
+    assert validate_data_dir(tmp_path) == MSG_CANT_OPEN
+
+
+def test_validate_accepts_a_folder_with_rows(tmp_path):
+    """One row is enough — the check is 'has budget passages', not 'how many'.
+    DEFAULT dim (768): validate opens with ChunkStore's default and `_open`
+    checks the table's vector width, so an 8-dim test table would read as
+    'can't be opened'."""
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
+    store = ChunkStore(root=tmp_path)
+    store.upsert_chunks("budget_chunks", [_row("c1", "ahcccs", [0.0] * 768)])
+    assert validate_data_dir(tmp_path) is None
+
+
+def test_validate_refuses_a_different_embedding_model(tmp_path):
+    """An index built with a different vector width — `_check_dim`'s guard.
+    Retyping the address cannot fix this, so it gets its own sentence
+    rather than the generic MSG_CANT_OPEN."""
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
+    store = ChunkStore(root=tmp_path, dim=8)
+    store.upsert_chunks("budget_chunks", [_row("c1", "ahcccs", [0.0] * 8)])
+    assert validate_data_dir(tmp_path) == MSG_DIFFERENT_INDEX
 
 
 def test_validate_rejects_a_folder_with_no_corpus(tmp_path):
@@ -115,7 +155,7 @@ def test_validate_rejects_a_path_that_is_not_a_directory(tmp_path):
 
 def test_validate_rejects_a_path_that_does_not_exist(tmp_path):
     message = validate_data_dir(tmp_path / "nope")
-    assert message and "couldn't find" in message.lower()
+    assert message and "can't find" in message.lower()
 
 
 def test_validate_rejects_an_empty_path():
@@ -232,3 +272,86 @@ def test_an_unreachable_share_resolves_instead_of_raising(monkeypatch, capsys, t
 
     assert data_dir() == unreachable
     assert "couldn't create or reach" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Normalisation (2026-08-25, the laptop incident — see
+# docs/superpowers/investigations/2026-08-25-windows-launch-failure.md)
+# ---------------------------------------------------------------------------
+import os
+from pathlib import PurePosixPath
+
+from app.machine_config import normalize_data_dir
+
+
+@pytest.mark.parametrize(
+    "typed, stored",
+    [
+        ("//bcpool/JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("/bcpool/JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("E:/JLBCSearch/", r"E:\JLBCSearch"),
+        ('"E:\\JLBCSearch\\"', r"E:\JLBCSearch"),
+        ("E:\\", "E:\\"),
+        ("E:", "E:\\"),  # bare drive = "cwd on E:" — never store that
+        (r"\\bcpool\JLBCSearch", r"\\bcpool\JLBCSearch"),
+        ("  Z:/x/y  ", r"Z:\x\y"),
+    ],
+)
+def test_normalize_on_windows(monkeypatch, typed, stored):
+    """The exact strings from the 2026-08-18 laptop log. `//bcpool/JLBCSearch`
+    passed every Path check, was saved, and LanceDB refused it (InvalidUrl)."""
+    monkeypatch.setattr(os, "name", "nt")
+    assert normalize_data_dir(typed) == stored
+
+
+def test_normalize_on_posix_only_trims(monkeypatch):
+    monkeypatch.setattr(os, "name", "posix")
+    assert normalize_data_dir(' "/mnt/share/jlbc/" ') == "/mnt/share/jlbc"
+    assert normalize_data_dir("//server/share/x") == "//server/share/x"
+
+
+def test_read_data_dir_normalises_a_pointer_written_before_the_fix(
+    monkeypatch, tmp_path
+):
+    """The three beta laptops carry the exact `//bcpool/JLBCSearch` spelling
+    that caused the 2026-08-18 launch failure, written before `set_data_dir`
+    normalised anything. An upgrade that skips the shared-folder question
+    leaves it in place, so the READ has to heal it too — otherwise the
+    analyst meets a repair screen for a folder that is actually correct."""
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / MACHINE_FILE).write_text(
+        json.dumps({"data_dir": "//bcpool/JLBCSearch"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(os, "name", "nt")
+    # Substituting PurePosixPath is what makes this test able to FAIL. With
+    # `os.name` faked to "nt", `Path(...)` builds a WindowsPath, and a
+    # WindowsPath silently rewrites `//bcpool/JLBCSearch` into the same
+    # string as the normalised form — so the unfixed code would pass here.
+    # PurePosixPath keeps whatever string the function derived, verbatim.
+    import app.machine_config as mc
+
+    monkeypatch.setattr(mc, "Path", PurePosixPath)
+    assert str(read_data_dir()) == r"\\bcpool\JLBCSearch"
+    # And the read stays side-effect-free: the file is not rewritten.
+    assert json.loads((tmp_path / MACHINE_FILE).read_text(encoding="utf-8")) == {
+        "data_dir": "//bcpool/JLBCSearch"
+    }
+
+
+def test_read_data_dir_on_posix_only_trims(monkeypatch, tmp_path):
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    (tmp_path / MACHINE_FILE).write_text(
+        json.dumps({"data_dir": '  "/mnt/share/jlbc/"  '}), encoding="utf-8"
+    )
+    monkeypatch.setattr(os, "name", "posix")
+    assert str(read_data_dir()) == "/mnt/share/jlbc"
+
+
+def test_set_data_dir_stores_the_normalised_form(monkeypatch, tmp_path):
+    monkeypatch.setenv("JLBC_MACHINE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(os, "name", "nt")
+    from app.machine_config import machine_config_path, set_data_dir
+
+    set_data_dir("//bcpool/JLBCSearch")
+    raw = json.loads(machine_config_path().read_text(encoding="utf-8"))
+    assert raw["data_dir"] == r"\\bcpool\JLBCSearch"

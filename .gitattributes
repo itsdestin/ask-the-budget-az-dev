@@ -1,0 +1,4 @@
+# cmd.exe needs CRLF to find `call :label` / `goto :label` targets; an LF-only
+# batch file "flashes and closes". Tracked in the repo so a checkout on any OS
+# yields a file Windows can run. tests/test_cmd_line_endings.py is the guard.
+*.cmd text eol=crlf

@@ -41,6 +41,7 @@ build_bundle = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(build_bundle)
 
 EXCLUDED_PREFIXES = build_bundle.EXCLUDED_PREFIXES
+INCLUDED_FILES = build_bundle.INCLUDED_FILES
 REQUIRED_ENTRIES = build_bundle.REQUIRED_ENTRIES
 source_files = build_bundle.source_files
 validate_manifest = build_bundle.validate_manifest
@@ -169,6 +170,11 @@ def test_source_files_ships_the_live_application():
 def test_source_files_excludes_the_retired_and_dev_only_trees():
     files = source_files()
     for rel in files:
+        # INCLUDED_FILES is the one deliberate exception — a handful of paths
+        # under an excluded tree that shipped code reads at runtime (see
+        # test_the_mockup_index_the_search_provider_reads_at_runtime_ships).
+        if rel in INCLUDED_FILES:
+            continue
         assert not rel.startswith(EXCLUDED_PREFIXES), f"{rel} should not ship"
 
 
@@ -233,3 +239,37 @@ def test_every_first_party_import_resolves():
                 continue
             problems.append(f"{rel} imports {mod}, which does not ship")
     assert problems == [], "\n".join(problems)
+
+
+# ---------------------------------------------------------------------------
+# What the runtime reads must ship (2026-08-25 Windows audit)
+# ---------------------------------------------------------------------------
+def test_the_mockup_index_the_search_provider_reads_at_runtime_ships():
+    """`webapp/reference/` is excluded as a tree, but app/search_provider.py
+    reads ONE file from it at runtime for the meta line and the exact-URL
+    join. On the 0.9.1 bundle that file was missing, `_load_mockup_index()`
+    raised, the broad except swallowed it, and EVERY Budget Documents row
+    lost its title, Open link and meta line on every office PC — with one
+    stderr line nobody reads as the only symptom."""
+    from app.search_provider import MOCKUP_INDEX_PATH
+
+    rel = MOCKUP_INDEX_PATH.relative_to(REPO_ROOT).as_posix()
+    assert rel in set(source_files()), f"{rel} is read at runtime but would not ship"
+
+
+def test_posix_console_scripts_do_not_ship():
+    """site-packages/bin/ holds 62 POSIX shell scripts whose shebang is the
+    dev machine's venv path. Useless on Windows and confusing to anyone who
+    opens the folder."""
+    problems = validate_manifest(_complete_manifest() + ["site-packages/bin/mineru"])
+    assert problems, "a POSIX console script slipped into the bundle"
+
+
+@pytest.mark.parametrize("cruft", ["mockups/index.html", "PROMPT-windows-launch-repair.md",
+                                   "PROMPT-anything-at-all.md"])
+def test_dev_cruft_does_not_ship(cruft):
+    """`mockups/` and every root-level PROMPT-*.md are dev artefacts. The old
+    EXCLUDED_NAMES listed twelve PROMPT files by name and seven newer ones
+    were shipping; matching the prefix closes that hole for good."""
+    problems = validate_manifest(_complete_manifest() + [cruft])
+    assert problems, f"{cruft} would ship"

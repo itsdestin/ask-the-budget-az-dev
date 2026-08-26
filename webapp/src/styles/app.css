@@ -3188,6 +3188,10 @@ fieldset.adm-field{border:0;padding:0;}
    people hunting for a bug that is not there. */
 .page-fiscal-notes .fn-fixture{margin:0;padding:10px 12px;border:1px solid var(--az-gold);border-radius:var(--r-sm);background:var(--az-gold-100);color:var(--ink-2);font-size:12px;line-height:1.5;}
 .page-fiscal-notes .fn-fixture strong{color:var(--az-gold-d);}
+/* Budget Documents gets the same note, same styling (2026-08-25, Task 10) — a
+   stub result is just as misleading on this page as on Fiscal Notes. */
+.page-docs .fn-fixture{margin:0 0 12px;padding:10px 12px;border:1px solid var(--az-gold);border-radius:var(--r-sm);background:var(--az-gold-100);color:var(--ink-2);font-size:12px;line-height:1.5;}
+.page-docs .fn-fixture strong{color:var(--az-gold-d);}
 .page-fiscal-notes .fn-inferred{margin:0;font-size:12px;line-height:1.5;color:var(--ink-2);}
 .page-fiscal-notes .linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--az-gold-d);font-weight:800;cursor:pointer;text-decoration:underline;}
 

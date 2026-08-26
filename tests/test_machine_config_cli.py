@@ -1,6 +1,6 @@
 """`python -m app.machine_config` (Session B's app-requirement #3).
 
-`packaging/install.cmd` writes `%LOCALAPPDATA%\\JLBC-Search\\machine.json`
+`packaging/Install-JLBC-Search.cmd` writes `%LOCALAPPDATA%\\JLBC-Search\\machine.json`
 with a hand-rolled JSON literal, because the app is not running at
 install time. That is the schema duplicated in a batch file, and it will
 rot the first time `app/machine_config.py` changes shape — which this
@@ -85,6 +85,9 @@ def test_a_folder_without_a_corpus_still_records(tmp_path, config_dir):
     result = run("--set-data-dir", str(plain), config_dir=config_dir)
 
     assert result.returncode == 0
+    # MSG_NO_CORPUS names "lancedb" again (spec §2.5, 2026-08-25) — it is
+    # the one concrete thing an analyst can look for in File Explorer to
+    # tell whether they picked the right folder.
     assert "lancedb" in result.stderr.lower()
     assert _written(config_dir)["data_dir"] == str(plain)
 
@@ -128,12 +131,40 @@ def test_setting_one_does_not_clobber_the_other(tmp_path, config_dir):
 
 
 def test_it_writes_no_console_noise_on_success(tmp_path, config_dir):
-    """`install.cmd` prints its own progress. A chatty subprocess in the
-    middle of it reads as an error to somebody watching an installer."""
+    """`Install-JLBC-Search.cmd` prints its own progress. A chatty
+    subprocess in the middle of it reads as an error to somebody watching
+    an installer.
+
+    An empty `lancedb/` folder is no longer silent success (Task 7 —
+    `lancedb.connect()` on an empty directory succeeds and lists no
+    tables), so this needs a real row for `validate_data_dir` to have
+    nothing to warn about.
+    """
+    from store.chunk_store import ChunkStore
+    from tests.test_chunk_store import _row
+
     share = tmp_path / "share"
-    (share / "lancedb").mkdir(parents=True)
+    ChunkStore(root=share).upsert_chunks(
+        "budget_chunks", [_row("c1", "ahcccs", [0.0] * 768)]
+    )
 
     result = run("--set-data-dir", str(share), config_dir=config_dir)
 
     assert result.stdout == ""
     assert result.stderr == ""
+
+
+def test_default_ingest_enabled_only_writes_when_the_key_is_absent(tmp_path, config_dir):
+    """An upgrade re-runs the installer. `--set-ingest-enabled false` there
+    switched the ONE ingest machine off every time (found 2026-08-25);
+    `--default-ingest-enabled` records the office default without
+    overriding a choice already made on this PC."""
+    r = run("--default-ingest-enabled", "false", config_dir=config_dir)
+    assert r.returncode == 0
+    assert json.loads((config_dir / "machine.json").read_text())["ingest_enabled"] is False
+
+    r = run("--set-ingest-enabled", "true", config_dir=config_dir)
+    assert r.returncode == 0
+    r = run("--default-ingest-enabled", "false", config_dir=config_dir)
+    assert r.returncode == 0
+    assert json.loads((config_dir / "machine.json").read_text())["ingest_enabled"] is True

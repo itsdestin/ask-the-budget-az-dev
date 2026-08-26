@@ -10,6 +10,15 @@ actionable `fix`:
 
     server -> machine_config -> share -> corpus -> models
 
+`machine_config` fails a corrupt or unreadable pointer file, AND (2026-08-25)
+a bundle where nothing resolves at all — the laptop's actual failure, where
+`can_repair` used to stay False and the folder box never rendered. A pointer
+holding only `ingest_enabled` or `display_names` is normal and does not fail
+this rung. `corpus` fails a `lancedb/` folder that holds no tables, the same
+"wrong folder or half copy" shape as the missing-folder case above it; zero
+ROWS in an existing table stays OK, since a fresh install must still reach
+Upload.
+
 THE LADDER SHORT-CIRCUITS. Once a rung fails, every rung below it reports
 `ok: null` — "not checked" — rather than running and failing too. This is
 the difference between an admin fixing the right thing and an admin
@@ -34,6 +43,13 @@ from store.config import resolve_data_dir
 RUNGS = ("server", "machine_config", "share", "corpus", "models")
 
 NOT_CHECKED = "Not checked — fix the problem above first."
+
+# The corpus rung's one repairable failure: a folder with no `lancedb/` data
+# in it at all, or a `lancedb/` with no tables — both are the same mistake
+# (pointed at the wrong, usually parent, folder), and choosing the folder
+# again is what fixes it. `can_repair` below matches on this constant rather
+# than string content, so nothing here needs string matching (spec §2.5).
+FIX_CHOOSE_AGAIN = "Choose the folder again."
 
 # The two ONNX models retrieval needs, as fastembed names their cache
 # directories. Checked as DIRECTORIES rather than by loading them: this
@@ -81,95 +97,98 @@ def _check_server() -> tuple[bool, str, str | None]:
 
 def _check_machine_config() -> tuple[bool, str, str | None]:
     from app.machine_config import machine_config_path
+    from store.config import DataDirNotConfigured, resolve_data_dir
 
+    # No separate `fix` text below (spec §2.5, 2026-08-25): the repair
+    # FORM itself — the Choose folder… button and the type-it-in box — is
+    # the action, for every one of these failures. Repeating "type it
+    # below" per rung is the sentence this rewrite exists to delete.
     path = machine_config_path()
-    if not path.exists():
-        # The overwhelmingly common case, and not a problem: nobody has
-        # needed to relocate the folder on this machine.
-        return True, "Using the standard shared-folder setting.", None
-    try:
-        import json
+    if path.exists():
+        try:
+            import json
 
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return (
-            False,
-            "This computer has a settings file saying where the shared folder "
-            "is, and it can't be read.",
-            f"Delete this file and reopen the app: {path}",
-        )
-    if not isinstance(raw, dict):
-        return (
-            False,
-            "This computer's shared-folder setting is not in the expected form.",
-            f"Delete this file and reopen the app: {path}",
-        )
-    return True, "This computer's shared-folder setting is readable.", None
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False, "The saved location couldn't be read.", None
+        if not isinstance(raw, dict):
+            # Not a JSON object at all — same repair as unreadable: the
+            # form below rewrites this file correctly either way.
+            return False, "The saved location couldn't be read.", None
+    # ONE rule for "the pointer names nothing": does anything resolve? A
+    # machine.json holding only `ingest_enabled` or `display_names` is normal
+    # (the installer and the Settings page both write those), and with
+    # JLBC_DATA_DIR set — every dev box, the Z13 — a folder resolves anyway.
+    # Only a packaged install with no env var and no pointer raises
+    # (store/config.py::DataDirNotConfigured). The laptop sat exactly there.
+    try:
+        resolve_data_dir()
+    except DataDirNotConfigured:
+        return False, "No location is set on this computer yet.", None
+    except OSError:
+        pass  # a reachability problem is the share rung's to report
+    if path.exists():
+        return True, "This computer's shared-folder setting is readable.", None
+    return True, "Using the standard shared-folder setting.", None
 
 
 def _check_share(root: Path) -> tuple[bool, str, str | None]:
+    # No separate `fix` here either (spec §2.5) — "choose the folder again"
+    # is folded into the sentence itself, and the repair form below is the
+    # actual action for every one of these.
+    not_connected = (
+        False,
+        f"Can't find {root}. Check the network drive is connected, or "
+        "choose the folder again.",
+        None,
+    )
     if not root.exists():
-        return (
-            False,
-            f"The shared folder can't be found: {root}",
-            "Check the shared drive is connected. If the folder has moved, "
-            "enter its new location below.",
-        )
+        return not_connected
     if not root.is_dir():
-        return (
-            False,
-            f"The shared folder setting points at a file, not a folder: {root}",
-            "Enter the folder that holds the JLBC Search data.",
-        )
+        return False, f"{root} is a file, not a folder.", None
     try:
         # Actually touch it — a mapped drive that has gone away often still
         # passes `exists()` and fails the moment anything is read.
         next(root.iterdir(), None)
-    except OSError as err:
-        return (
-            False,
-            f"The shared folder can't be read: {root} ({err.strerror or err}).",
-            "Check the shared drive is connected and that you have permission "
-            "to open it.",
-        )
+    except OSError:
+        return not_connected
     return True, f"The shared folder is reachable: {root}", None
 
 
 def _check_corpus(root: Path) -> tuple[bool, str, str | None]:
+    # "No lancedb/ folder at all" and "a lancedb/ folder with no tables" are
+    # the SAME mistake (spec §2.5, 2026-08-25) — pointed at the wrong,
+    # usually parent, folder — and get the same sentence and the same fix:
+    # FIX_CHOOSE_AGAIN, so `can_repair` below can match on the constant
+    # rather than parsing the sentence.
+    no_data = False, f"{root} has no JLBC Search data in it.", FIX_CHOOSE_AGAIN
     if not (root / "lancedb").is_dir():
-        return (
-            False,
-            "The shared folder is reachable, but it has no search index in it.",
-            "This usually means the folder is the wrong one — it should "
-            "contain a folder called 'lancedb'. Check with whoever set up "
-            "the app.",
-        )
+        return no_data
     try:
         from store.chunk_store import ChunkStore
 
-        count = ChunkStore().count("budget_chunks")
+        # create=False: this is a CHECK. Before 2026-08-25 it mkdir'd
+        # <share>/lancedb, so a wrong pointer manufactured its own evidence.
+        store = ChunkStore(root=root, create=False)
+        if "budget_chunks" not in store.table_names():
+            return no_data
+        count = store.count("budget_chunks")
     except Exception as err:  # noqa: BLE001
-        # A bare "ValueError" means nothing to the person who can fix this.
-        # The two realistic causes for a fresh install are a HALF-COPIED
-        # corpus (the copy to the share was still running, or dropped) and a
-        # table written on another machine with a different embedding model
-        # (dimension mismatch). Name the likely one; never leak a traceback.
-        hint = ""
+        # A bare "ValueError" means nothing to the person who can fix this,
+        # and neither failure is something the picker fixes — a corrupt or
+        # foreign index is still there once you've chosen it (§2.5).
         msg = str(err)
         if "dim" in (msg + str(type(err).__name__)).lower():
-            hint = " This usually happens when the shared folder holds an "
-            "older or differently-embedded index — check the copy came from "
-            "this build's corpus, then re-copy it."
-        else:
-            hint = " The most likely cause is that the copy to the shared "
-            "folder is incomplete or still running. Re-copy the corpus "
-            "folder (lancedb/ and its files) and try again."
+            return (
+                False,
+                "That data was made by a different version of JLBC Search. "
+                "Ask whoever maintains it to re-copy it.",
+                None,
+            )
         return (
             False,
-            "The search index is there but could not be opened "
-            f"({type(err).__name__}).{hint}",
-            "Re-copy the corpus into the shared folder, or ask whoever "
-            "maintains the app.",
+            f"JLBC Search can't open the data in {root}. Ask whoever maintains it.",
+            None,
         )
     if count <= 0:
         # OK, not a failure. A fresh install genuinely has no documents yet,
@@ -246,12 +265,20 @@ def health_detail() -> dict[str, Any]:
             failed = True
             first_failure = name
 
+    # The repair box helps exactly when the problem IS where the app is
+    # pointed: a missing/corrupt pointer, a pointer at a folder that is not
+    # there, or (2026-08-25) the corpus rung's own "no data in it" case —
+    # the wrong-parent-folder mistake, which choosing the folder again
+    # fixes. Matched on FIX_CHOOSE_AGAIN, not string content, so this can't
+    # drift from what `_check_corpus` actually decided.
+    repairable = first_failure in ("machine_config", "share") or (
+        first_failure == "corpus"
+        and next(r for r in rungs if r["name"] == "corpus")["fix"] == FIX_CHOOSE_AGAIN
+    )
+
     return {
         "ok": not failed,
         "rungs": rungs,
         "data_dir": str(root) if root is not None else None,
-        # The repair box only helps when the problem IS where the app is
-        # pointed. Offering it for a corrupt corpus would waste an admin's
-        # time on an action that cannot fix their problem.
-        "can_repair": first_failure == "share",
+        "can_repair": repairable,
     }

@@ -14,16 +14,15 @@ cents per question.
 
 ## 1 · Install (each of the three PCs, once — about 5 minutes)
 
-1. You'll get a zip file, `JLBC-Search-<version>.zip`. **Copy it onto your own PC
-   first** (Desktop is fine) — don't unzip it straight off the network drive, it's slow
-   and sometimes stops halfway.
-2. Right-click the zip → **Extract All…** → extract to
-   `%LOCALAPPDATA%\JLBC-Search`
-   (paste that into the location box; it becomes `C:\Users\<you>\AppData\Local\JLBC-Search`).
-   Wait for it to finish — it's a large program.
-3. Open that folder and double-click **`install.cmd`**.
-4. When it asks for the **shared folder path**, paste the network path where the office
-   corpus lives (your admin will give it to you — it looks like
+1. You'll get two files on a USB drive: **`Install-JLBC-Search.cmd`** and a zip,
+   `JLBC-Search-<version>.zip`. **Copy both onto your own PC first** (Desktop is fine) —
+   don't run it straight off the network drive, it's slow and sometimes stops halfway.
+2. Double-click **`Install-JLBC-Search.cmd`**. It asks two questions and does the rest
+   itself.
+3. **Install folder** — press **Enter** to take the recommended spot,
+   `%LOCALAPPDATA%\JLBC-Search\program`.
+4. **Shared data folder** — paste the network path where the office corpus lives, or
+   drag the folder into the window (your admin will give it to you — it looks like
    `\\server\share\jlbc-search-data`). If you're not on the network yet, press Enter
    to skip — the app will ask for the path on its startup screen the first time you
    open it.

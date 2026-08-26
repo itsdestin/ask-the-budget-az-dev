@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 
@@ -470,7 +471,24 @@ def _decode_anchor(raw: Any) -> dict[str, Any] | None:
 # _streamed applies: a leaked handle on Windows blocks a re-ingest
 # overwriting the cached PDF.
 _LOCATE_DOC_CACHE_MAX = 8
-_locate_doc_cache: dict[str, Any] = {}
+# OrderedDict, not dict: eviction uses popitem(last=False) (oldest first),
+# which plain dict does not accept — found 2026-08-25, the 9th distinct
+# document crashed the route and leaked the first eight handles.
+_locate_doc_cache: "OrderedDict[str, Any]" = OrderedDict()
+
+
+def close_locate_cache() -> int:
+    """Close every cached PyMuPDF handle. Called at server shutdown — a
+    handle left open on Windows blocks a re-ingest from replacing the file."""
+    n = 0
+    while _locate_doc_cache:
+        _, doc = _locate_doc_cache.popitem(last=False)
+        try:
+            doc.close()
+            n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return n
 
 
 def _import_fitz() -> Any | None:

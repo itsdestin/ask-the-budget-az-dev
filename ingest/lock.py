@@ -399,9 +399,11 @@ class IngestLock:
         return (time.time() - beat) > self._stale_after_s
 
     def _unlink_quietly(self) -> None:
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
+        # A PC reading the lockfile at the instant of release used to escape
+        # as PermissionError out of __exit__ -- failing a job AFTER a good
+        # corpus write and leaving a frozen-heartbeat lock for 120 s.
+        from store.fs import unlink_with_retry
+
+        unlink_with_retry(self.path)
 
 
