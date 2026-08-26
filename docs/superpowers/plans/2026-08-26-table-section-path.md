@@ -4,7 +4,9 @@
 
 **Goal:** A table chunk's `section_path` becomes the heading it physically sits under, instead of the first heading anywhere in the document containing one of its cell strings — and the ~10,200 corpus rows already carrying the wrong answer are repaired in place.
 
-**Architecture:** The readers' `_build_outline` already files every table into the `body_blocks` of the innermost open heading; that list is the haystack the current text search scans. Task 1 exposes it as a lookup (`ExtractedDocument.owner_path`), Task 2 makes the table builder use it and deletes the search, Task 3 proves the two chunk builders now agree on real documents, Tasks 4–6 build a surgical corpus repair modelled on `identity/relabel.py` / `funds/unstamp.py`, and Task 7 runs it behind the spec's gates.
+**Architecture:** The readers' `_build_outline` already files every table into the `body_blocks` of the innermost open heading; that list is the haystack the current text search scans. Task 1 exposes it as a lookup (`ExtractedDocument.owner_path`), Task 2 makes the table builder use it and deletes the search, Task 3 pins that the two chunk builders agree on a REAL two-page slice of the Governor's Budget and adds the one read-side lookup the repair needs (`ingest/extract_dirs.py`), Tasks 4–6 build a surgical corpus repair modelled on `identity/relabel.py` / `funds/unstamp.py` and end at a **go/no-go stop for Destin**, and Task 7 runs the write behind the spec's gates.
+
+> **Revised 2026-08-26 after review against the code and the live data.** Five of the first draft's claims were wrong (fixture copied the cover page instead of the contents page; folder precedence read the wrong AFR; eval field names that do not exist; three `outline_path` tests unlisted; a half-copy of the old rule). Also added: the fiscal-note table, the untouched-row half of G-T3, the two unrepairable documents, and the checkpoint. The half-copied old rule and its script are gone — the dry-run report answers the same question from the stored rows.
 
 **Tech Stack:** Python 3.12, `uv`, pytest, LanceDB (`store/chunk_store.py`), local ONNX embedder (`retrieval/local_embedder.py`), pydantic models in `chunking/types.py`.
 
@@ -17,6 +19,11 @@
 - **Nothing in `tests/` may open a real LanceDB directory or load ONNX weights** (CLAUDE.md). Reader fixtures are committed JSON under `tests/fixtures/`; the corpus at `data/insight-data/` is gitignored and absent from a fresh clone, so **no test may read it**.
 - **A repair pass writes the corpus.** It follows the shape `identity/relabel.py` and `funds/unstamp.py` established: dry run takes no lock and writes nothing; apply is lock → snapshot+verify → scan → compute → batched write → verify → reversal record → **`build_fts_index` + `optimize`**. The FTS rebuild is not optional (`funds/unstamp.py` learned it: re-added rows are invisible to BM25 until then).
 - **Run the eval after this change.** `retrieval/` is untouched but `chunking/` is not, and `section_path` is line 0 of embedded text. `uv run python -m eval.run_eval` (~60s, needs `JLBC_DATA_DIR`), as a CONTROL on unmodified code immediately before the write and again after. Commit both result files.
+- **Two tables, not one.** Fiscal notes are chunked by the same `chunk_doc` (tables first) into a SEPARATE LanceDB table, `fiscal_note_chunks` (`ingest/worker.py::CORPUS_TABLES`). Spec §3.5 counts ≈351 fiscal-note rows. Every dry run, apply and G-T3 check in this plan runs against **both** tables, the way `funds/unstamp.py` does.
+- **The apply holds the ingest lock for a long time.** Snapshotting the corpus takes minutes, and re-embedding ≈10,200 rows on the local CPU model is on the order of 30–60 minutes on this machine. Nobody in the office can upload while it runs. Say so before starting, and run it when nothing else is writing. (`IngestLock.acquire()` starts its own heartbeat thread — the explicit `lock.heartbeat()` calls in Task 5 are belt-and-braces between phases, not what keeps the lock alive.)
+- **Which extractor output to read comes from `documents.json`, never from a folder precedence.** `agao-afr-fy2024` holds BOTH `mineru/` and `mineru-ocr/` output; the corpus holds the `mineru` reading and the sidecar's `extraction.method` says so. Task 3's `resolve_extract_dir` reads the sidecar; a guess by folder name reads the wrong document.
+- **Scratch files go in the session's scratchpad directory, never `/tmp`.** `$SCRATCH` below means that directory.
+- **There is a STOP in this plan.** Task 6 ends with a go/no-go checkpoint for Destin. Task 7 (the write) does not start until he says go.
 - **Worktree:** `~/ask-the-budget-az-worktrees/table-section-path/`, branched off `origin/master`. `ln -s <main-repo>/.venv <worktree>/.venv`.
 - **`uvicorn` runs without `--reload`** — Python changes need a server restart if anyone starts one.
 
@@ -229,8 +236,8 @@ Expected: all pass, same counts as before this task.
 
 - [ ] **Step 6: Verify the memo cannot be fooled — mutate in place, do not copy**
 
-Temporarily change `if id(b) is not None` … no: instead, replace `memo[id(b)] = here` with `memo[id(b)] = list(ancestors)` (dropping the node's own text), run
-`uv run pytest tests/test_extracted_document_owner_path.py -v`, and confirm **4 tests fail**. Then `git checkout chunking/readers/types.py` is NOT usable here (the file has unstaged work) — revert the single line by hand and re-run to confirm 6 passed.
+Replace `memo[id(b)] = here` with `memo[id(b)] = list(ancestors)` (dropping the node's own text), run
+`uv run pytest tests/test_extracted_document_owner_path.py -v`, and confirm **4 tests fail**. Revert the single line by hand (the file carries this task's own uncommitted edits, so `git checkout` would discard them) and re-run to confirm 6 passed.
 
 - [ ] **Step 7: Commit**
 
@@ -253,6 +260,7 @@ map by identity instead of searching it by text."
 - Modify: `chunking/readers/mineru_reader.py:226-241` and `chunking/readers/odl_reader.py:212-227` (the `_build_outline` docstrings describing the old behaviour)
 - Modify: `chunking/builders/narrative_chunk.py:27` (comment referencing `outline_path`)
 - Modify: `tests/test_mineru_reader.py` (delete `test_mineru_reader_outline_path_finds_table_content`)
+- Modify: `tests/test_odl_reader.py` (delete the three `test_odl_reader_outline_path_*` specs at ~lines 92–117)
 - Modify: `tests/test_table_chunk.py`
 - Test: `tests/test_table_chunk.py` (new cases)
 
@@ -264,7 +272,7 @@ map by identity instead of searching it by text."
 
 Run: `grep -rn "outline_path" --include='*.py' . | grep -v __pycache__`
 
-Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), three comments (`narrative_chunk.py:27`, `mineru_reader.py`, `odl_reader.py`), and one test (`tests/test_mineru_reader.py`). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
+Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), three comments (`narrative_chunk.py:27`, `mineru_reader.py`, `odl_reader.py`), and **four tests** — one in `tests/test_mineru_reader.py` (line ~86) and three in `tests/test_odl_reader.py` (lines ~92, ~108, ~115; verified 2026-08-26). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -378,7 +386,7 @@ In `chunking/readers/types.py`, delete the `outline_path` method and the module-
 Run: `grep -rn "_block_text" --include='*.py' . | grep -v __pycache__`
 Expected: only the definition and `outline_path`'s use of it. If anything else uses it, keep `_block_text` and delete only `outline_path`.
 
-Delete `test_mineru_reader_outline_path_finds_table_content` from `tests/test_mineru_reader.py` (around line 86).
+Delete `test_mineru_reader_outline_path_finds_table_content` from `tests/test_mineru_reader.py` (around line 86) and the three `test_odl_reader_outline_path_*` specs from `tests/test_odl_reader.py` (around lines 92–117). They pin the method being deleted, not any behaviour a chunk depends on.
 
 - [ ] **Step 6: Correct the three stale docstrings**
 
@@ -400,7 +408,8 @@ Delete `test_mineru_reader_outline_path_finds_table_content` from `tests/test_mi
         applies, which cuts both ways: **whatever you change here now
         DOES move production chunks.** Run `chunk_doc` end-to-end over
         cached extractor output and diff the section paths first
-        (`scripts/diff_section_paths.py`, Task 3).
+        (`uv run python -m chunking.repair_section_paths --doc <doc_id>`
+        is a dry run that prints old vs new per table).
 ```
 
 Apply the same replacement to `chunking/readers/odl_reader.py`'s `_build_outline` docstring.
@@ -424,7 +433,7 @@ Expected: no new failures against the baseline count recorded at the start of th
 git add chunking/builders/table_chunk.py chunking/readers/types.py \
         chunking/readers/mineru_reader.py chunking/readers/odl_reader.py \
         chunking/builders/narrative_chunk.py \
-        tests/test_table_chunk.py tests/test_mineru_reader.py
+        tests/test_table_chunk.py tests/test_mineru_reader.py tests/test_odl_reader.py
 git commit -m "chunking: a table is labelled with the heading it sits under
 
 _resolve_section_path searched the whole document for the table's own cell
@@ -438,75 +447,135 @@ outline_path had exactly one production caller and is deleted with it."
 
 ---
 
-### Task 3: Prove it on real documents — the cross-producer guard and the diff harness
+### Task 3: Prove it on a real document — the cross-producer guard, and the read-side folder lookup
 
 **Files:**
-- Create: `scripts/diff_section_paths.py`
-- Create: `tests/fixtures/odl-gov-toc-slice/page-1.json`, `tests/fixtures/odl-gov-toc-slice/page-10.json`
+- Create: `ingest/extract_dirs.py`
+- Create: `tests/test_extract_dirs.py`
+- Create: `tests/fixtures/odl-gov-toc-slice/page-2.json`, `tests/fixtures/odl-gov-toc-slice/page-10.json`
 - Create: `tests/test_section_path_producers_agree.py`
 - Modify: `tests/fixtures/README.md`
 
 **Interfaces:**
 - Consumes: Task 2's changed builder.
-- Produces: `scripts/diff_section_paths.py::diff_document(doc_id: str, root: Path) -> dict` — `{"doc_id", "tables", "changed", "relabelled", "to_blank", "examples"}`; and `resolve_extract_dir(doc_id: str, root: Path) -> tuple[Path, str] | None` returning `(directory, extractor_name)`. **Task 4 imports `resolve_extract_dir` from here** — do not duplicate it.
+- Produces: `ingest.extract_dirs.resolve_extract_dir(doc_id: str, root: Path, *, method: str | None = None) -> tuple[Path, str] | None` returning `(directory, extractor_name)`. **Task 4 imports it from here** — do not duplicate it.
 
-- [ ] **Step 1: Write `scripts/diff_section_paths.py`**
+> **What changed from the first draft, and why.** The draft had a `scripts/diff_section_paths.py` that re-implemented the OLD text-search rule to print old-vs-new. It was half a copy — the real `_resolve_section_path` has a nearest-preceding-heading fallback the copy omitted — so its numbers would have disagreed with the spec's and tripped a false stop. It is gone. The stored corpus row IS the old answer, so Task 6's dry run (`--doc <id>`) prints the same old-vs-new from real data with no second copy of anything. The one piece worth keeping, "where does this document's extractor output live", moves next to the code that already writes that layout.
+
+- [ ] **Step 1: Write the failing tests for the folder lookup**
+
+Create `tests/test_extract_dirs.py`:
 
 ```python
-"""Diff table `section_path`s between the shipped rule and this checkout.
+"""ingest.extract_dirs.resolve_extract_dir — the READ side of the layout
+`ingest/worker.py::_extract_dir` / `_legacy_extract_dir` write.
 
-WHY this is a script and not a test: it reads `<data_dir>/extractor-output/`,
-which is gitignored and absent from a fresh clone, so a test that opened it
-would fail for anyone who had not run an ingest (CLAUDE.md testing
-conventions). It is also the harness spec gate G-T6 requires — the
-2026-08-16 attempt at this defect passed twelve specs and five of six
-mutations while changing zero production chunks, because every measurement
-was taken against a mechanism no chunk reads.
-
-Usage:
-    uv run python -m scripts.diff_section_paths --doc governor-governors-budget-fy2026
-    uv run python -m scripts.diff_section_paths --sample 30
+The sidecar's `extraction.method` decides the folder. It has to: on the live
+share `agao-afr-fy2024` holds both `mineru/` and `mineru-ocr/` (the
+2026-08-13 forced-fallback experiment wrote the OCR one) and the corpus
+holds the MinerU reading. A rule that picks by folder name reads the wrong
+document and the repair's body gate then skips it -- the exact document
+spec G-T4's prediction is about.
 """
 from __future__ import annotations
 
-import argparse
-import collections
 import json
-import random
 from pathlib import Path
-from typing import Any
 
-from chunking.readers.mineru_reader import MinerUReader
-from chunking.readers.odl_reader import ODLReader
-from store.config import resolve_data_dir
+from ingest.extract_dirs import resolve_extract_dir
 
 
-def resolve_extract_dir(doc_id: str, root: Path) -> tuple[Path, str] | None:
-    """Where this document's extractor output lives, and which reader reads it.
+def _pages(directory: Path, extractor: str, *pages: int) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for p in pages:
+        (directory / f"page-{p}.json").write_text(
+            json.dumps({"extractor": extractor, "page": p, "blocks": []}), encoding="utf-8"
+        )
 
-    Two shapes exist on the share and both are live:
-      * `<root>/extractor-output/<doc_id>/page-N.json` — the pre-rung layout,
-        which is the overwhelming majority (390 of 400 sampled);
-      * `<root>/extractor-output/<doc_id>/<method>/page-N.json` — the
-        rung-scoped layout `ingest/worker.py::_extract_dir` writes. A method
-        subdirectory SUPERSEDES the root output: `agao-afr-fy2024` was
-        re-read with MinerU on 2026-08-16 and its root output is the older
-        OpenDataLoader reading.
 
-    The reader is chosen from the page file's own `extractor` field, never
-    from `manifest.json` — thousands of documents have no manifest, and
-    `agao-afr-fy2024`'s manifest says `opendataloader` while the reading the
-    corpus actually holds is MinerU's, in a subdirectory.
+def test_legacy_root_layout_when_no_method_is_recorded(tmp_path: Path):
+    _pages(tmp_path / "extractor-output" / "doc-a", "opendataloader-2.4.1", 1, 2)
+    assert resolve_extract_dir("doc-a", tmp_path) == (
+        tmp_path / "extractor-output" / "doc-a", "opendataloader-2.4.1"
+    )
+
+
+def test_the_sidecar_method_picks_the_folder_even_when_the_root_has_pages(tmp_path: Path):
+    base = tmp_path / "extractor-output" / "doc-a"
+    _pages(base, "opendataloader-2.4.1", 1)            # an older reading
+    _pages(base / "mineru", "mineru-3.1.6", 1)
+    _pages(base / "mineru-ocr", "mineru-3.1.6", 1)     # a rung that lost
+    assert resolve_extract_dir("doc-a", tmp_path, method="mineru") == (base / "mineru", "mineru-3.1.6")
+
+
+def test_a_recorded_method_with_no_output_on_disk_is_none_not_a_guess(tmp_path: Path):
+    base = tmp_path / "extractor-output" / "doc-a"
+    _pages(base / "mineru-ocr", "mineru-3.1.6", 1)
+    assert resolve_extract_dir("doc-a", tmp_path, method="mineru") is None
+
+
+def test_missing_document_is_none(tmp_path: Path):
+    assert resolve_extract_dir("nope", tmp_path) is None
+
+
+def test_the_extractor_comes_from_the_page_file_not_the_folder_name(tmp_path: Path):
+    base = tmp_path / "extractor-output" / "doc-a"
+    _pages(base / "mineru", "mineru-3.4.4", 1)
+    (base / "manifest.json").write_text(json.dumps({"extractor": "opendataloader"}), encoding="utf-8")
+    assert resolve_extract_dir("doc-a", tmp_path, method="mineru")[1] == "mineru-3.4.4"
+```
+
+- [ ] **Step 2: Run them to verify they fail**
+
+Run: `uv run pytest tests/test_extract_dirs.py -v`
+Expected: collection error — `ModuleNotFoundError: No module named 'ingest.extract_dirs'`.
+
+- [ ] **Step 3: Write `ingest/extract_dirs.py`**
+
+```python
+"""Where a document's cached extractor output lives, for READ-side tools.
+
+The write side already knows this layout: `ingest/worker.py::_extract_dir`
+writes `<root>/extractor-output/<doc_id>/<method>/page-N.json` per rung, and
+`_legacy_extract_dir` re-claims the pre-rung `<doc_id>/page-N.json` shape.
+Both are keyed on a job record, which a corpus repair does not have. This is
+the same rule keyed on what a repair DOES have: the doc_id and the sidecar's
+`extraction.method`.
+
+WHY the method comes from `documents.json` and never from a folder
+precedence: `agao-afr-fy2024` holds BOTH `mineru/` and `mineru-ocr/` -- the
+2026-08-13 forced-fallback experiment wrote the OCR reading, and the corpus
+holds the MinerU one (sidecar `extraction.method == "mineru"`). Any rule that
+picks by folder name reads the wrong document; the repair's body gate then
+skips it, and that is the one document spec G-T4's prediction is about.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def resolve_extract_dir(
+    doc_id: str, root: Path, *, method: str | None = None
+) -> tuple[Path, str] | None:
+    """`(directory, extractor)` for `doc_id`, or None when nothing usable is cached.
+
+    `method` is the sidecar's `extraction.method` when the document has an
+    extraction record (141 of 7,574 on 2026-08-26 -- everything ingested
+    since Plan B). Documents without one live in the un-suffixed legacy
+    directory. A recorded method whose folder is missing returns None
+    rather than falling back to another folder: "the reading the corpus
+    holds is not on disk" is a finding, and guessing would hide it.
+
+    The extractor NAME is read from the first page file's own `extractor`
+    field, never from `manifest.json` -- thousands of documents have no
+    manifest, and `agao-afr-fy2024`'s says `opendataloader` while the
+    reading in the corpus is MinerU's.
     """
     base = root / "extractor-output" / doc_id
     if not base.is_dir():
         return None
-    directory = base
-    for sub in ("mineru-ocr", "mineru", "opendataloader"):
-        candidate = base / sub
-        if candidate.is_dir() and any(candidate.glob("page-*.json")):
-            directory = candidate
-            break
+    directory = base / method if method else base
     first = next(iter(sorted(directory.glob("page-*.json"))), None)
     if first is None:
         return None
@@ -515,166 +584,39 @@ def resolve_extract_dir(doc_id: str, root: Path) -> tuple[Path, str] | None:
     except (OSError, ValueError):
         return None
     return directory, extractor
-
-
-def _reader(extractor: str):
-    return ODLReader() if "opendataloader" in extractor.lower() else MinerUReader()
-
-
-def _old_rule(table, doc) -> list[str]:
-    """The DELETED text search, kept here so the diff has something to
-    compare against. It is a copy on purpose: production must not keep a
-    second way to answer this question (spec D1), but a measurement needs
-    the before-picture."""
-    candidates: list[str] = []
-    for row in table.rows[:3]:
-        for cell in row.cells:
-            t = " ".join(cell.text.split())
-            if len(t) >= 4:
-                candidates.append(t)
-    for q in candidates:
-        best: list[str] = []
-        needle = q.casefold()
-
-        def walk(node, ancestors):
-            nonlocal best
-            here = ancestors + [node.text]
-            for child in node.children:
-                walk(child, here)
-            if best and len(best) >= len(here):
-                return
-            body = " ".join(
-                " ".join(c.text for r in getattr(b, "rows", []) for c in r.cells)
-                or getattr(b, "text", "")
-                for b in node.body_blocks
-            )
-            if needle in node.text.casefold() or needle in body.casefold():
-                best = here
-
-        for root_node in doc.outline:
-            walk(root_node, [])
-        if best:
-            return best
-    return []
-
-
-def diff_document(doc_id: str, root: Path) -> dict[str, Any]:
-    found = resolve_extract_dir(doc_id, root)
-    if found is None:
-        return {"doc_id": doc_id, "skipped": "no cached extractor output"}
-    directory, extractor = found
-    doc = _reader(extractor).read(directory)
-    relabelled = to_blank = 0
-    examples: list[tuple[int | None, str, str]] = []
-    for table in doc.tables:
-        old = _old_rule(table, doc)
-        new = doc.owner_path(table)
-        if old == new:
-            continue
-        if new:
-            relabelled += 1
-        else:
-            to_blank += 1
-        if len(examples) < 5:
-            page = table.pages[0] if table.pages else table.page
-            examples.append((page, " > ".join(old), " > ".join(new)))
-    return {
-        "doc_id": doc_id,
-        "extractor": extractor,
-        "tables": len(doc.tables),
-        "changed": relabelled + to_blank,
-        "relabelled": relabelled,
-        "to_blank": to_blank,
-        "examples": examples,
-    }
-
-
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--doc", action="append", default=[], help="doc_id (repeatable)")
-    ap.add_argument("--sample", type=int, default=0, help="also diff N random documents")
-    ap.add_argument("--seed", type=int, default=11)
-    args = ap.parse_args(argv)
-
-    root = resolve_data_dir()
-    doc_ids = list(args.doc)
-    if args.sample:
-        docs = json.loads((root / "documents.json").read_text(encoding="utf-8"))
-        pool = [d for d in docs if (root / "extractor-output" / d).is_dir()]
-        random.Random(args.seed).shuffle(pool)
-        doc_ids += pool[: args.sample]
-
-    totals = collections.Counter()
-    for doc_id in doc_ids:
-        result = diff_document(doc_id, root)
-        if "skipped" in result:
-            print(f"{doc_id[:46]:46s} SKIPPED ({result['skipped']})")
-            totals["skipped"] += 1
-            continue
-        totals["tables"] += result["tables"]
-        totals["changed"] += result["changed"]
-        totals["relabelled"] += result["relabelled"]
-        totals["to_blank"] += result["to_blank"]
-        print(
-            f"{doc_id[:46]:46s} tables={result['tables']:5d} "
-            f"changed={result['changed']:5d} "
-            f"(relabelled={result['relabelled']}, to_blank={result['to_blank']})"
-        )
-        for page, old, new in result["examples"]:
-            print(f"    p{page}: {old[:60]!r} -> {new[:60]!r}")
-    print(f"\nTOTAL tables={totals['tables']} changed={totals['changed']} "
-          f"relabelled={totals['relabelled']} to_blank={totals['to_blank']} "
-          f"skipped_docs={totals['skipped']}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 ```
 
-- [ ] **Step 2: Run it against the two documents the spec names**
+Run: `uv run pytest tests/test_extract_dirs.py -v` → 5 passed.
 
-```bash
-cd ~/ask-the-budget-az-worktrees/table-section-path
-JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data \
-  uv run python -m scripts.diff_section_paths \
-  --doc governor-governors-budget-fy2026 --doc agao-afr-fy2024 --doc agao-afr-fy2021
-```
-
-Expected, from the spec's own measurements — **these are predictions, and a mismatch means the model of the defect is wrong, so stop and report rather than proceeding**:
-
-| doc | tables | changed |
-|---|---|---|
-| `governor-governors-budget-fy2026` | 1,246 | 1,197 |
-| `agao-afr-fy2024` | 422 | ~261 (61.9% of 422) |
-
-At least one `governor` example line must read
-`'Table of Contents' -> 'Acupuncture Examiners, Board of'` or similar.
-
-- [ ] **Step 3: Build the committed fixture from the real slice**
+- [ ] **Step 4: Build the committed fixture from the real slice — pages 2 and 10, NOT page 1**
 
 The fixture must be REAL, not synthetic — this defect only appears when a
 contents page's body genuinely names a later agency, which is easy to get
-wrong by hand.
+wrong by hand. **Read before copying (verified 2026-08-26):** page 1 of
+`governor-governors-budget-fy2026` is the cover (no heading, no table).
+**The `Table of Contents` heading is on page 2**, followed by ~110
+paragraphs naming every agency — the trap. Page 10 carries its own
+`Acupuncture Examiners, Board of` heading and, under it, the agency's
+budget-summary table. The two pages are 35 KB + 17 KB; no trimming.
 
 ```bash
 DATA=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data
 SRC=$DATA/extractor-output/governor-governors-budget-fy2026
 mkdir -p tests/fixtures/odl-gov-toc-slice
-cp $SRC/page-1.json  tests/fixtures/odl-gov-toc-slice/page-1.json
+cp $SRC/page-2.json  tests/fixtures/odl-gov-toc-slice/page-2.json
 cp $SRC/page-10.json tests/fixtures/odl-gov-toc-slice/page-10.json
 ls -la tests/fixtures/odl-gov-toc-slice/
+grep -c '"Table of Contents"' tests/fixtures/odl-gov-toc-slice/page-2.json   # must be >= 1
+grep -c 'Acupuncture Examiners, Board of' tests/fixtures/odl-gov-toc-slice/page-2.json tests/fixtures/odl-gov-toc-slice/page-10.json   # both >= 1
 ```
-
-If either file exceeds ~400 KB, trim its `blocks` array to the first heading, the contents table, and the agency table — keep the JSON shape identical, and record in `tests/fixtures/README.md` that it was trimmed.
 
 Add a row to the table in `tests/fixtures/README.md`:
 
 ```
-| `odl-gov-toc-slice/` | OpenDataLoader-PDF per-page output, pages 1 + 10 of `governor-governors-budget-fy2026` | The real contents-page-captures-every-table defect (spec 2026-08-26). Two files, read as a directory. Trimmed only if noted here. |
+| `odl-gov-toc-slice/` | OpenDataLoader-PDF per-page output, pages 2 + 10 of `governor-governors-budget-fy2026` (a public document) | The real contents-page-captures-every-table defect (spec 2026-08-26): page 2 is the `Table of Contents` heading plus every agency name as paragraphs; page 10 is one agency's heading and its budget table. Two files, read as a directory. Untrimmed. |
 ```
 
-- [ ] **Step 4: Write the cross-producer guard**
+- [ ] **Step 5: Write the cross-producer guard**
 
 Create `tests/test_section_path_producers_agree.py`:
 
@@ -696,9 +638,10 @@ from pathlib import Path
 from chunking.builders.narrative_chunk import build_narrative_chunks
 from chunking.builders.table_chunk import DocMeta, build_table_chunk
 from chunking.readers.odl_reader import ODLReader
-from chunking.readers.types import Paragraph, Table
+from chunking.readers.types import Paragraph
 
 FIXTURE = Path(__file__).parent / "fixtures" / "odl-gov-toc-slice"
+TRAP = "Acupuncture Examiners, Board of"
 
 
 def _meta() -> DocMeta:
@@ -709,6 +652,19 @@ def _meta() -> DocMeta:
         fiscal_year=2026,
         extractor="opendataloader",
     )
+
+
+def test_the_fixture_really_contains_the_trap():
+    """The first draft of this plan copied the COVER page instead of the
+    contents page, and every test below would have passed against it while
+    proving nothing. This spec fails if the fixture is ever re-copied wrong."""
+    doc = ODLReader().read(FIXTURE)
+    toc = [n for n in doc.outline if n.text == "Table of Contents"]
+    assert len(toc) == 1, "page-2.json must carry the Table of Contents heading"
+    body = " ".join(b.text for b in toc[0].body_blocks if isinstance(b, Paragraph))
+    assert TRAP in body, "the contents page must name the agency whose table is on page 10"
+    late_tables = [t for t in doc.tables if (t.pages[0] if t.pages else t.page) >= 10]
+    assert late_tables, "page-10.json must carry the agency's table"
 
 
 def test_every_table_chunk_agrees_with_the_owner_lookup():
@@ -747,49 +703,54 @@ def test_every_narrative_chunk_agrees_with_the_owner_lookup():
 
 
 def test_the_contents_page_does_not_capture_the_agency_table():
-    """The defect, pinned against the real slice it was measured on."""
+    """The defect, pinned against the real slice it was measured on: the
+    page-10 table must be filed under its own page-10 heading, not under
+    the page-2 contents node whose body names the same agency."""
     doc = ODLReader().read(FIXTURE)
     late = [t for t in doc.tables if (t.pages[0] if t.pages else t.page) >= 10]
     assert late, "fixture must contain a table from page 10"
     for table in late:
         chunk = build_table_chunk(table, doc, _meta(), chunk_index=0)
         assert "Table of Contents" not in chunk.section_path
+        assert chunk.section_path == [TRAP]
 ```
 
-- [ ] **Step 5: Run it**
+- [ ] **Step 6: Run it**
 
 Run: `uv run pytest tests/test_section_path_producers_agree.py -v`
-Expected: 3 passed.
+Expected: 4 passed.
 
-If `test_the_contents_page_does_not_capture_the_agency_table` fails with an
-empty `late` list, the fixture pages were trimmed too aggressively — re-copy
-`page-10.json` untrimmed.
+If `test_the_fixture_really_contains_the_trap` fails, the wrong pages were copied — re-read Step 4; do not edit the assertion.
 
-- [ ] **Step 6: Prove the guard can fail**
+- [ ] **Step 7: Prove the guard can fail**
 
 In `chunking/builders/table_chunk.py`, temporarily change
 `section_path = doc.owner_path(table)` to `section_path = ["Table of Contents"]`.
 
 Run: `uv run pytest tests/test_section_path_producers_agree.py -v`
 Expected: `test_every_table_chunk_agrees_with_the_owner_lookup` and
-`test_the_contents_page_does_not_capture_the_agency_table` FAIL.
+`test_the_contents_page_does_not_capture_the_agency_table` FAIL; the
+fixture-precondition spec still passes (it reads the fixture, not the builder).
 
-Revert the line by hand and re-run: 3 passed.
+Revert the line by hand and re-run: 4 passed.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add scripts/diff_section_paths.py tests/test_section_path_producers_agree.py \
+git add ingest/extract_dirs.py tests/test_extract_dirs.py \
+        tests/test_section_path_producers_agree.py \
         tests/fixtures/odl-gov-toc-slice tests/fixtures/README.md
-git commit -m "chunking: cross-producer guard + the real Governor's-budget slice
+git commit -m "chunking: cross-producer guard on the real Governor's-budget contents slice
 
 G-T1: table and narrative chunks must agree about which section a page is
 in. Every existing test asked whether one chunk's label was right; nothing
 asked whether our two labellers agreed, which is how the defect survived.
+The fixture is pages 2 + 10 (the contents heading is on page 2, not 1) and
+a spec pins that the trap is really in it.
 
-scripts/diff_section_paths.py is the end-to-end harness G-T6 needs: the
-2026-08-16 attempt at this bug passed twelve specs and five of six
-mutations while changing zero production chunks."
+ingest/extract_dirs.py: the read-side twin of worker._extract_dir, keyed on
+the sidecar's extraction.method so the AFR that holds two readings is read
+from the one the corpus holds."
 ```
 
 ---
@@ -801,13 +762,13 @@ mutations while changing zero production chunks."
 - Test: `tests/test_repair_section_paths.py` (create)
 
 **Interfaces:**
-- Consumes: `scripts.diff_section_paths.resolve_extract_dir`, `ExtractedDocument.owner_path`, `chunking.builders._tokens.count_tokens`, `store.chunk_store.ChunkStore.scan/upsert_chunks`.
+- Consumes: `ingest.extract_dirs.resolve_extract_dir`, `ExtractedDocument.owner_path`, `chunking.builders._tokens.count_tokens`, `store.chunk_store.ChunkStore.scan/upsert_chunks`.
 - Produces:
   - `PLAN_COLUMNS: list[str]`
   - `@dataclass(frozen=True) RowChange` with fields `chunk_id: str`, `doc_id: str`, `old_path: list[str]`, `new_path: list[str]`, `old_text: str`, `new_text: str`
-  - `@dataclass RepairResult` with fields `changed: int`, `scanned: int`, `documents_planned: int`, `documents_skipped: dict[str, str]`, `reversal: list[dict]`
-  - `plan_document(doc_id, rows, root) -> tuple[list[RowChange], str | None]` — changes, and a skip reason when the document cannot be planned
-  - `repair_section_paths(*, store, embedder, root, table="budget_chunks", dry_run=True, ...) -> RepairResult`
+  - `@dataclass RepairResult` with fields `changed: int`, `scanned: int`, `documents_planned: int`, `documents_skipped: dict[str, str]`, `per_document: dict[str, dict[str, int]]` (`tables` / `changed` / `relabelled` / `to_blank`), `reversal: list[dict]`
+  - `plan_document(doc_id, rows, root, *, method=None) -> tuple[list[RowChange], str | None]` — changes, and a skip reason when the document cannot be planned
+  - `repair_section_paths(*, store, embedder, root, table="budget_chunks", dry_run=True, only=None, ...) -> RepairResult` — `only` restricts planning to a set of doc_ids (the CLI's `--doc`)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -935,6 +896,29 @@ def test_narrative_rows_are_never_touched(root: Path):
     assert all(c.chunk_id != "doc-a-0002" for c in changes)
 
 
+def test_plan_reads_the_rung_folder_the_sidecar_names(root: Path):
+    """`method` selects `<doc_id>/<method>/`; the legacy root output (an
+    OLDER reading, here deliberately different) must not be read."""
+    sub = root / "extractor-output" / "doc-a" / "mineru"
+    sub.mkdir()
+    for name in ("page-1.json", "page-9.json"):
+        (root / "extractor-output" / "doc-a" / name).replace(sub / name)
+    (root / "extractor-output" / "doc-a" / "page-1.json").write_text(
+        json.dumps(_page_json(1, [_table("stale reading")])), encoding="utf-8"
+    )
+    changes, skipped = plan_document("doc-a", _stored_rows(), root, method="mineru")
+    assert skipped is None
+    assert [c.chunk_id for c in changes] == ["doc-a-0001"]
+
+
+def test_table_rows_are_matched_by_numeric_suffix_not_string_order(root: Path):
+    """chunk ids are zero-padded to four digits; a document with 10,000+
+    tables would sort `-10000` before `-0002` as strings. None exists today
+    (the Governor's Budget has 1,246); this is cheap insurance, not a fix."""
+    from chunking.repair_section_paths import _chunk_index
+    assert _chunk_index({"chunk_id": "doc-a-10000"}) > _chunk_index({"chunk_id": "doc-a-0002"})
+
+
 class _FakeStore:
     def __init__(self, rows: list[dict]):
         self.rows = rows
@@ -974,6 +958,41 @@ def test_dry_run_writes_nothing_and_takes_no_lock(root: Path):
     assert len(result.reversal) == 1
     assert result.reversal[0]["chunk_id"] == "doc-a-0001"
     assert result.reversal[0]["before"]["section_path"] == ["Table of Contents"]
+    assert result.per_document["doc-a"] == {"tables": 2, "changed": 1, "relabelled": 1, "to_blank": 0}
+
+
+def test_dry_run_passes_the_sidecar_method_and_skips_docx(root: Path):
+    """The corpus-wide plan reads `documents.json` ONCE and hands each
+    document its recorded rung; DOCX bills have no page output and no table
+    chunks, and are named as such instead of inflating the 'no cached
+    extractor output' count."""
+    (root / "documents.json").write_text(json.dumps({
+        "doc-a": {"extraction": {"method": "mineru"}},
+        "doc-x": {"source_format": "docx"},
+    }), encoding="utf-8")
+    sub = root / "extractor-output" / "doc-a" / "mineru"
+    sub.mkdir()
+    for name in ("page-1.json", "page-9.json"):
+        (root / "extractor-output" / "doc-a" / name).replace(sub / name)
+    rows = _stored_rows() + [
+        {"chunk_id": "doc-x-0000", "doc_id": "doc-x", "is_table": False,
+         "section_path": ["SEC 06-18"], "text": "[SEC 06-18] Section 1"}
+    ]
+    result = repair_section_paths(store=_FakeStore(rows), embedder=_FakeEmbedder(), root=root)
+    assert result.changed == 1
+    assert result.documents_skipped == {"doc-x": "docx document: section chunks, no tables, nothing to repair"}
+
+
+def test_only_restricts_the_plan_to_the_named_documents(root: Path):
+    rows = _stored_rows() + [
+        {"chunk_id": "doc-b-0000", "doc_id": "doc-b", "is_table": True,
+         "section_path": ["X"], "text": "X\nrow"}
+    ]
+    result = repair_section_paths(
+        store=_FakeStore(rows), embedder=_FakeEmbedder(), root=root, only={"doc-a"}
+    )
+    assert set(result.per_document) == {"doc-a"}
+    assert "doc-b" not in result.documents_skipped
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1017,7 +1036,7 @@ from typing import Any, Callable, Iterable, Mapping, Protocol
 from chunking.builders._tokens import count_tokens
 from chunking.readers.mineru_reader import MinerUReader
 from chunking.readers.odl_reader import ODLReader
-from scripts.diff_section_paths import resolve_extract_dir
+from ingest.extract_dirs import resolve_extract_dir
 
 # Planning reads these columns only. The `vector` column is 768 float32s on
 # every one of 83,016 rows -- projecting it for a scan that only needs to
@@ -1026,6 +1045,11 @@ from scripts.diff_section_paths import resolve_extract_dir
 PLAN_COLUMNS = ["chunk_id", "doc_id", "text", "section_path", "is_table"]
 
 DEFAULT_BATCH_SIZE = 2000
+
+# G-T3: how many rows this pass was NOT supposed to touch get re-read after
+# the write and compared to their pre-write values (identity/relabel.py's
+# `_UNCHANGED_SAMPLE_SIZE`; spec G-T3 says 200 per table).
+UNCHANGED_SAMPLE_SIZE = 200
 
 
 class ChunkStoreLike(Protocol):
@@ -1056,7 +1080,26 @@ class RepairResult:
     scanned: int = 0
     documents_planned: int = 0
     documents_skipped: dict[str, str] = field(default_factory=dict)
+    # doc_id -> {"tables", "changed", "relabelled", "to_blank"}: the per-
+    # document old-vs-new the spec's predictions are stated in.
+    per_document: dict[str, dict[str, int]] = field(default_factory=dict)
     reversal: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _chunk_index(row: Mapping[str, Any]) -> int:
+    """The positional index a chunk_id encodes (`{doc_id}-{idx:04d}`)."""
+    return int(str(row["chunk_id"]).rsplit("-", 1)[1])
+
+
+def _read_sidecar(root: Path) -> dict[str, Any]:
+    """`documents.json`, or {} when the data dir has none (a test's tmp root).
+    Read ONCE per run -- 7,574 entries is nothing; re-reading it per
+    document across the share would not be."""
+    try:
+        raw = json.loads((root / "documents.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def _default_progress(message: str) -> None:
@@ -1087,7 +1130,7 @@ def _compose(body: str, section_path: list[str]) -> str:
 
 
 def plan_document(
-    doc_id: str, rows: list[Mapping[str, Any]], root: Path
+    doc_id: str, rows: list[Mapping[str, Any]], root: Path, *, method: str | None = None
 ) -> tuple[list[RowChange], str | None]:
     """Which of this document's table rows change, or why it cannot be planned.
 
@@ -1098,8 +1141,13 @@ def plan_document(
     (spec §3.2): the table count must match, and every line of the stored
     text below line 0 must match the rebuilt table's, or the whole document
     is skipped and named.
+
+    `method` is the sidecar's `extraction.method` for this document (None for
+    everything ingested before Plan B) -- it picks WHICH reading on disk is
+    the one the corpus holds. See `ingest/extract_dirs.py` for why that must
+    never be guessed from folder names.
     """
-    found = resolve_extract_dir(doc_id, root)
+    found = resolve_extract_dir(doc_id, root, method=method)
     if found is None:
         return [], "no cached extractor output"
     directory, extractor = found
@@ -1109,9 +1157,7 @@ def plan_document(
     except (OSError, ValueError) as exc:
         return [], f"extractor output unreadable: {exc}"
 
-    table_rows = sorted(
-        (r for r in rows if r.get("is_table")), key=lambda r: str(r["chunk_id"])
-    )
+    table_rows = sorted((r for r in rows if r.get("is_table")), key=_chunk_index)
     if len(table_rows) != len(doc.tables):
         return [], (
             f"table count mismatch: corpus has {len(table_rows)}, "
@@ -1152,23 +1198,49 @@ Append to `chunking/repair_section_paths.py`:
 
 ```python
 def _plan_corpus(
-    store: ChunkStoreLike, root: Path, table: str, progress: Callable[[str], None]
-) -> tuple[list[RowChange], RepairResult]:
+    store: ChunkStoreLike,
+    root: Path,
+    table: str,
+    progress: Callable[[str], None],
+    only: set[str] | None = None,
+) -> tuple[list[RowChange], RepairResult, dict[str, Mapping[str, Any]]]:
+    """Plan every document; also return the pre-write rows by chunk_id, which
+    the apply path's untouched-row sample (G-T3) compares against."""
     rows = store.scan(table, PLAN_COLUMNS)
+    before_by_id = {str(r["chunk_id"]): r for r in rows}
     by_doc: dict[str, list[Mapping[str, Any]]] = {}
     for row in rows:
         by_doc.setdefault(str(row["doc_id"]), []).append(row)
+    if only is not None:
+        by_doc = {d: r for d, r in by_doc.items() if d in only}
     progress(f"scanned {len(rows)} rows across {len(by_doc)} documents")
 
+    sidecar = _read_sidecar(root)
     result = RepairResult(scanned=len(rows))
     changes: list[RowChange] = []
     for index, (doc_id, doc_rows) in enumerate(sorted(by_doc.items()), start=1):
-        doc_changes, skipped = plan_document(doc_id, doc_rows, root)
+        entry = sidecar.get(doc_id) or {}
+        if entry.get("source_format") == "docx":
+            # A DOCX bill is one chunk per Section with no Table blocks and no
+            # page-N.json output; counting it as "no cached extractor output"
+            # would inflate that figure and hide a real gap behind a known one.
+            result.documents_skipped[doc_id] = (
+                "docx document: section chunks, no tables, nothing to repair"
+            )
+            continue
+        method = (entry.get("extraction") or {}).get("method")
+        doc_changes, skipped = plan_document(doc_id, doc_rows, root, method=method)
         if skipped is not None:
             result.documents_skipped[doc_id] = skipped
             continue
         result.documents_planned += 1
         changes.extend(doc_changes)
+        result.per_document[doc_id] = {
+            "tables": sum(1 for r in doc_rows if r.get("is_table")),
+            "changed": len(doc_changes),
+            "relabelled": sum(1 for c in doc_changes if c.new_path),
+            "to_blank": sum(1 for c in doc_changes if not c.new_path),
+        }
         if index % 500 == 0:
             progress(f"planned {index}/{len(by_doc)} documents, {len(changes)} rows so far")
     result.changed = len(changes)
@@ -1181,7 +1253,7 @@ def _plan_corpus(
         }
         for c in changes
     ]
-    return changes, result
+    return changes, result, before_by_id
 
 
 def repair_section_paths(
@@ -1191,6 +1263,7 @@ def repair_section_paths(
     root: Path,
     table: str = "budget_chunks",
     dry_run: bool = True,
+    only: set[str] | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     lock: Any | None = None,
     snapshot_and_verify: Callable[[], str | None] | None = None,
@@ -1205,7 +1278,7 @@ def repair_section_paths(
     wants before an apply is approved.
     """
     progress = progress or _default_progress
-    changes, result = _plan_corpus(store, root, table, progress)
+    changes, result, before_by_id = _plan_corpus(store, root, table, progress, only)
     if dry_run:
         progress(f"DRY RUN: {result.changed} rows would change; nothing written")
         return result
@@ -1215,7 +1288,7 @@ def repair_section_paths(
 - [ ] **Step 5: Run the tests**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -v`
-Expected: 7 passed.
+Expected: 11 passed.
 
 - [ ] **Step 6: Prove the body gate can fail**
 
@@ -1232,7 +1305,9 @@ git commit -m "chunking: section_path repair — planning and dry run
 
 Positional chunk<->table mapping, gated per document on table count and on
 every line of the stored text below line 0. A document that fails the gate
-is skipped and named rather than half-written."
+is skipped and named rather than half-written. The rung folder comes from
+the sidecar's extraction.method; DOCX bills are named as such, not counted
+as missing output."
 ```
 
 ---
@@ -1320,6 +1395,8 @@ def test_apply_recomputes_the_vector_and_the_token_count(root: Path, tmp_path: P
     written = [r for batch in store.written for r in batch][0]
     # _FakeEmbedder encodes len(text) in the first component.
     assert written["vector"][0] == float(len(written["text"]))
+    from chunking.builders._tokens import count_tokens
+    assert written["token_count"] == count_tokens(written["text"])
     assert written["token_count"] != 7
 
 
@@ -1377,12 +1454,33 @@ def test_apply_with_nothing_to_do_writes_nothing_and_skips_the_index_rebuild(
     assert result.changed == 0
     assert store.written == []
     assert store.fts_built == []
+
+
+class _DriftingStore(_FakeStore):
+    """A store whose write also corrupts a row the pass never touched --
+    the shape `identity/relabel.py`'s untouched-row sample exists to catch
+    (a delete-then-add that lands on the wrong ids)."""
+
+    def upsert_chunks(self, name, rows):
+        super().upsert_chunks(name, rows)
+        self.rows[0]["text"] = "CORRUPTED"
+
+
+def test_apply_samples_untouched_rows_and_refuses_when_one_drifted(root: Path, tmp_path: Path):
+    """G-T3's second half: changed rows verified in full AND a sample of
+    rows nothing was supposed to touch compared to their pre-write values."""
+    store = _DriftingStore(_full_rows())
+    with pytest.raises(RuntimeError, match="never supposed to change"):
+        repair_section_paths(
+            store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+            lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+        )
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -k apply -v`
-Expected: all 7 FAIL with `NotImplementedError: apply path lands in Task 5`.
+Expected: all 8 FAIL with `NotImplementedError: apply path lands in Task 5`.
 
 - [ ] **Step 3: Implement the apply path**
 
@@ -1403,6 +1501,17 @@ def _all_columns() -> list[str]:
     return _ALL_COLUMNS_CACHE
 
 
+def _norm(value: Any) -> Any:
+    """Lance hands list columns back as lists or arrays depending on the
+    path; compare by value, not by container type."""
+    return list(value) if isinstance(value, (list, tuple)) or hasattr(value, "tolist") else value
+
+
+def _in_list(chunk_ids: Iterable[str]) -> str:
+    from store.chunk_store import sql_str
+    return "chunk_id IN (" + ", ".join(sql_str(c) for c in chunk_ids) + ")"
+
+
 def _write_changed_rows(
     store: ChunkStoreLike,
     table: str,
@@ -1411,32 +1520,24 @@ def _write_changed_rows(
     batch_size: int,
     progress: Callable[[str], None],
 ) -> list[dict[str, Any]]:
-    """Fetch each changed document's full rows, rewrite four columns, write.
+    """Fetch the changed rows in full, rewrite four columns, embed, write.
+
+    Fetched by chunk_id list per batch -- ~5 scans for ~10,200 rows -- not
+    one `doc_id = ...` scan per document, which would be ~4,500 filtered
+    scans over the share for the same rows.
 
     Batched because `upsert_chunks` deletes the batch's chunk_ids and then
     adds the replacements as two separate LanceDB commits: batching bounds a
     crash landing between them to one batch instead of the whole corpus.
     """
-    from store.chunk_store import sql_str
-
     by_id = {c.chunk_id: c for c in changes}
-    doc_ids = sorted({c.doc_id for c in changes})
+    ordered = sorted(by_id)
     written: list[dict[str, Any]] = []
-    pending: list[dict[str, Any]] = []
-    total_docs = len(doc_ids)
-
-    def flush() -> None:
-        if not pending:
-            return
-        vectors = embedder.embed_batch([r["text"] for r in pending])
-        for row, vector in zip(pending, vectors):
-            row["vector"] = vector
-        store.upsert_chunks(table, pending)
-        written.extend(pending)
-        pending.clear()
-
-    for index, doc_id in enumerate(doc_ids, start=1):
-        rows = store.scan(table, _all_columns(), where=f"doc_id = {sql_str(doc_id)}")
+    total_batches = math.ceil(len(ordered) / batch_size) if ordered else 0
+    for batch_num, start in enumerate(range(0, len(ordered), batch_size), start=1):
+        ids = ordered[start:start + batch_size]
+        rows = store.scan(table, _all_columns(), where=_in_list(ids))
+        pending: list[dict[str, Any]] = []
         for row in rows:
             change = by_id.get(str(row.get("chunk_id")))
             if change is None:
@@ -1446,11 +1547,17 @@ def _write_changed_rows(
             new_row["text"] = change.new_text
             new_row["token_count"] = count_tokens(change.new_text)
             pending.append(new_row)
-            if len(pending) >= batch_size:
-                flush()
-        if index % 100 == 0 or index == total_docs:
-            progress(f"wrote {len(written)}/{len(changes)} rows ({index}/{total_docs} documents)")
-    flush()
+        if len(pending) != len(ids):
+            raise RuntimeError(
+                f"batch {batch_num}: asked for {len(ids)} rows, the store returned "
+                f"{len(pending)} -- the corpus moved under the plan; re-run the dry run"
+            )
+        vectors = embedder.embed_batch([r["text"] for r in pending])
+        for row, vector in zip(pending, vectors):
+            row["vector"] = vector
+        store.upsert_chunks(table, pending)
+        written.extend(pending)
+        progress(f"wrote batch {batch_num}/{total_batches} ({len(written)}/{len(changes)} rows)")
     return written
 
 
@@ -1458,19 +1565,22 @@ def _verify_nothing_was_lost(
     store: ChunkStoreLike,
     table: str,
     changes: list[RowChange],
+    before_by_id: Mapping[str, Mapping[str, Any]],
     progress: Callable[[str], None],
 ) -> None:
     """Re-read every changed row and confirm exactly the four intended
-    columns moved. A matching ROW COUNT proves nothing — `upsert_chunks`
-    deletes then adds, so a lost column and a lost value both leave the
-    count identical (`identity/relabel.py`'s trap 3)."""
-    from store.chunk_store import sql_str
-
+    columns moved; then re-read a bounded sample of rows this pass was NEVER
+    supposed to touch and confirm they still read as they did before the
+    write. A matching ROW COUNT proves nothing — `upsert_chunks` deletes
+    then adds, so a lost column and a lost value both leave the count
+    identical (`identity/relabel.py`'s trap 3). The untouched sample is the
+    half of spec G-T3 that catches a delete landing on the wrong ids."""
     expected = {c.chunk_id: c for c in changes}
     seen = 0
-    for doc_id in sorted({c.doc_id for c in changes}):
-        rows = store.scan(table, _all_columns(), where=f"doc_id = {sql_str(doc_id)}")
-        for row in rows:
+    ordered = sorted(expected)
+    for start in range(0, len(ordered), DEFAULT_BATCH_SIZE):
+        ids = ordered[start:start + DEFAULT_BATCH_SIZE]
+        for row in store.scan(table, _all_columns(), where=_in_list(ids)):
             change = expected.get(str(row.get("chunk_id")))
             if change is None:
                 continue
@@ -1483,7 +1593,21 @@ def _verify_nothing_was_lost(
                 raise RuntimeError(f"{change.chunk_id}: vector is empty after the write")
     if seen != len(expected):
         raise RuntimeError(f"verified {seen} rows, expected {len(expected)}")
-    progress(f"verified {seen} changed rows in full")
+
+    # Bounded, deterministic sample of rows nothing was supposed to touch.
+    untouched = sorted(set(before_by_id) - set(expected))[:UNCHANGED_SAMPLE_SIZE]
+    after = {str(r["chunk_id"]): r for r in store.scan(table, PLAN_COLUMNS, where=_in_list(untouched))} if untouched else {}
+    for chunk_id in untouched:
+        before, now = before_by_id[chunk_id], after.get(chunk_id)
+        if now is None:
+            raise RuntimeError(f"{chunk_id}: was never supposed to change and is GONE after the write")
+        for col in ("text", "section_path", "is_table", "doc_id"):
+            if _norm(now.get(col)) != _norm(before.get(col)):
+                raise RuntimeError(
+                    f"{chunk_id}: was never supposed to change but its {col!r} drifted; "
+                    "restore from the snapshot this pass just took"
+                )
+    progress(f"verified {seen} changed rows in full, {len(untouched)} untouched rows sampled")
 
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
@@ -1505,6 +1629,9 @@ Then replace the `raise NotImplementedError(...)` line with:
         from store.config import data_dir
         reversal_dir = data_dir()
 
+    # `IngestLock.acquire()` runs its own heartbeat thread; the explicit
+    # beats below are belt-and-braces between phases, not what keeps the
+    # lock alive through a 30-60 minute embed.
     with lock:
         lock.heartbeat()
         snapshot = snapshot_and_verify()
@@ -1515,7 +1642,7 @@ Then replace the `raise NotImplementedError(...)` line with:
             return result
         _write_changed_rows(store, table, changes, embedder, batch_size, progress)
         lock.heartbeat()
-        _verify_nothing_was_lost(store, table, changes, progress)
+        _verify_nothing_was_lost(store, table, changes, before_by_id, progress)
         # Re-added rows are invisible to BM25 until the index is rebuilt --
         # the ingest contract funds/unstamp.py had to learn the hard way.
         store.build_fts_index(table)
@@ -1540,11 +1667,10 @@ def _reversal_stamp() -> str:
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -v`
-Expected: 14 passed.
+Expected: 19 passed.
 
-If `sql_str` is not importable from `store.chunk_store`, run
-`grep -rn "def sql_str" --include='*.py' .` and import it from wherever it
-actually lives — do not inline a quoting expression.
+`sql_str` lives at `store/chunk_store.py:76` (verified) — do not inline a
+quoting expression.
 
 - [ ] **Step 5: Prove the FTS guard and the agency guard can fail**
 
@@ -1554,7 +1680,10 @@ Comment out `store.build_fts_index(table)`; run
 Add `new_row["agency_canonical_ids"] = []` inside `_write_changed_rows`; run
 `uv run pytest tests/test_repair_section_paths.py -k byte_identical -v` → FAIL. Remove.
 
-Re-run the file: 14 passed.
+Delete the untouched-sample loop from `_verify_nothing_was_lost`; run
+`uv run pytest tests/test_repair_section_paths.py -k drifted -v` → FAIL. Restore.
+
+Re-run the file: 19 passed.
 
 - [ ] **Step 6: Commit**
 
@@ -1636,21 +1765,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true",
                         help="write the corpus (default is a dry run)")
-    parser.add_argument("--table", default="budget_chunks")
+    parser.add_argument("--table", default="budget_chunks",
+                        help="budget_chunks (default) or fiscal_note_chunks")
+    parser.add_argument("--doc", action="append", default=[],
+                        help="plan only this doc_id (repeatable); prints its old->new per table")
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--report", type=Path, default=None,
                         help="write the full plan as JSON")
     args = parser.parse_args(argv)
+    if args.apply and args.doc:
+        parser.error("--apply rewrites the whole table; --doc is a dry-run aid only")
 
     store, embedder, root = _load_live_store_and_embedder()
     result = repair_section_paths(
         store=store, embedder=embedder, root=root, table=args.table,
         dry_run=not args.apply, batch_size=args.batch_size,
+        only=set(args.doc) or None,
     )
+    print(f"table              {args.table}")
     print(f"scanned            {result.scanned}")
     print(f"documents planned  {result.documents_planned}")
     print(f"documents skipped  {len(result.documents_skipped)}")
     print(f"rows changed       {result.changed}")
+    for doc_id in args.doc:
+        stats = result.per_document.get(doc_id)
+        print(f"  {doc_id}: {stats or result.documents_skipped.get(doc_id, 'not in this table')}")
+        for r in [r for r in result.reversal if r["doc_id"] == doc_id][:8]:
+            print(f"      {r['chunk_id']}: {' > '.join(r['before']['section_path'])!r} -> "
+                  f"{' > '.join(r['after']['section_path'])!r}")
     reasons: dict[str, int] = {}
     for reason in result.documents_skipped.values():
         reasons[reason.split(":")[0]] = reasons.get(reason.split(":")[0], 0) + 1
@@ -1658,10 +1800,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  skipped: {count:5d}  {reason}")
     if args.report:
         _atomic_write_json(args.report, {
+            "table": args.table,
             "changed": result.changed,
             "scanned": result.scanned,
             "documents_planned": result.documents_planned,
             "documents_skipped": result.documents_skipped,
+            "per_document": result.per_document,
             "rows": result.reversal,
         })
         print(f"report: {args.report}")
@@ -1675,36 +1819,61 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run the whole test file plus the full suite**
 
 Run: `uv run pytest tests/test_repair_section_paths.py -v`
-Expected: 15 passed.
+Expected: 20 passed.
 
 Run: `uv run pytest -q 2>&1 | tail -5`
 Expected: no new failures.
 
-- [ ] **Step 5: Dry-run against the live corpus**
+- [ ] **Step 5: Dry-run the three named documents first — the spec's own predictions**
+
+The spec's numbers were measured per document; check those before reading
+the corpus-wide total, because a corpus-wide miss is unreadable and a
+per-document miss says exactly which shape the model got wrong.
 
 ```bash
 cd ~/ask-the-budget-az-worktrees/table-section-path
-JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data \
-  uv run python -m chunking.repair_section_paths \
-  --report /tmp/section-path-plan.json 2>&1 | tail -30
+export JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data
+uv run python -m chunking.repair_section_paths \
+  --doc governor-governors-budget-fy2026 --doc agao-afr-fy2024 --doc agao-afr-fy2021 \
+  --doc jlbc-approps-fy2027-deq 2>&1 | tail -40
 ```
 
-**Expected, and these are predictions from the spec's §3.5 — a materially different number means the model of the defect is wrong, so STOP and report rather than applying:**
+**Expected — predictions from the spec, not targets to tune toward. A mismatch means the model of the defect is wrong: STOP and report.**
 
-- `rows changed` ≈ **10,200** (accept 8,500–12,000; anything outside that is a stop)
-- `documents skipped` ≈ **400** (the migration-era entries with no cached extractor output), plus however many fail the body gate
-- the dominant skip reason is `no cached extractor output`
+| doc | tables | changed | note |
+|---|---|---|---|
+| `governor-governors-budget-fy2026` | 1,246 | ≈1,197 (spec: 1,196 differ + orphans) | relabelled ≫ to_blank; at least one printed line reads `'Table of Contents' -> '<an agency name>'` |
+| `agao-afr-fy2024` | 422 | ≈261 (61.9%) | **planned, not skipped** — it must be read from `mineru/`, the sidecar's method; a `body mismatch` skip here means Task 3's lookup regressed |
+| `agao-afr-fy2021` | — | — | the page-3 statements go `to_blank` (spec §1.3) |
+| `jlbc-approps-fy2027-deq` | small | a few | the JLBC per-agency to-blank shape for G-T6 |
 
-- [ ] **Step 6: Read the skip reasons, do not just count them**
+- [ ] **Step 6: Dry-run BOTH tables corpus-wide**
+
+```bash
+uv run python -m chunking.repair_section_paths --table budget_chunks \
+  --report $SCRATCH/section-path-plan-budget.json 2>&1 | tail -30
+uv run python -m chunking.repair_section_paths --table fiscal_note_chunks \
+  --report $SCRATCH/section-path-plan-fiscal.json 2>&1 | tail -30
+```
+
+This reads every planned document's extractor JSON off disk (several GB in
+total); expect tens of minutes, not seconds. **Expected, from spec §3.5:**
+
+- budget: `rows changed` ≈ **10,200 − 351 ≈ 9,850**; fiscal notes ≈ **351**. The spec gives no tolerance. Treat ±15% as "the model held" and anything beyond as a stop — and say in the record which it was.
+- `documents skipped` ≈ **399** with `no cached extractor output` (measured 2026-08-26 — the migration-era entries), **plus one** `docx document` (`legislature-budget-bill-fy2026-sb1735-2025`), plus whatever fails the body gate.
+- **Two of the spec's eight bad-heading-run documents are in that 399 and cannot be repaired by this pass:** `governor-governors-budget-fy2027` and `agao-afr-fy2025` (verified: no `extractor-output/` folder for either). Name them in the record so nobody reads "repaired" as "all eight".
+
+- [ ] **Step 7: Read the skip reasons, do not just count them**
 
 ```bash
 uv run python -c "
-import json,collections
-p=json.load(open('/tmp/section-path-plan.json'))
-c=collections.Counter(v.split(':')[0] for v in p['documents_skipped'].values())
-print(c)
-for d,r in list(p['documents_skipped'].items())[:10]: print(d,'->',r)
-"
+import json,collections,sys
+for f in sys.argv[1:]:
+    p=json.load(open(f))
+    c=collections.Counter(v.split(':')[0] for v in p['documents_skipped'].values())
+    print(p['table'], dict(c))
+    for d,r in [kv for kv in p['documents_skipped'].items() if not kv[1].startswith('no cached')][:10]: print('   ',d,'->',r)
+" $SCRATCH/section-path-plan-budget.json $SCRATCH/section-path-plan-fiscal.json
 ```
 
 **A large `body mismatch` count is a finding, not noise.** It means the
@@ -1712,24 +1881,52 @@ extractor output on the share no longer corresponds to what was ingested for
 those documents, and they simply cannot be repaired by this pass. Record the
 count and a few examples; do not loosen the gate to absorb them.
 
-- [ ] **Step 7: Write the dry-run record**
+- [ ] **Step 8: Write the dry-run record**
 
-Create `docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md` containing: the exact command, the four headline counts, the skip-reason table, five example changes copied from the report (page, old path, new path), and the per-document numbers for `governor-governors-budget-fy2026`, `agao-afr-fy2024` and `agao-afr-fy2021`. State plainly whether each matched the spec's prediction.
+Create `docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md` containing: the exact commands, the headline counts for BOTH tables, the skip-reason table (with the two unrepairable heading-run documents named), the per-document numbers from Step 5 against the spec's predictions, and **ten example changes copied from the report** — five from the JLBC per-agency to-blank case (`before` path → nothing) and five from the Governor relabel case (`'Table of Contents'` → agency). State plainly whether each prediction matched.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add chunking/repair_section_paths.py tests/test_repair_section_paths.py \
         docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md
 git commit -m "chunking: section_path repair CLI + the live dry-run record
 
-Dry run is the default; --apply must be typed. Dry-run counts recorded
-against the spec's predictions."
+Dry run is the default; --apply must be typed; --doc prints one document's
+old->new. Dry-run counts for both tables recorded against the spec's
+predictions."
 ```
+
+- [ ] **Step 10: ⏸ CHECKPOINT — Destin's go/no-go. Do NOT start Task 7 until he says go.**
+
+This is the one place in the plan where a person's judgement is needed, and
+it sits before the only step that is expensive to undo. Show him, in plain
+words and few of them:
+
+1. the counts vs the spec's predictions (both tables), and whether they held;
+2. the ten example before/after breadcrumbs from Step 8 — this is what the
+   change LOOKS like: ~22% of table results will show **no breadcrumb**
+   under the document name where they showed a wrong one before (spec D2,
+   already his decision — but nobody has shown him one);
+3. the skip list: ~399 unrepairable migration-era documents, including two
+   of the eight bad-heading-run documents;
+4. what the apply costs: the ingest lock held for the snapshot plus the
+   re-embed (30–60 min on this machine), during which office uploads wait.
+
+If he wants to see it rendered rather than read: start the dev server, ask
+AI Mode a question that retrieves a JLBC agency summary table, screenshot
+the breadcrumb line — that is the before; the after needs the write. Offer
+it; do not block on it.
+
+**Stop here.** The reversal record and the CRC-verified snapshot make the
+write recoverable, but "recoverable" is not "free", and the decision to
+rewrite 12% of the corpus is his.
 
 ---
 
 ### Task 7: Gates, the apply run, and STATUS
+
+**Pre-condition: Destin said go at Task 6 Step 10.**
 
 **Files:**
 - Modify: `STATUS.md`
@@ -1752,16 +1949,16 @@ import json, sys
 from pathlib import Path
 from chunking.builder import chunk_doc
 from chunking.builders.table_chunk import DocMeta
-from scripts.diff_section_paths import resolve_extract_dir
+from ingest.extract_dirs import resolve_extract_dir
 from store.config import resolve_data_dir
 
 root = resolve_data_dir()
-plan = {r['chunk_id']: r for r in json.load(open('/tmp/section-path-plan.json'))['rows']}
+plan = {r['chunk_id']: r for r in json.load(open(sys.argv[1]))['rows']}
 docs = json.loads((root/'documents.json').read_text())
 bad = 0
 for doc_id in ['jlbc-approps-fy2027-deq', 'governor-governors-budget-fy2026', 'agao-afr-fy2024']:
-    d, ex = resolve_extract_dir(doc_id, root)
     meta = docs[doc_id]
+    d, ex = resolve_extract_dir(doc_id, root, method=(meta.get('extraction') or {}).get('method'))
     # fiscal_year is a required int on DocMeta; a sidecar entry can carry
     # null, and it is not read by anything this gate compares.
     chunks = chunk_doc(extractor_output_path=d, doc_meta=DocMeta(
@@ -1781,7 +1978,7 @@ for doc_id in ['jlbc-approps-fy2027-deq', 'governor-governors-budget-fy2026', 'a
     print(doc_id, 'checked')
 print('mismatches:', bad)
 sys.exit(1 if bad else 0)
-"
+" $SCRATCH/section-path-plan-budget.json
 ```
 
 Expected: `mismatches: 0`. **A non-zero count blocks the apply** — the
@@ -1801,42 +1998,64 @@ Record recall@5 / @15 / @20 / refusal precision and the result filename.
 run, on this machine** — a recorded number from an earlier day is not a
 control (CLAUDE.md).
 
-- [ ] **Step 3: Apply**
+- [ ] **Step 2b: G-T3 baseline — dump the columns that must not move, BOTH tables**
+
+```bash
+export JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data
+uv run python -c "
+import json, sys
+from store.chunk_store import ChunkStore
+from store.config import resolve_data_dir
+s = ChunkStore(root=resolve_data_dir())
+out = {}
+for t in ('budget_chunks', 'fiscal_note_chunks'):
+    rows = s.scan(t, ['chunk_id','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
+    out[t] = {r['chunk_id']: [list(r['agency_canonical_ids'] or []), list(r['fund_mentions'] or []), r['page'], list(r['bbox'] or []), r['doc_type'], r['fiscal_year']] for r in rows}
+    print(t, len(rows))
+json.dump(out, open(sys.argv[1], 'w'))
+" $SCRATCH/gt3-before.json
+```
+
+- [ ] **Step 3: Apply — one table at a time, budget first**
 
 ```bash
 cd ~/ask-the-budget-az-worktrees/table-section-path
-JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data \
-  uv run python -m chunking.repair_section_paths --apply 2>&1 | tee /tmp/section-path-apply.log
+uv run python -m chunking.repair_section_paths --apply --table budget_chunks 2>&1 | tee $SCRATCH/apply-budget.log
+uv run python -m chunking.repair_section_paths --apply --table fiscal_note_chunks 2>&1 | tee $SCRATCH/apply-fiscal.log
 ```
 
-Confirm from the log: a snapshot path was printed, `rows changed` equals the
-dry run's count **exactly** (G-T5), `verified N changed rows in full`
-printed with N equal to that count, `full-text index rebuilt`, and a
-reversal record path.
+Confirm from each log: a snapshot path was printed, `rows changed` equals
+that table's dry-run count **exactly** (G-T5), `verified N changed rows in
+full, 200 untouched rows sampled` printed with N equal to that count,
+`full-text index rebuilt`, and a reversal record path. The second run takes
+its own snapshot; that is the price of two tables and it is fine.
 
-- [ ] **Step 4: G-T3 — nothing but the four columns moved**
+- [ ] **Step 4: G-T3 — nothing but the four columns moved, corpus-wide, BOTH tables**
 
 ```bash
-JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data \
 uv run python -c "
-import json
+import json, sys
+from pathlib import Path
 from store.chunk_store import ChunkStore
 from store.config import resolve_data_dir
-rev = json.load(open(sorted(__import__('pathlib').Path(resolve_data_dir()).glob('section-path-reversal-*.json'))[-1]))
-ids = {r['chunk_id'] for r in rev['rows']}
-s = ChunkStore(root=resolve_data_dir())
-rows = s.scan('budget_chunks', ['chunk_id','section_path','text','agency_canonical_ids','fund_mentions'])
-by = {r['chunk_id']: r for r in rows}
-missing = [i for i in ids if i not in by]
-wrong = [r['chunk_id'] for r in rev['rows'] if by.get(r['chunk_id'],{}).get('text') != r['after']['text']]
-print('rows in reversal:', len(ids), 'missing from corpus:', len(missing), 'text not landed:', len(wrong))
-print('total chunks:', len(rows))
-"
+root = resolve_data_dir(); s = ChunkStore(root=root)
+before = json.load(open(sys.argv[1]))
+for t in ('budget_chunks', 'fiscal_note_chunks'):
+    rev = json.load(open(sorted(Path(root).glob(f'section-path-reversal-{t}-*.json'))[-1]))
+    rows = s.scan(t, ['chunk_id','section_path','text','agency_canonical_ids','fund_mentions','page','bbox','doc_type','fiscal_year'])
+    by = {r['chunk_id']: r for r in rows}
+    ids = {r['chunk_id'] for r in rev['rows']}
+    missing = [i for i in ids if i not in by]
+    wrong = [r['chunk_id'] for r in rev['rows'] if by[r['chunk_id']]['text'] != r['after']['text'] or list(by[r['chunk_id']]['section_path'] or []) != r['after']['section_path']]
+    drift = [c for c, v in before[t].items() if c not in by or [list(by[c]['agency_canonical_ids'] or []), list(by[c]['fund_mentions'] or []), by[c]['page'], list(by[c]['bbox'] or []), by[c]['doc_type'], by[c]['fiscal_year']] != v]
+    print(t, 'chunks', len(rows), '(before:', len(before[t]), ') reversal rows', len(ids), 'missing', len(missing), 'not landed', len(wrong), 'agency/fund/page/bbox drift corpus-wide', len(drift))
+" $SCRATCH/gt3-before.json
 ```
 
-Expected: `missing: 0`, `text not landed: 0`, and the total chunk count
-unchanged from before the apply (83,016 at the time of writing — read it
-from the dry run's `scanned` figure).
+Expected, for both tables: chunk count unchanged (budget 83,016 at the time
+of writing — read it from the dry run's `scanned` figure), `missing 0`,
+`not landed 0`, **`drift 0`** — that last number is spec G-T3's
+"`agency_canonical_ids` and `fund_mentions` byte-identical corpus-wide".
 
 - [ ] **Step 5: G-T2 post-write — re-run the eval**
 
@@ -1848,15 +2067,20 @@ uv run python -m eval.run_eval 2>&1 | tail -20
 **The gate is per-query status, not the aggregate.** Compare the two result
 JSONs query by query:
 
+The result files carry `per_query` rows keyed `id` / `status` / `rank`
+(verified against `eval/results/2026-08-26T0235Z-a1a1eb6.json` — the first
+draft of this step used `query_id` / `hit_rank`, which do not exist):
+
 ```bash
 uv run python -c "
 import json,sys
-a=json.load(open('eval/results/<CONTROL>.json')); b=json.load(open('eval/results/<AFTER>.json'))
-qa={q['query_id']:q for q in a['per_query']}; qb={q['query_id']:q for q in b['per_query']}
-moved=[k for k in qa if qa[k].get('hit_rank') != qb[k].get('hit_rank')]
-flipped=[k for k in qa if bool(qa[k].get('hit_rank')) != bool(qb[k].get('hit_rank'))]
+a=json.load(open(sys.argv[1])); b=json.load(open(sys.argv[2]))
+qa={q['id']:q for q in a['per_query']}; qb={q['id']:q for q in b['per_query']}
+assert set(qa)==set(qb), 'different query sets -- not comparable'
+moved=[(k, qa[k].get('rank'), qb[k].get('rank')) for k in qa if qa[k].get('rank') != qb[k].get('rank')]
+flipped=[(k, qa[k]['status'], qb[k]['status']) for k in qa if qa[k]['status'] != qb[k]['status']]
 print('rank moved:', len(moved), moved[:10]); print('STATUS FLIPPED:', flipped)
-"
+" eval/results/<CONTROL>.json eval/results/<AFTER>.json
 ```
 
 Expected: `STATUS FLIPPED: []`. Rank movement is reported, not failed.
@@ -1893,12 +2117,19 @@ agency the page is about.
 - [ ] **Step 7: Update STATUS.md**
 
 Add a row to the phase-summary table and a section recording: the measured
-before/after (median 93 pages; 1,079 → 0 TOC labels; ≈10,200 rows), the two
-eval runs with their filenames and the per-query verdict, the skip counts
-and their reasons, the reversal record path and snapshot filename, and — as
+before/after (median 93 pages; 1,079 → 0 TOC labels; ≈10,200 rows across
+BOTH tables, each stated), the two eval runs with their filenames and the
+per-query verdict, the skip counts and their reasons, the two reversal
+record paths and snapshot filenames, the G-T3 `drift 0` result, and — as
 their own bullets, because they are open and will otherwise be read as
 closed:
 
+- **≈399 migration-era documents have no cached extractor output and were
+  not repaired**, among them two of the eight bad-heading-run documents —
+  `governor-governors-budget-fy2027` and `agao-afr-fy2025`. Their table
+  labels are still the old text-search answer. (`agao-afr-fy2025` is also
+  pinned by six eval ground-truth ids, so leaving it alone cost nothing
+  there.)
 - **51 passages in `agao-afr-fy2024` still claim "expressed in thousands"
   over whole-dollar figures** (spec §5.1) — Destin's call, down from 121.
 - **Garbage strings are still accepted as headings** (spec §5.2).
@@ -1933,10 +2164,12 @@ git branch -d table-section-path
 
 ## Self-Review
 
-**Spec coverage.** D1 → Task 2. D2 → Task 2 Step 2 (`test_a_table_under_no_heading_gets_an_empty_path_and_no_heading_line`) and Task 4. D3 → nothing built for §5, and §5.1–5.3 are carried into STATUS in Task 7 Step 7. §3.1 surgical-not-re-ingest → Task 4's module docstring and Task 5's apply path. §3.2 mapping gate → Task 4 Steps 3, 6. §3.3 four columns, and to-blank REMOVING line 0 → Task 4 `_compose`, Task 5 `test_apply_leaves_the_agency_and_fund_columns_byte_identical`. §3.4 coverage → Task 6 Step 6. §3.5 counts → Task 6 Step 5 predictions. §4 rejected alternatives → nothing to build. G-T1 → Task 3. G-T2 → Task 7 Steps 2, 5. G-T3 → Task 7 Step 4. G-T4 → Task 7 Step 6. G-T5 → Task 7 Step 3. G-T6 → Task 3 (harness) + Task 7 Step 1 (the gate).
+**Spec coverage.** D1 → Task 2. D2 → Task 2 Step 2 (`test_a_table_under_no_heading_gets_an_empty_path_and_no_heading_line`) and Task 4. D3 → nothing built for §5, and §5.1–5.3 are carried into STATUS in Task 7 Step 7. §3.1 surgical-not-re-ingest → Task 4's module docstring and Task 5's apply path. §3.2 mapping gate → Task 4 Steps 3, 6. §3.3 four columns, and to-blank REMOVING line 0 → Task 4 `_compose`, Task 5 `test_apply_leaves_the_agency_and_fund_columns_byte_identical`. §3.4 coverage → Task 6 Steps 6–7 (both tables; the two unrepairable heading-run documents named). §3.5 counts → Task 6 Steps 5–6 predictions, per document and per table. §4 rejected alternatives → nothing to build. G-T1 → Task 3 (plus a spec that the fixture really holds the trap). G-T2 → Task 7 Steps 2, 5 (field names verified against a real result file). G-T3 → Task 5's untouched-row sample + Task 7 Steps 2b/4 (corpus-wide, both tables). G-T4 → Task 7 Step 6. G-T5 → Task 7 Step 3. G-T6 → Task 7 Step 1.
 
-**Placeholder scan.** No TBD/TODO. Every code step carries runnable code. The two `<CONTROL>` / `<AFTER>` tokens in Task 7 Step 5 are filenames produced by Steps 2 and 5 and cannot be known in advance; the step says where they come from.
+**Placeholder scan.** No TBD/TODO. Every code step carries runnable code. The two `<CONTROL>` / `<AFTER>` tokens in Task 7 Step 5 are filenames produced by Steps 2 and 5 and cannot be known in advance; the step says where they come from. `$SCRATCH` is the executing session's scratchpad directory.
 
-**Type consistency.** `resolve_extract_dir(doc_id, root) -> tuple[Path, str] | None` is defined in Task 3 and imported unchanged in Task 4. `RowChange` fields are used identically in Tasks 4 and 5. `RepairResult.documents_skipped` is `dict[str, str]` everywhere. `owner_path(block) -> list[str]` is defined in Task 1 and consumed in Tasks 2, 3, 4.
+**Type consistency.** `resolve_extract_dir(doc_id, root, *, method=None) -> tuple[Path, str] | None` is defined in Task 3 (`ingest/extract_dirs.py`) and imported unchanged in Tasks 4 and 7. `plan_document(..., *, method=None)` in Task 4 is called with the sidecar's method by `_plan_corpus` and without one by the tests. `_plan_corpus` returns a 3-tuple `(changes, result, before_by_id)` and both callers (Task 4's dry run, Task 5's apply) unpack three. `_verify_nothing_was_lost(store, table, changes, before_by_id, progress)` takes five arguments in Task 5's definition and call. `RowChange` fields are used identically in Tasks 4 and 5. `RepairResult.documents_skipped` is `dict[str, str]` and `per_document` is `dict[str, dict[str, int]]` everywhere. `owner_path(block) -> list[str]` is defined in Task 1 and consumed in Tasks 2, 3, 4.
+
+**Claims in this plan verified against the code and data on 2026-08-26, so the executor need not re-derive them:** `doc.tables` and `OutlineNode.body_blocks` hold the SAME `Table` objects (MinerU's multi-page reassembly runs BEFORE `_build_outline`, and ODL has none), so identity matching is sound; `sql_str` is at `store/chunk_store.py:76`; `IngestLock()` takes no required arguments and `acquire()` starts its own heartbeat thread; `identity.relabel._default_snapshot_and_verify` exists; eval `per_query` rows carry `id`/`status`/`rank`; the Governor's Budget contents heading is on page 2; `agao-afr-fy2024` has both `mineru/` and `mineru-ocr/` and the sidecar says `mineru`; 399 documents have no `extractor-output/` folder, including `governor-governors-budget-fy2027` and `agao-afr-fy2025`; the one DOCX document is `legislature-budget-bill-fy2026-sb1735-2025`; `scripts/` ships in the bundle and `ingest/` already imports from it, so `chunking/` importing `ingest.extract_dirs` introduces nothing new.
 
 **One known risk in this plan's own code, stated rather than hidden:** Task 4's `plan_document` imports `_build_text` from `chunking.builders.table_chunk` — a private function. If Task 2's implementer renames or inlines it, Task 4 breaks. It is imported rather than reimplemented on purpose: a second copy of the text format is exactly how the repair and a re-chunk would silently diverge (G-T6). If it must move, make it public rather than duplicating it.
