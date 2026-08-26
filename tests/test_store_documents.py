@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -326,3 +327,21 @@ def test_mutating_a_record_does_not_corrupt_the_cache(data_dir):
     record["title"] = "clobbered"
 
     assert document_record("doc-a")["title"] == "A"
+
+
+def test_a_transient_read_error_is_retried_next_call(data_dir, monkeypatch):
+    """A share blip during read_text cached {} under the GOOD file's stamp,
+    so titles/links stayed blank until the next ingest changed the file."""
+    _write(data_dir, {"d1": {"title": "Real title"}})
+    real = Path.read_text
+    calls = {"n": 0}
+
+    def flaky(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1 and self.name == "documents.json":
+            raise PermissionError("sharing violation")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    assert load_documents() == {}
+    assert load_documents() == {"d1": {"title": "Real title"}}

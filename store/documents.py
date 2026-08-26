@@ -141,10 +141,27 @@ def _load_cached(*, strict: bool = False) -> dict[str, dict[str, Any]]:
                     "expected a JSON object of doc_id -> metadata, got "
                     f"{type(loaded).__name__}"
                 )
-        except (OSError, ValueError) as err:
+        except OSError as err:
             if strict:
                 # Do NOT cache the failure — the caller is about to be told
                 # to restore the file, and the next attempt must re-read it.
+                raise RuntimeError(
+                    f"{path} is not valid JSON ({err}). Restore it from a "
+                    "corpus snapshot before ingesting — writing a fresh one "
+                    "over it would orphan every PDF in the viewer."
+                ) from err
+            # A share blip, a sharing violation, a half-replaced file: keep
+            # whatever was cached and FORGET the stamp, so the next call
+            # re-reads. Caching {} under the good stamp (the pre-2026-08-25
+            # behaviour) blanked every title until the next ingest.
+            print(
+                f"store.documents: could not read {path} ({err}) — will retry.",
+                file=sys.stderr,
+            )
+            _stamp = None
+            return _cache
+        except ValueError as err:
+            if strict:
                 raise RuntimeError(
                     f"{path} is not valid JSON ({err}). Restore it from a "
                     "corpus snapshot before ingesting — writing a fresh one "
