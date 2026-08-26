@@ -173,6 +173,19 @@ def test_the_launcher_keeps_its_final_wording(sentence, count):
     assert rendered.count(sentence) == count, f"2.5 wording changed: {sentence!r}"
 
 
+def test_the_retry_delete_only_fires_on_our_own_bundle():
+    """§1.4: a folder that is not recognisably ours is never deleted. The
+    retry's evidence is `python312._pth` — shipped by the embeddable CPython,
+    sitting beside the locked python312.dll so it survives the half-deletion
+    that takes launcher.pyw and VERSION, and absent from any normal Python
+    install. Without the guard the retry would delete a stranger's folder."""
+    lines = [ln.strip() for ln in INSTALLER_SRC.splitlines()]
+    guard = r'if not exist "%INSTALL_DIR%\python\python312._pth" goto :folder_locked'
+    retry = r'rmdir /s /q "%INSTALL_DIR%" 2>nul'
+    assert guard in lines, "the retry lost its ours-only guard"
+    assert lines.index(guard) < lines.index(retry)
+
+
 @pytest.mark.parametrize("sentence", [
     "The install didn't finish. Run this installer again.",
     "JLBC Search is still open. Close it, then run this installer again.",

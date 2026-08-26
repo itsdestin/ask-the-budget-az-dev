@@ -133,17 +133,24 @@ rem  enough for taskkill to release it. tar then fails and the extraction
 rem  message blamed the USB drive, which is never the cause of THAT.
 rem
 rem  It also fails HALFWAY: the unlocked files go first, launcher.pyw and
-rem  VERSION among them, so the guard above can never match again. Without
-rem  this second, unguarded attempt the folder is unremovable for ever - the
-rem  user closes the app, runs the installer again, and is told it is "still
-rem  open" about a closed app, on every run, permanently. The retry is
-rem  deliberately unguarded: the guard files are exactly what a half-finished
-rem  delete takes first, and this is the folder the user just named to
-rem  install into, which is about to be written to either way.
+rem  VERSION among them, so the guard above can never match again. Without a
+rem  second attempt the folder is unremovable for ever - the user closes the
+rem  app, runs the installer again, and is told it is "still open" about a
+rem  closed app, on every run, permanently.
+rem
+rem  The retry keeps §1.4's rule that we only ever delete a folder that is
+rem  recognisably OURS. `python\python312._pth` is the evidence that survives
+rem  a half-deletion: it is a two-line file the embeddable CPython carries,
+rem  sitting beside the very python312.dll whose lock stopped the delete, and
+rem  a normally-installed Python never has one. So it is still there whenever
+rem  the first rmdir was ours and failed, and never there in a stranger's
+rem  folder - which is left untouched, exactly as before.
 if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
+if not exist "%INSTALL_DIR%\python\python312._pth" goto :folder_locked
 rmdir /s /q "%INSTALL_DIR%" 2>nul
 if not exist "%INSTALL_DIR%\python\python.exe" goto :folder_clear
 
+:folder_locked
 rem  Still there, so something really is holding it. Ask Windows WHICH -
 rem  the leftover folder alone is not evidence that the app is open, and a
 rem  message that is only sometimes true is what sent the user in circles.
