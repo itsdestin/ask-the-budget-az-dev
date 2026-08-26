@@ -685,7 +685,7 @@ def check_limit(
 
     limit_usd = settings.limit_for(user)
     if limit_usd is None:
-        reason = "exempt" if user in settings.exempt_users else "no limit"
+        reason = "exempt" if settings.is_exempt(user) else "no limit"
         return LimitStatus(
             status="allowed",
             message=None,

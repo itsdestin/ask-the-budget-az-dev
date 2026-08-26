@@ -447,17 +447,8 @@ def test_limit_for_exempt_user_is_unlimited_even_with_default_and_override():
     assert settings.limit_for("director") is None
 
 
-def test_limit_for_username_case_sensitivity_is_exact_match():
-    """Windows usernames: we store/compare exactly as configured.
-
-    No case-folding here — the admin page (Plan 5) is the place to
-    normalize input if that turns out to matter; silently folding case
-    here would let "Analyst1" and "analyst1" collide in ways an admin
-    reading their own config wouldn't expect.
-    """
-    settings = Settings(user_limits={"Analyst1": 50.0})
-    assert settings.limit_for("analyst1") == settings.default_monthly_limit_usd
-    assert settings.limit_for("Analyst1") == 50.0
+# The exact-only pin that lived here was retired with spec U0 (2026-08-25);
+# see the folding tests below.
 
 
 def test_settings_is_frozen():
@@ -470,3 +461,55 @@ def test_provider_config_is_frozen():
     provider = ProviderConfig(base_url="x", api_key="y", provider="openrouter")
     with pytest.raises(Exception):
         provider.api_key = "z"  # type: ignore[misc]
+
+
+# --- spec U0: username matching folds case, exact match wins ------------
+
+def test_limit_for_matches_a_differently_cased_username():
+    s = Settings(default_monthly_limit_usd=25.0, user_limits={"dmoss": 100.0})
+    assert s.limit_for("DMOSS") == 100.0
+
+
+def test_limit_for_exact_match_beats_a_folded_one():
+    # A legacy hand-typed file can hold both spellings. The exact one wins —
+    # silently picking is what the old comment was right to refuse, and the
+    # People panel renders the collision (test_admin_users_route.py).
+    s = Settings(user_limits={"dmoss": 100.0, "DMOSS": 60.0})
+    assert s.limit_for("dmoss") == 100.0
+    assert s.limit_for("DMOSS") == 60.0
+    assert s.limit_for("Dmoss") == 100.0  # neither exact → first folded match, dict order
+
+
+def test_exempt_list_folds_too():
+    s = Settings(default_monthly_limit_usd=25.0, exempt_users=("director",))
+    assert s.limit_for("DIRECTOR") is None
+    assert s.is_exempt("Director")
+    assert not s.is_exempt("analyst1")
+
+
+def test_blank_user_never_folds_onto_anyone():
+    s = Settings(default_monthly_limit_usd=25.0, user_limits={"": 5.0})
+    assert s.limit_for("") == 5.0        # exact match still honoured
+    assert s.limit_for("  ") == 25.0     # but whitespace does not fold to ""
+
+
+def test_hidden_users_round_trip(tmp_path):
+    s = Settings(hidden_users=("pchen",))
+    save_settings(s, tmp_path / "settings.json")
+    reloaded = load_settings(tmp_path / "settings.json")
+    assert reloaded.hidden_users == ("pchen",)
+    assert reloaded.is_hidden("PCHEN")
+    assert not reloaded.is_hidden("dmoss")
+
+
+def test_hidden_users_absent_from_an_older_file_reads_as_none(tmp_path):
+    (tmp_path / "settings.json").write_text('{"admin_username": "x"}', encoding="utf-8")
+    assert load_settings(tmp_path / "settings.json").hidden_users == ()
+
+
+def test_the_settings_fold_is_the_same_expression_as_whoami():
+    # Invariant 7 forbids importing users/ here, so this is a COPY — pinned
+    # to the exact expression so the two cannot drift (spec U0).
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "harness" / "settings.py").read_text(encoding="utf-8")
+    assert "return user.strip().casefold()" in src

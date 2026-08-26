@@ -29,7 +29,7 @@ from harness.settings import (
 )
 from store.config import data_dir
 
-from users.whoami import USER_ENV_VAR, current_user  # noqa: F401 — re-exported
+from users.whoami import USER_ENV_VAR, current_user, same_person  # noqa: F401 — re-exported
 
 # `current_user` MOVED to users/whoami.py (2026-08-25, spec U0) so that
 # ingest/ can share it without importing app/. Re-exported here because ~16
@@ -226,12 +226,12 @@ def is_admin(settings: Settings, user: str) -> bool:
     the provider (S19), and the destructive action here (restore) is
     reversible because it snapshots first.
 
-    Matching is an EXACT string comparison, deliberately — the same rule
-    as `Settings.limit_for`. Case folding here would silently merge two
-    distinct config rows an admin typed. The cost of that choice is a
-    real lockout mode (`destin` vs `Destin`), which is why Task 13's
-    break-glass reset is not optional.
+    Matching folds case (spec U0, 2026-08-25) via `users.whoami.same_person`
+    — the ONE rule every username comparison uses. It was exact, with a
+    real lockout mode (`destin` vs `Destin`) that the break-glass file
+    existed to recover from; once the seat is set from a dropdown of
+    observed usernames the "two typed rows" argument for exactness is gone.
     """
     if admin_claimable(settings):
         return True  # unclaimed — see admin_claimable for WHY
-    return user == settings.admin_username
+    return same_person(user, settings.admin_username)

@@ -31,12 +31,15 @@ def test_current_user_prefers_env(monkeypatch):
     assert current_user() == "analyst1"
 
 
-def test_admin_matches_exact_username():
+def test_admin_matches_the_username_under_the_one_identity_rule():
     s = Settings(admin_username="Destin")
     assert is_admin(s, "Destin") is True
-    # Exact match, no case folding — same rule as Settings.limit_for. Folding
-    # here would silently merge two distinct config rows an admin typed.
-    assert is_admin(s, "destin") is False
+    # Folds now (spec U0). `%USERNAME%` reflects how the person typed it at
+    # logon, so `destin` vs `Destin` was a real lockout mode with a real
+    # break-glass file to recover from. Once the admin seat is set from a
+    # dropdown of observed usernames, "two rows an admin typed" cannot happen.
+    assert is_admin(s, "destin") is True
+    assert is_admin(s, "destin2") is False
 
 
 def test_unclaimed_admin_is_claimable_and_grants_access():
