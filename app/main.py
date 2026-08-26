@@ -186,82 +186,92 @@ async def _lifespan(app: FastAPI):
     embedding model; only actually *serving* should. Starlette runs this on
     real startup and when a test opts in with `with TestClient(app)`.
     """
-    from app.machine_config import ingest_enabled
-    from ingest.worker import ensure_started
-
-    # Spec T13's one-time tidy: move already-finished job files into
-    # `jobs/done/` so the queue reads outstanding work instead of 7,104 rows
-    # of history. Measured on the live data dir 2026-08-13: 7,118 files, of
-    # which 14 needed anybody's attention.
-    #
-    # WHY before the two early returns below: this is about the queue FOLDER,
-    # not about processing uploads. A machine with ingest switched off still
-    # DISPLAYS the queue, and is still reading every one of those files to do
-    # it. Sweeping only on the ingest machine would leave the page slow on the
-    # other ~19, and slow for everyone in the entirely normal window where no
-    # machine has ingest switched on.
-    #
-    # WHY a thread: the first sweep on the office share moves ~7,104 files and
-    # the launcher opens a browser tab the moment the port answers, so seconds
-    # of blocked startup read as "the app is broken". Later runs see only
-    # outstanding work and failures -- tens of files.
-    _start_archive_sweep()
-
-    # `create_app(ingest_worker=None)` is the explicit opt-out: this process
-    # serves but must not run ingest. It has to be checked here because
-    # `ensure_started` BUILDS a worker when it finds none attached, which would
-    # turn the opt-out into a no-op.
-    if getattr(app.state, "ingest_worker", None) is None:
-        yield
-        return
-
-    # The per-machine switch (S18 / Session B's app-requirement #1). ONE
-    # bundle is installed on all ~20 office PCs and `launcher.pyw` calls
-    # `create_app()` with no arguments, so without this every one of them
-    # starts a worker against the single shared queue. IngestLock keeps that
-    # safe, but the winner is arbitrary and may be an analyst's laptop that
-    # then spends six hours at 100% CPU on a Baseline book.
-    #
-    # Said out loud on stderr rather than silently: "off by default" plus
-    # silence is how uploads pile up on the share with nothing draining them.
-    # The admin page's queue panel carries the same warning where somebody
-    # will actually see it.
-    if not ingest_enabled():
-        print(
-            "jlbc-search: this computer is not set to process uploads, so the "
-            "queue will not run here. Turn on 'Process uploads on this computer' "
-            "in Admin -> Corpus if this should be the machine that does it.",
-            file=sys.stderr,
-            flush=True,
-        )
-        yield
-        return
-
+    # Every exit path below (both early returns and the final one) must close
+    # the /locate route's cached PyMuPDF handles — a handle left open on
+    # Windows blocks a re-ingest from overwriting the cached PDF, and a server
+    # restart is the only place that reliably happens for every document ever
+    # opened, not just the ones evicted from the bounded cache in-process.
     try:
-        ensure_started(app)
-    except Exception as e:  # noqa: BLE001
-        # Ingest is one feature; search, fiscal notes and AI Mode are others.
-        # Losing the whole server because the queue could not start would take
-        # down the very UI that explains what is wrong. Report the REAL error —
-        # a hardcoded guess here would send whoever debugs it down the wrong path.
-        print(
-            f"jlbc-search: the ingest queue did not start ({type(e).__name__}: {e}). "
-            "Search still works; uploads will queue but not run until this is "
-            "fixed and the server is restarted.",
-            file=sys.stderr,
-            flush=True,
-        )
-    yield
-    worker = getattr(app.state, "ingest_worker", None)
-    if worker is not None:
-        # Short join, not the 5s default: a worker part-way through a document
-        # will not notice the stop flag until that document finishes (minutes),
-        # and holding Ctrl-C hostage for that is worse than letting the daemon
-        # threads die with the process.
+        from app.machine_config import ingest_enabled
+        from ingest.worker import ensure_started
+
+        # Spec T13's one-time tidy: move already-finished job files into
+        # `jobs/done/` so the queue reads outstanding work instead of 7,104 rows
+        # of history. Measured on the live data dir 2026-08-13: 7,118 files, of
+        # which 14 needed anybody's attention.
+        #
+        # WHY before the two early returns below: this is about the queue FOLDER,
+        # not about processing uploads. A machine with ingest switched off still
+        # DISPLAYS the queue, and is still reading every one of those files to do
+        # it. Sweeping only on the ingest machine would leave the page slow on the
+        # other ~19, and slow for everyone in the entirely normal window where no
+        # machine has ingest switched on.
+        #
+        # WHY a thread: the first sweep on the office share moves ~7,104 files and
+        # the launcher opens a browser tab the moment the port answers, so seconds
+        # of blocked startup read as "the app is broken". Later runs see only
+        # outstanding work and failures -- tens of files.
+        _start_archive_sweep()
+
+        # `create_app(ingest_worker=None)` is the explicit opt-out: this process
+        # serves but must not run ingest. It has to be checked here because
+        # `ensure_started` BUILDS a worker when it finds none attached, which would
+        # turn the opt-out into a no-op.
+        if getattr(app.state, "ingest_worker", None) is None:
+            yield
+            return
+
+        # The per-machine switch (S18 / Session B's app-requirement #1). ONE
+        # bundle is installed on all ~20 office PCs and `launcher.pyw` calls
+        # `create_app()` with no arguments, so without this every one of them
+        # starts a worker against the single shared queue. IngestLock keeps that
+        # safe, but the winner is arbitrary and may be an analyst's laptop that
+        # then spends six hours at 100% CPU on a Baseline book.
+        #
+        # Said out loud on stderr rather than silently: "off by default" plus
+        # silence is how uploads pile up on the share with nothing draining them.
+        # The admin page's queue panel carries the same warning where somebody
+        # will actually see it.
+        if not ingest_enabled():
+            print(
+                "jlbc-search: this computer is not set to process uploads, so the "
+                "queue will not run here. Turn on 'Process uploads on this computer' "
+                "in Admin -> Corpus if this should be the machine that does it.",
+                file=sys.stderr,
+                flush=True,
+            )
+            yield
+            return
+
         try:
-            worker.stop(timeout_s=0.1)
-        except Exception:  # noqa: BLE001 — shutdown must not raise
-            pass
+            ensure_started(app)
+        except Exception as e:  # noqa: BLE001
+            # Ingest is one feature; search, fiscal notes and AI Mode are others.
+            # Losing the whole server because the queue could not start would take
+            # down the very UI that explains what is wrong. Report the REAL error —
+            # a hardcoded guess here would send whoever debugs it down the wrong path.
+            print(
+                f"jlbc-search: the ingest queue did not start ({type(e).__name__}: {e}). "
+                "Search still works; uploads will queue but not run until this is "
+                "fixed and the server is restarted.",
+                file=sys.stderr,
+                flush=True,
+            )
+        yield
+        worker = getattr(app.state, "ingest_worker", None)
+        if worker is not None:
+            # Short join, not the 5s default: a worker part-way through a document
+            # will not notice the stop flag until that document finishes (minutes),
+            # and holding Ctrl-C hostage for that is worse than letting the daemon
+            # threads die with the process.
+            try:
+                worker.stop(timeout_s=0.1)
+            except Exception:  # noqa: BLE001 — shutdown must not raise
+                pass
+    finally:
+        from app.routes.pdf import close_locate_cache
+
+        close_locate_cache()
 
 
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "webapp" / "dist"

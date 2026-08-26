@@ -16,6 +16,7 @@ ingest/, so it is present on every machine that runs this suite.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import fitz
 import pytest
@@ -294,3 +295,28 @@ def test_lance_writer_without_lines_keeps_the_old_anchor_shape():
     )
     row = chunk_to_lance_row(chunk, vector=[0.0])
     assert json.loads(row["source_anchor"]) == {"page": 3}
+
+
+def test_the_ninth_document_evicts_the_first_and_closes_it():
+    """`_locate_doc_cache` was a plain dict and `popitem(last=False)` is a
+    TypeError on dict — the 9th distinct PDF 500'd the route and the first
+    8 handles were never closed (on Windows that blocks re-ingest from
+    overwriting the cached PDF)."""
+    from app.routes import pdf as pdf_mod
+
+    class FakeDoc:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeFitz:
+        def open(self, path):
+            return FakeDoc()
+
+    pdf_mod.close_locate_cache()
+    docs = [pdf_mod._locate_open_doc(FakeFitz(), Path(f"/x/{i}.pdf")) for i in range(9)]
+    assert docs[0].closed is True
+    assert all(not d.closed for d in docs[1:])
+    assert pdf_mod.close_locate_cache() == 8
