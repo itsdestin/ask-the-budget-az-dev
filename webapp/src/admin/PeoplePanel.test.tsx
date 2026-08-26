@@ -115,7 +115,11 @@ describe("the table", () => {
   it("uses pills, never bare link text, for every action", () => {
     const { container } = render(<PeoplePanel people={{ month: "2026-08", unreachable: false, unreadable: 0, people: PEOPLE }}
       loadError={null} draft={DRAFT} onLimitChange={vi.fn()} onHiddenChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    // Assert the Show pill BEFORE clicking it: the click unmounts the hidden
+    // line (and the button), so a post-click query can never see it.
+    const showBtn = screen.getByRole("button", { name: "Show" });
+    expect(showBtn.className).toMatch(/\badm-btn\b/);
+    fireEvent.click(showBtn);
     expect(container.querySelector(".adm-link")).toBeNull();
     // Every action — Hide, Unhide, Show — is a pill. Column-sort headings are
     // headings, not actions, and are deliberately NOT in this set.
