@@ -75,19 +75,35 @@ def _windows_display_name() -> str:
 def display_name(user: str | None = None) -> str:
     """The name to print on a document this analyst generates.
 
-    Order: stored override > Windows display name > the bare username.
+    Order: roster typed name > local typed name > Windows > username
+    (spec U6). The roster is the SHARED store, so the name follows the
+    analyst between PCs and the admin can see it; the local file is the
+    offline fallback and stays in step (PUT /api/me/display-name writes
+    both).
 
-    DEVIATION FROM SPEC M5, which listed Windows first. An override that
-    loses to auto-detection cannot correct a WRONG AD name, and a wrong
-    name (`JARRETTD`, an un-updated maiden name) is likelier than a
-    missing one. The spec's intent — nobody has to type this if Windows
-    already knows it — is unaffected, because the override is empty until
-    somebody deliberately sets it.
+    THE ROSTER READ IS ON THE REQUEST PATH OF EVERY PAGE LOAD (`/api/me`),
+    so it is bounded: one known file, cached on its (mtime, size) stamp
+    inside users.registry, and ANY failure falls through to the local name
+    with no exception — a memo signature is not worth a blocked request.
+    The first draft of this feature put an unbounded share read here and
+    contradicted its own "never wait on the share" rule (spec U4).
 
-    Never raises: the fallback chain bottoms out at `current_user()`,
-    which itself bottoms out at "".
+    DEVIATION FROM SPEC M5 (unchanged): a typed override beats
+    auto-detection, because a WRONG AD name (`JARRETTD`) is likelier than
+    a missing one.
+
+    Never raises: the chain bottoms out at `current_user()`, which itself
+    bottoms out at "".
     """
     resolved = current_user() if user is None else user
+    try:
+        from users import registry  # local import: keeps identity importable by store.config's lazy import chain
+
+        shared = registry.typed_name(resolved)
+    except Exception:  # noqa: BLE001 — the fallback below IS the handling
+        shared = ""
+    if shared:
+        return shared
     override = machine_config.read_display_name(resolved)
     if override:
         return override

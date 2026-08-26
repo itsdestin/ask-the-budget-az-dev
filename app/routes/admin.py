@@ -29,9 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
-from app import machine_config
+from app import identity, machine_config
 from app.machine_config import ingest_enabled, set_ingest_enabled
 # Moved out 2026-08-16: the upload page needs the same answer, and two
 # implementations of "is the queue stalled?" would eventually disagree in
@@ -77,6 +79,7 @@ from store.backup import (
     snapshot,
 )
 from store.config import data_dir, documents_path
+from users import registry
 
 router = APIRouter()
 
@@ -166,7 +169,7 @@ def require_admin() -> Settings:
 
 
 @router.get("/api/me")
-def me() -> dict:
+def me() -> JSONResponse:
     """Who the caller is and what the app will let them see.
 
     The webapp reads this on load to decide whether the Admin nav pill
@@ -175,10 +178,16 @@ def me() -> dict:
     because a blocked analyst's next question is "who do I ask?" and the
     ledger's own message ("ask Destin to raise it") needs that name to
     have come from somewhere.
+
+    ALSO WHERE A PERSON GETS WRITTEN DOWN (spec U3): this is the one
+    request every user makes, so the roster touch rides on it — as a
+    BackgroundTask, after the response is sent, so a slow share cannot
+    delay whether the nav renders (spec U4). The response body is
+    byte-identical whether or not the touch succeeds.
     """
     settings = load_settings()
     user = current_user()
-    return {
+    body = {
         "user": user,
         "is_admin": is_admin(settings, user),
         "admin_username": settings.admin_username,
@@ -188,11 +197,32 @@ def me() -> dict:
         # and then wonder where it went.
         "admin_reset_pending": admin_reset_pending(),
         # The name printed on documents this analyst generates. Resolved
-        # server-side (override > Windows > username) so the Settings field
-        # shows the SAME string the memo will carry, rather than a client-side
-        # guess that could disagree with it.
+        # server-side (roster > override > Windows > username) so the
+        # Settings field shows the SAME string the memo will carry, rather
+        # than a client-side guess that could disagree with it.
         "display_name": display_name(user),
     }
+    return JSONResponse(body, background=BackgroundTask(_touch_roster, user))
+
+
+def _touch_roster(user: str) -> None:
+    """Never raises. A missing touch means a `last_seen` date is a day
+    stale — the opposite posture to the ledger, where a missing row means
+    money spent and not recorded."""
+    try:
+        # `identity._windows_display_name()`, not a bare imported name: a
+        # `from app.identity import _windows_display_name` here would bind
+        # this module's OWN reference to the function object at import
+        # time, so a test's `monkeypatch.setattr(identity,
+        # "_windows_display_name", ...)` would silently miss this call
+        # site — caught by test_me_registers_the_caller_in_the_roster.
+        registry.touch(
+            user,
+            windows_name=identity._windows_display_name(),
+            local_typed_name=machine_config.read_display_name(user),
+        )
+    except Exception as err:  # noqa: BLE001 — see the docstring
+        print(f"app.routes.admin: roster touch for {user!r} failed ({err})", file=sys.stderr)
 
 
 class DisplayNameBody(BaseModel):
@@ -204,12 +234,19 @@ def set_my_display_name(body: DisplayNameBody) -> dict:
     """The analyst's own name, as it appears on documents they generate.
 
     DELIBERATELY UNGATED, like `GET /api/me`. There is no authentication
-    anywhere in this app (S11), so a gate here would be theater; and the
-    only thing behind it is the name printed on that person's own memos,
-    stored on their own machine.
+    anywhere in this app (S11), so a gate here would be theater.
+
+    Writes BOTH stores (spec U6): the local machine file first — it is the
+    offline fallback and the thing the analyst sitting here asked for — then
+    the shared roster. A roster failure is logged and the request still
+    returns 200 with the name that WILL print on this machine's memos.
     """
     user = current_user()
     machine_config.set_display_name(user, body.display_name)
+    try:
+        registry.set_typed_name(user, body.display_name)
+    except Exception as err:  # noqa: BLE001 — local write already succeeded
+        print(f"app.routes.admin: roster name save for {user!r} failed ({err})", file=sys.stderr)
     return {"display_name": display_name(user)}
 
 

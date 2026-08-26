@@ -102,3 +102,64 @@ def test_the_display_name_can_be_set_and_read_back(client):
 def test_an_over_long_name_is_rejected_rather_than_written(client):
     response = client.put("/api/me/display-name", json={"display_name": "x" * 200})
     assert response.status_code == 422
+
+
+# --- spec U6: the roster is the top of the ladder, and it must be CHEAP ---
+
+@pytest.fixture(autouse=True)
+def _share(tmp_path, monkeypatch):
+    monkeypatch.setenv("JLBC_DATA_DIR", str(tmp_path / "share"))
+    from users import registry
+    registry.reset_roster_cache()
+    yield
+    registry.reset_roster_cache()
+
+
+def test_a_roster_typed_name_beats_the_local_one(monkeypatch):
+    from users import registry
+    monkeypatch.setattr(identity, "_windows_display_name", lambda: "JARRETTD")
+    machine_config.set_display_name("djarrett", "Local Name")
+    registry.set_typed_name("djarrett", "Destin Jarrett")
+    assert identity.display_name("djarrett") == "Destin Jarrett"
+
+
+def test_a_roster_windows_name_does_not_beat_the_local_typed_one(monkeypatch):
+    from users import registry
+    monkeypatch.setattr(identity, "_windows_display_name", lambda: "")
+    machine_config.set_display_name("djarrett", "Local Name")
+    registry.touch("djarrett", windows_name="JARRETTD")
+    assert identity.display_name("djarrett") == "Local Name"
+
+
+def test_a_failing_roster_read_falls_through_at_once(monkeypatch):
+    from users import registry
+
+    def boom(_):
+        raise OSError("share timed out")
+
+    monkeypatch.setattr(registry, "typed_name", boom)
+    monkeypatch.setattr(identity, "_windows_display_name", lambda: "")
+    machine_config.set_display_name("djarrett", "Local Name")
+    assert identity.display_name("djarrett") == "Local Name"
+
+
+def test_saving_a_name_writes_both_stores():
+    from users import registry
+    client = TestClient(create_app(provider=StubSearchProvider()))
+    r = client.put("/api/me/display-name", json={"display_name": "Danielle Moss"})
+    assert r.status_code == 200
+    assert machine_config.read_display_name(identity.current_user()) == "Danielle Moss"
+    assert registry.typed_name(identity.current_user()) == "Danielle Moss"
+
+
+def test_saving_a_name_still_succeeds_when_the_roster_write_fails(monkeypatch):
+    from users import registry
+
+    def boom(*a, **k):
+        raise OSError("read-only share")
+
+    monkeypatch.setattr(registry, "set_typed_name", boom)
+    client = TestClient(create_app(provider=StubSearchProvider()))
+    r = client.put("/api/me/display-name", json={"display_name": "Danielle Moss"})
+    assert r.status_code == 200
+    assert r.json()["display_name"] == "Danielle Moss"
