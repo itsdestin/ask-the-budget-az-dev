@@ -195,6 +195,13 @@ def test_the_retry_delete_only_fires_on_our_own_bundle():
     assert fingerprint in lines, "the retry lost its embeddable-CPython fingerprint"
     assert lines.index(ours) < lines.index(retry)
     assert lines.index(fingerprint) < lines.index(retry)
+    # The gates only protect a stranger's folder because the DEFAULT path jumps
+    # past the retry: delete the barrier and every unmatched folder falls
+    # straight into :folder_retry with the gates still green. Likewise the
+    # top-level reset stops an inherited OURS from arming the retry.
+    barrier = "goto :folder_locked"
+    assert lines.index(fingerprint) < lines.index(barrier) < lines.index(":folder_retry")
+    assert lines.index('set "OURS="') < lines.index('set "OURS=1"')
 
 
 def test_the_locked_file_checks_read_pythonw_not_python():

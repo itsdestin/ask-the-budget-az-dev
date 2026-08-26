@@ -150,9 +150,9 @@ rem    OURS      - this run just did the guarded delete, so we know.
 rem    otherwise - the embeddable-CPython fingerprint. That distribution
 rem                keeps its stdlib in python312.zip and ships NO Lib\
 rem                folder; every normally-installed Python has one. So
-rem                python\pythonw.exe with no python\Lib\ beside it is our
-rem                bundle's leftovers and nobody else's, which is what makes
-rem                the second run (guard files already gone) able to heal.
+rem                no normally-installed Python can look like python\pythonw.exe
+rem                with no python\Lib\ beside it, which is what lets the
+rem                second run (guard files already gone) heal our leftovers.
 if not exist "%INSTALL_DIR%\python\pythonw.exe" goto :folder_clear
 if defined OURS goto :folder_retry
 if exist "%INSTALL_DIR%\python\pythonw.exe" if not exist "%INSTALL_DIR%\python\Lib\" goto :folder_retry
