@@ -110,9 +110,8 @@ chunks (this matches the spec's count exactly). Of those 14:
 - **11 sit in documents this pass cannot repair** — not just the two named
   unrepairable documents, but five distinct documents skipped for "no cached
   extractor output": `governor-governors-budget-fy2027`, `agao-afr-fy2025`
-  (×5 ground-truth rows across these two, matching the spec's "9 of those in
-  the two unrepairable documents" closely enough — the spec's own count was
-  slightly under this run's), plus **three more documents the spec's
+  (8 ground-truth rows across these two — the plan's preamble said 9; the
+  review re-counted and 8 is right), plus **three more documents the spec's
   estimate did not call out by name**: `jlbc-approps-fy2025-unibor`,
   `jlbc-baseline-fy2026-adc`, `jlbc-baseline-fy2027-des`.
 - **3 sit in planned (repairable) documents** — `jlbc-approps-fy2023-bd12-0000`,
@@ -173,7 +172,12 @@ the Governor shape ("this table was wrongly labelled with the document's
 own table of contents, now gets the real agency name") are the two
 distinct defect patterns the spec identified, and both are present at
 volume across the corpus (3,676 JLBC to-blank rows, 1,074 Governor
-Table-of-Contents relabels, out of 8,168 total budget-table changes).
+Table-of-Contents relabels, out of 8,168 total budget-table changes). The
+Governor document's 1,196 relabels are not all from "Table of Contents":
+1,074 are, 73 were filed under "Administration, Department of" (the first
+agency in the book, which the old text search matched for the same reason),
+and the remaining 49 are scattered across other agencies' headings, a few
+tables each.
 
 ## Summary — did the per-document predictions hold?
 

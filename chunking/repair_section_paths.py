@@ -1119,7 +1119,11 @@ def _load_live_store_and_embedder() -> tuple[ChunkStoreLike, EmbedderLike, Path]
 
     embedder = _get_embedder()
     root = resolve_data_dir()
-    return ChunkStore(root=root, dim=embedder.dim), embedder, root
+    # WHY create=False: ChunkStore's default mkdirs `lancedb/`, so a wrong
+    # pointer would be answered with an EMPTY corpus and a clean-looking
+    # "0 rows changed" dry run instead of an error. The review of Task 6
+    # reproduced that against a folder that did not exist.
+    return ChunkStore(root=root, dim=embedder.dim, create=False), embedder, root
 
 
 def main(argv: list[str] | None = None) -> int:

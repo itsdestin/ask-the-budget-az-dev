@@ -1156,3 +1156,20 @@ def test_the_cli_defaults_to_a_dry_run(monkeypatch, root: Path):
     assert seen["dry_run"] is True
     assert mod.main(["--apply"]) == 0
     assert seen["dry_run"] is False
+
+
+def test_the_live_opener_refuses_to_invent_a_corpus(monkeypatch, tmp_path: Path):
+    """A wrong data-dir pointer must be an error, never an empty corpus that
+    dry-runs to "0 rows changed"."""
+    from chunking import repair_section_paths as mod
+    import retrieval.pipeline as pipeline
+
+    class _Dim:
+        dim = 4
+
+    missing = tmp_path / "nowhere"
+    monkeypatch.setenv("JLBC_DATA_DIR", str(missing))
+    monkeypatch.setattr(pipeline, "_get_embedder", lambda: _Dim())
+    with pytest.raises(FileNotFoundError):
+        mod._load_live_store_and_embedder()
+    assert not missing.exists(), "the opener created the folder it was asked to open"
