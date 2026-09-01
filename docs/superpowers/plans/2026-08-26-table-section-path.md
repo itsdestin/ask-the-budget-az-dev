@@ -1907,7 +1907,7 @@ uv run python -m chunking.repair_section_paths \
 | doc | tables | changed | note |
 |---|---|---|---|
 | `governor-governors-budget-fy2026` | 1,246 | ≈1,197 (spec: 1,196 differ + orphans) | relabelled ≫ to_blank; at least one printed line reads `'Table of Contents' -> '<an agency name>'` |
-| `agao-afr-fy2024` | 422 | ≈261 (61.9%) | **planned, not skipped** — it must be read from `mineru/`, the sidecar's method; a `body mismatch` skip here means Task 3's lookup regressed |
+| `agao-afr-fy2024` | 422 | no per-document figure — the spec's 61.9% is the four-AFR *type* average (§3.5), not this file's; the first dry run measured **96 (22.7%)** against FY2021's 96%, so it is recorded, not gated. The per-document gate for this file is G-T4's units-claiming **51** in Task 7 | **planned, not skipped** — it must be read from `mineru/`, the sidecar's method; a `body mismatch` skip here means Task 3's lookup regressed |
 | `agao-afr-fy2021` | — | — | the page-3 statements go `to_blank` (spec §1.3) |
 | `jlbc-approps-fy2027-deq` | small | a few | the JLBC per-agency to-blank shape for G-T6 |
 

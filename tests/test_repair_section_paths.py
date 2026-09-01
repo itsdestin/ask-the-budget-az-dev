@@ -1137,3 +1137,22 @@ def test_one_untouched_row_gone_before_the_write_is_still_tolerated(
     assert result.changed == 1
     assert [r["chunk_id"] for batch in store.written for r in batch] == ["doc-a-0001"]
     assert store.fts_built == ["budget_chunks"]
+
+
+def test_the_cli_defaults_to_a_dry_run(monkeypatch, root: Path):
+    """An apply must be typed, never defaulted into. This pass rewrites
+    ~10,200 rows of the live corpus."""
+    from chunking import repair_section_paths as mod
+
+    seen: dict[str, object] = {}
+
+    def _fake(**kwargs):
+        seen.update(kwargs)
+        return mod.RepairResult()
+
+    monkeypatch.setattr(mod, "repair_section_paths", _fake)
+    monkeypatch.setattr(mod, "_load_live_store_and_embedder", lambda: (None, None, root))
+    assert mod.main([]) == 0
+    assert seen["dry_run"] is True
+    assert mod.main(["--apply"]) == 0
+    assert seen["dry_run"] is False

@@ -1104,3 +1104,76 @@ def repair_section_paths(
             ) from state.optimize_error
 
     return result
+
+
+def _load_live_store_and_embedder() -> tuple[ChunkStoreLike, EmbedderLike, Path]:
+    """The real store, the real embedder and the real data dir.
+
+    `resolve_data_dir()` rather than `data_dir()`: the latter mkdirs, and a
+    check that manufactures the folder it is checking for can only report
+    "fine" (the Windows-beta lesson, spec principle 3 of that batch).
+    """
+    from retrieval.pipeline import _get_embedder
+    from store.chunk_store import ChunkStore
+    from store.config import resolve_data_dir
+
+    embedder = _get_embedder()
+    root = resolve_data_dir()
+    return ChunkStore(root=root, dim=embedder.dim), embedder, root
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true",
+                        help="write the corpus (default is a dry run)")
+    parser.add_argument("--table", default="budget_chunks",
+                        help="budget_chunks (default) or fiscal_note_chunks")
+    parser.add_argument("--doc", action="append", default=[],
+                        help="plan only this doc_id (repeatable); prints its old->new per table")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--report", type=Path, default=None,
+                        help="write the full plan as JSON")
+    args = parser.parse_args(argv)
+    if args.apply and args.doc:
+        parser.error("--apply rewrites the whole table; --doc is a dry-run aid only")
+
+    store, embedder, root = _load_live_store_and_embedder()
+    result = repair_section_paths(
+        store=store, embedder=embedder, root=root, table=args.table,
+        dry_run=not args.apply, batch_size=args.batch_size,
+        only=set(args.doc) or None,
+    )
+    print(f"table              {args.table}")
+    print(f"scanned            {result.scanned}")
+    print(f"documents planned  {result.documents_planned}")
+    print(f"documents skipped  {len(result.documents_skipped)}")
+    print(f"rows changed       {result.changed}")
+    for doc_id in args.doc:
+        stats = result.per_document.get(doc_id)
+        print(f"  {doc_id}: {stats or result.documents_skipped.get(doc_id, 'not in this table')}")
+        for r in [r for r in result.reversal if r["doc_id"] == doc_id][:8]:
+            print(f"      {r['chunk_id']}: {' > '.join(r['before']['section_path'])!r} -> "
+                  f"{' > '.join(r['after']['section_path'])!r}")
+    reasons: dict[str, int] = {}
+    for reason in result.documents_skipped.values():
+        reasons[reason.split(":")[0]] = reasons.get(reason.split(":")[0], 0) + 1
+    for reason, count in sorted(reasons.items(), key=lambda kv: -kv[1]):
+        print(f"  skipped: {count:5d}  {reason}")
+    if args.report:
+        _atomic_write_json(args.report, {
+            "table": args.table,
+            "changed": result.changed,
+            "scanned": result.scanned,
+            "documents_planned": result.documents_planned,
+            "documents_skipped": result.documents_skipped,
+            "per_document": result.per_document,
+            "rows": result.reversal,
+        })
+        print(f"report: {args.report}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
