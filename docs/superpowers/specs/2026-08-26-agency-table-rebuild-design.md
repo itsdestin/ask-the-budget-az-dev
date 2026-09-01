@@ -5,15 +5,28 @@ and are not to be re-litigated: JLBC agency-page operating tables only,
 approach B (rebuild from the PDF text layer, verified arithmetically) in
 two phases, the labelled-cell rendering shipping first on its own.
 
-Companion review: `docs/superpowers/investigations/2026-08-26-agency-capability-review.md`
+Companion review: `docs/superpowers/investigations/2026-08-26-agent-capability-review.md`
 — the assessment that put this first among the improvements.
+
+**Revised 2026-09-01 after a review against the code and the live corpus.**
+The corpus counts reproduced (4,875 / 2,336 / 1,405 / 146 against the
+figures below); the text layer was re-sampled at 25 documents in every
+year FY2005–2027 with none thin or empty. Four things changed: §5's claim
+that the citation matcher reads stored text was **false** (it reads the
+tool payload, so phase A now sends the rendering under its own key); the
+"no number lost" veto in §4 contradicted D2 and is now a reported count;
+the repair pass reads cached extractor output first so the repair IS the
+ingest path; and the gates are renamed `G-OT*` because the section-path
+spec already owns `G-T1`–`G-T6`.
 
 ---
 
 ## 1. The defect, as measured 2026-08-26
 
 Every JLBC per-agency page (`approps-per-agency`, `baseline-per-agency`)
-carries one operating-budget table: a label column and three year
+carries an operating-budget table — almost always one; 71 of the 4,771
+in-scope documents carry two to four, mostly FY2006 pages with a table
+per programme, and each is rebuilt and gated on its own. A label column and three year
 columns (`FY N-2 ACTUAL / FY N-1 ESTIMATE / FY N APPROVED|BASELINE`),
 running from FTE positions through the special line items to the fund
 ladder and `TOTAL - ALL SOURCES`. MinerU reads it with a vision model
@@ -147,8 +160,13 @@ Steps, in order:
    `ACTUAL|ESTIMATE|APPROVED|BASELINE|EST.` tokens. Each year token's
    `x1` is a column's right edge. A page with no header of its own
    inherits the previous page's columns (page 2 usually has one; the
-   131 continuation chunks are the case where it is missing). No header
-   on any page → `None`.
+   131 continuation chunks are the case where it is missing). **The
+   previous page is the preceding page of the PDF, not a page in
+   `table.pages`**: MinerU's reassembly never fires on these tables
+   (0 of 153 sampled — it needs a matching header on page 2, which is
+   exactly what MinerU drops), so a continuation is its own chunk with
+   `pages=[2]` and the function must open page 1 to find the header.
+   No header on either page → `None`.
 5. **Rows.** A line is a row. Words with `x1` at or left of the label
    boundary (the leftmost column edge minus a margin) are the label;
    every other word is assigned to the column whose right edge is
@@ -158,8 +176,10 @@ Steps, in order:
    row's label. A line with a label and no numbers that is not indented
    is a **group heading** (`SPECIAL LINE ITEMS`, `Expenditure Authority
    Funds`) and becomes a row with empty cells, as today.
-6. **Footnote markers.** A word matching `\d{1,2}/` (or a run like
-   `29/-31/`) immediately right of a figure, or with a smaller font size
+6. **Footnote markers.** A word matching `(\d{1,2}/)+` with an optional
+   hyphen between markers — `3/`, `29/-31/`, and the adjacent form
+   `1/2/` that the live AHCCCS text prints after `OPERATING SUBTOTAL` —
+   immediately right of a figure, or with a smaller font size
    and a raised baseline, is a marker. It is recorded on the cell as
    `note="3"` and rendered as `99,294,500 [3/]` — the digits never touch
    the figure. A word that MinerU fused (`99,294,5003/`) does not occur
@@ -188,11 +208,19 @@ Steps, in order:
   `source_pdf: Path | None` argument and the worker passes it. Where it
   is absent (a unit test on cached output alone, a DOCX source) the
   step is skipped and the table is MinerU's, as today.
-- **Repair:** `chunking/repair_tables.py` (the pass, §6) loads each
-  in-scope chunk, rebuilds its MinerU `Table` from the stored
-  `table_html` (the reader's `_parse_html_table` already does this),
-  calls the same function with the document's `source_blob_path`, and
-  writes the result.
+- **Repair:** `chunking/repair_tables.py` (the pass, §6) obtains each
+  in-scope chunk's MinerU `Table` **from the cached extractor output
+  first** — the reader run over
+  `resolve_extract_dir(doc_id)` (the section-path plan's Task 3
+  helper), matched to the chunk by `chunk_id` order — so the repair
+  feeds the refinement the same object ingest does and D5 holds by
+  construction. **329 in-scope documents have no extractor output on
+  this machine** (the FY2025 Appropriations Report pages, measured
+  2026-09-01); for those, and only those, the `Table` is rebuilt from
+  the stored `table_html` via `_parse_html_table` and the dry run
+  reports them as a separate count, because D5 cannot be proven for
+  them until that edition is re-extracted. Either way the function is
+  called with the document's `source_blob_path` and the result written.
 
 ### 3.3 What is deliberately not attempted
 
@@ -243,12 +271,23 @@ shows up as a year with a low pass rate, not as silent acceptance.
 
 Also required, independent of the ladder:
 
-- **No number lost.** Every figure token in the current chunk text
-  appears in the rebuilt text (a fused `99,294,5003/` counts as its
-  figure `99,294,500`). Splitting a merged cell adds rows; it never
-  drops one.
+- **No row lost.** The rebuilt table has at least as many figure-bearing
+  rows as MinerU's, counting each half of a merged cell as a row.
+  Splitting a merged cell adds rows; it never drops one.
 - **No merged cell survives.** No cell in the rebuilt table contains two
   figures.
+
+**Deliberately NOT a gate: "every MinerU figure survives".** The first
+draft required every figure token in the current text to appear in the
+rebuilt text. That contradicts D2 — a page where the vision model
+misread a digit is exactly the page the text layer corrects, and the
+rule would refuse it for being right. Instead the dry run records, per
+table, the **digit disagreements**: figures MinerU printed that the text
+layer does not contain, and vice versa, after the arithmetic gate has
+passed. The count and 20 read examples are part of the checkpoint. This
+is the first measurement anyone will have of how often the vision model
+put a wrong digit in front of an analyst, which is a worse defect than a
+merged cell and until now invisible.
 
 **The pass rate is measured across all 4,875 tables, per year, before
 any write** (plan: the dry run). A pass rate under 90% overall, or a
@@ -265,9 +304,13 @@ Gate on the error rate, not the production rate: the number reported is
 `retrieval/table_view.py::render_labelled(text, table_html, *, header=None) -> str | None`
 — a pure function, no store access.
 
-For a table chunk, `harness/tools.py` replaces the payload's `text` with
-the rendering and adds `"text_format": "labelled-cells"` so a saved
-transcript says what the model saw. Rendering:
+For a table chunk, `harness/tools.py` adds the rendering to the payload
+as **`text_labelled`** beside the unchanged `text`, plus
+`"text_format": "labelled-cells"` so a saved transcript says what the
+model saw. **`text` itself is not replaced**, for a reason the first
+draft got wrong: the payload `text` is what the citation linker and the
+viewer read (below), and both hold offsets into the STORED text. The
+prompt tells the model to read `text_labelled` when present. Rendering:
 
 ```
 FY 2026 Budget                                   ← line 0 and caption, unchanged
@@ -293,25 +336,60 @@ Rules:
    `FY 2026 APPROVED: 621,178,500 and 3,234,831,100 (two values in one
    cell — read with care)`. Honest, not hidden; phase B removes the
    case.
-5. **Continuation header.** When a chunk has no header and is a
-   continuation, the tool looks up the nearest earlier table chunk of
-   the same document that has one (one projected store read on the ~3%
-   of chunks affected) and passes it as `header=`. After phase B this
-   path is rarely taken; it stays because out-of-scope tables use it.
+5. **Continuation header — measure before building.** A chunk with no
+   header that is a continuation could borrow the nearest earlier table
+   chunk's header from the same document, at the cost of a live store
+   read inside the retrieve tool. Phase B removes the 131 in-scope
+   cases; nobody has counted the out-of-scope ones. The plan's first
+   step counts headerless table chunks outside D1's scope; if the number
+   is small, this rule is dropped and those chunks fall to today's plain
+   text. It is built only if the count justifies a new failure mode on
+   every search.
 6. Group-heading rows render as their label alone.
+7. **Size cap.** A chunk whose `text` exceeds 20,000 characters is not
+   rendered (`None`). The four 1.8 MB tab-padded AFR chunks would
+   otherwise grow ~1.6× in a payload that is already the problem.
 
 **System prompt:** one paragraph in the `retrieve` section: table
-passages arrive with every cell labelled by its column; read the label,
-not the position; quote prose sentences for `cite`, never a table row
-(already stated, restated beside the format). No other prompt change.
+passages carry a `text_labelled` field with every cell labelled by its
+column; read the label, not the position; quote prose sentences for
+`cite`, never a table row (already stated, restated beside the format).
+No other prompt change.
 
-**What does not change:** the stored chunk, the citation matcher
-(`citation/matching.py` scans stored text, and the values are the same
-tokens), the PDF locate endpoint, the cited-text panel, Budget
-Documents. `cite` validates quotes against stored text; a quote copied
-from a rendered line fails with the existing "quote not found" error,
-which is visible and already covered by the prompt's rule against
-quoting table rows.
+**What the payload `text` feeds, and why it is left alone.** The figure
+linker builds its pool from the `text` field of the retrieve tool
+messages still in the conversation — never from the store
+(`harness/session.py::_conversation_chunks`, by design: the linker must
+only see what the model saw). The webapp does the same: the resolved
+chunk a citation chip carries is the payload's `text`
+(`webapp/src/chat/citation-extract.ts`), and the PDF viewer and the
+cited-text panel slice it with the server's offsets, which index the
+STORED text. Had `text` been replaced, a `cite()` into a table chunk's
+caption would underline the wrong words with no error. Keeping `text`
+and adding `text_labelled` costs table chunks a second copy of their
+body in the payload (~2.6× for those chunks, ~7k extra tokens on a
+15-chunk result); that is accepted over a silent viewer defect. If the
+token cost proves to matter, the fix is to send `text` truncated to line
+0 for table chunks and have the linker read `text_labelled` — a change
+to two consumers, not to this decision.
+
+**A benefit the first draft missed:** the linker scans the payload, so
+the footnote peel makes `99,294,5003/` findable as `99,294,500`. Today
+that figure is unlinkable. `eval/false_link_check.py` is run once with
+the rendering as the pool text to confirm the false-link rate does not
+move.
+
+**What does not change:** the stored chunk, `citation/matching.py`
+itself, the PDF locate endpoint, Budget Documents. `cite` validates
+quotes against stored text; a quote copied from a rendered line fails
+with the existing "quote not found" error, which is visible and already
+covered by the prompt's rule against quoting table rows.
+
+**A visible UI consequence:** the expanded search card
+(`RetrieveView.tsx`) previews the payload's `text`, so it is unchanged
+by this decision. Had `text` been replaced, analysts would have seen
+labelled lines in the tool card — arguably better, but a change nobody
+asked for.
 
 ---
 
@@ -321,10 +399,12 @@ quoting table rows.
 and `funds/unstamp.py`:
 
 1. **Plan** (dry run, no lock): for every in-scope chunk, rebuild, gate,
-   and record `{chunk_id, verdict, reason, rows_before, rows_after,
-   merged_cells_removed, notes_separated}`. Print the per-year pass
-   table, the eval intersection (§7), and 20 random before/after pairs
-   for reading. Nothing is written.
+   and record `{chunk_id, verdict, reason, source (extractor|html),
+   rows_before, rows_after, merged_cells_removed, notes_separated,
+   digit_disagreements}`. Print the per-year pass table, the
+   extractor-vs-html source split, the digit-disagreement total with 20
+   read examples, the eval intersection (§7), and 20 random
+   before/after pairs for reading. Nothing is written.
 2. **Rehearse** the apply on a copy of the LanceDB directory. Re-run the
    dry run against the copy afterwards: it must report nothing left to
    change.
@@ -348,9 +428,14 @@ and `funds/unstamp.py`:
 
 ## 7. Gates
 
-- **G-T1 — the reconciliation pass rate** (§4), measured on the dry run
-  before any write and recorded in STATUS with the per-year table.
-- **G-T2 — Layer 1 eval unchanged within noise**, run as a CONTROL on
+Named `G-OT*` (operating tables) because the section-path spec's gates
+are already `G-T1`–`G-T6` with different meanings, and STATUS records
+both in the same fortnight.
+
+- **G-OT1 — the reconciliation pass rate** (§4), measured on the dry run
+  before any write and recorded in STATUS with the per-year table and
+  the digit-disagreement count.
+- **G-OT2 — Layer 1 eval unchanged within noise**, run as a CONTROL on
   the unmodified corpus immediately before the apply and again after,
   same machine, same query set, both result files committed. 5 of the
   51 ground-truth chunk ids are in-scope table chunks
@@ -360,11 +445,13 @@ and `funds/unstamp.py`:
   `anchor_text` must still be found in the rebuilt text — checked in
   the dry run. A rank movement on those five is expected and is not a
   regression; a status change is.
-- **G-T3 — end-to-end reproduction.** `chunk_doc` run over cached
+- **G-OT3 — end-to-end reproduction.** `chunk_doc` run over cached
   extractor output plus the source PDF for 40 in-scope documents
   reproduces the repaired chunks byte-for-byte (D5). This is the check
   the 2026-08-16 heading-inheritance fix lacked and was reverted for.
-- **G-T4 — the model reads the right column.** A paid Layer 2 run of the
+  It cannot cover the 329 documents with no extractor output (§3.2);
+  STATUS says so rather than reporting D5 as proven corpus-wide.
+- **G-OT4 — the model reads the right column.** A paid Layer 2 run of the
   lookup queries that failed on column/rung reading
   (`lk-asu-operating-fy2026`, `lk-dps-operating-fy2026`,
   `lk-adc-total-fy2026`, `lk-tou-tourism-fy2026`, `lk-min-operating-fy2025`,
@@ -372,7 +459,7 @@ and `funds/unstamp.py`:
   phase A and once after phase B, against a same-day control. Roughly
   $0.10 per run. Not a pass/fail gate on its own — n is small — but the
   reason the work exists, so it is run and recorded.
-- **G-T5 — browser.** One repaired agency page opened from a citation
+- **G-OT5 — browser.** One repaired agency page opened from a citation
   chip: the highlight box unchanged, the cited-text panel showing
   separate subtotal rows, the Budget Documents passage card for the
   same chunk reading sensibly.
@@ -420,14 +507,19 @@ restore, per the memory note on mutation testing.
   are absorbed by the figure regex or fail the gate. Fonts where a
   footnote superscript is neither smaller nor raised fall back to the
   digit-pattern rule.
-- **Re-embedding changes the ranking of ~4,900 chunks.** G-T2 is the
+- **Re-embedding changes the ranking of ~4,900 chunks.** G-OT2 is the
   guard. The section-path repair moved line 0 of the same chunks and
   expected no eval movement; this moves the body and expects the same,
   because the figures and labels the embedder sees are unchanged in
   substance.
-- **Payload size grows ~1.6×** for table chunks under phase A (labels
-  repeated per cell). 15 table chunks ≈ 25k characters ≈ 7k tokens;
-  acceptable, and offset by fewer retries.
+- **Payload size grows ~2.6×** for table chunks under phase A — the
+  labelled copy (~1.6× the body) rides beside the unchanged `text`
+  (§5). 15 table chunks ≈ 40k characters ≈ 11k tokens; acceptable, and
+  offset by fewer retries. The cheaper shape is recorded in §5 if it is
+  ever needed.
+- **The "10 of 24 Layer 2 failures" attribution in §1.1 is a reading of
+  the transcripts, not a measurement**, and the 2026-09-01 review did
+  not re-read them. G-OT4 is what tests it.
 - **A quote from a rendered row fails `cite`.** Visible, already
   forbidden by the prompt, and figures are linked by alias, not by
   quote.
