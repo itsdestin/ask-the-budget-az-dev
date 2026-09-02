@@ -142,7 +142,9 @@ def build_narrative_chunks(
 
     def visit(node: OutlineNode, ancestors: list[str]) -> None:
         section_path = ancestors + [node.text]
-        # Body paragraphs in this node only (outline_path filtering)
+        # Body paragraphs in this node only (owner_path membership -- the
+        # `is`-matched body_blocks list, not the deleted outline_path text
+        # search; M-4, final review)
         paragraphs = [b for b in node.body_blocks if isinstance(b, Paragraph)]
         if paragraphs:
             _flush_section_into_chunks(

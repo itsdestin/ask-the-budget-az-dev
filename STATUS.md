@@ -233,10 +233,14 @@ recorded rather than gated.
 
 - **399 documents could not be repaired and still carry the old, wrong
   captions.** 398 have no cached extractor output on this machine; 1 is a
-  docx with no tables. Two of them are among the eight worst-affected
+  docx with no tables. **Three** of them are among the eight worst-affected
   documents on record — **`governor-governors-budget-fy2027`** (visible in
-  the screenshot above, still reading *Table of Contents*) and
-  **`agao-afr-fy2025`**. They stay wrong until something regenerates their
+  the screenshot above, still reading *Table of Contents*; 937 of its 1,395
+  chunks still carry that label), **`agao-afr-fy2025`**, and
+  **`jlbc-baseline-fy2027-s58`**. The spec and the dry-run record both said
+  *two*; the third was found on the post-merge audit by reading the live
+  plan report's skip list (`no cached extractor output`) rather than the
+  spec's own list. They stay wrong until something regenerates their
   extractor output. Three more skipped documents carry eval ground truth
   (`jlbc-approps-fy2025-unibor`, `jlbc-baseline-fy2026-adc`,
   `jlbc-baseline-fy2027-des`).
@@ -2897,6 +2901,20 @@ measured as inert — see the next section. The real cause is
 
 ### Still open from this run
 
+> ✅ **SUPERSEDED 2026-09-01 — the fix shipped and the corpus was repaired in
+> place** (merge `83d683a`; see *"Table section paths — the corpus repair"*
+> near the top of this file). `_resolve_section_path` no longer exists: a
+> table now takes the heading it physically sits under
+> (`ExtractedDocument.owner_path`). Of the eight documents listed below,
+> **five were repaired without re-processing** — `agao-afr-fy2021/2022/2023/
+> 2024` (145 / 158 / 164 / 96 rows) and `governor-governors-budget-fy2026`
+> (1,196 rows; *Table of Contents* labels 1,079 → 5). **Three could NOT be
+> repaired because they have no cached extractor output** —
+> `agao-afr-fy2025`, `governor-governors-budget-fy2027` (937 of 1,395 chunks
+> still read *Table of Contents*) and `jlbc-baseline-fy2027-s58` — and those
+> three DO still need a re-ingest, with the `agao-afr-fy2025` ground-truth
+> caveat below still applying. The bullet is kept as the record.
+
 - **The 8 documents holding a >20-page heading run are still wrong in the
   corpus.** Re-processing them buys NOTHING until the `_resolve_section_path`
   fix lands — that was measured, see the next section. The list, for when it
@@ -3000,6 +3018,18 @@ validate the fix; validate that by running `chunk_doc` end-to-end and reading
 the result.
 
 ### What is still true, and still open
+
+> ✅ **SUPERSEDED 2026-09-01.** The fix was designed (spec
+> `docs/superpowers/specs/2026-08-26-table-section-path-design.md`) and
+> applied to the live corpus (merge `83d683a`). Measured after the write:
+> `agao-afr-fy2023` chunks under *Note 3* **166 → 2**;
+> `governor-governors-budget-fy2026` tables under *Table of Contents*
+> **1,079 → 5** (the five are the Board of Accountancy chapter, whose title
+> the extractor never marked as a heading); `agao-afr-fy2024` passages
+> claiming "expressed in thousands" **122 → 51**, the 51 left by Destin's
+> call (spec §5.1). The unrepaired remainder is the three documents with no
+> cached extractor output, named in the note above. The bullets below are
+> the record of what was open before that.
 
 - **The mislabelling itself is real and large.** 166 of 198 chunks in
   `agao-afr-fy2023`; **1,092 of 1,577 in `governor-governors-budget-fy2026`
