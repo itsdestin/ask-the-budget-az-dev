@@ -724,7 +724,15 @@ Checked afterwards, not assumed:
 * **The full-text index was rebuilt**, so the rewritten rows are visible to
   BM25.
 
-## 🔴 Idempotence is 99.9%, not 100% — and a second apply would be a small step BACKWARDS
+## ⬛ Idempotence is 99.9%, not 100% — and a second apply would be a small step BACKWARDS
+
+> **RESOLVED 2026-09-02 (Task 11b) — read "§4 resolved" immediately below
+> before acting on anything in this section.** The gap was traced to the
+> reader, fixed, and the whole rehearsal re-run from a fresh copy: the
+> second dry run is now **4,656 of 4,656 byte-identical (100.0%)** with
+> **0 verdict flips**. This section is kept as the record of the defect and
+> of what was measured before the fix; its "cause" paragraph is close but
+> not exact, and the correction is in the resolved section.
 
 Spec §6.2 asks the second dry run to find nothing left to change. It very
 nearly does, and the exception is worth stating precisely because it turns
@@ -776,6 +784,199 @@ text (spec D3), so pass 1's verified output simply stays. No harm.
   table**, so feeding it its own output changes its input. Fixing it (anchor
   on the extractor output rather than the corpus row) is a real follow-up,
   and it is not needed to apply once.
+
+## ✅ §4 resolved — the reader was cutting the region one printed line short (Task 11b, 2026-09-02)
+
+Commit `1d04ace`. The plan's Task 11 step says *"if the second run shows
+tables that would change again, the reader is not idempotent on its own
+output; fix before touching the live store."* This is that fix, and the
+rehearsal re-run that proves it.
+
+### The mechanism, traced rather than inferred
+
+The section above says the reader "stops at the line boundary". That is the
+symptom; the cause is one line further up. `_region` decides where a page's
+table ends, and its end is **the last printed line that matches one of
+MinerU's own labels**. A label that wraps onto the next printed line puts a
+*continuation* there — `Grant`, `Account` — and `_line_hits` refuses a
+one-word line unless it EQUALS an anchor, deliberately, so that a lone
+`TOTAL` cannot pass for `TOTAL - ALL SOURCES`. So when the wrap is the last
+line of the page's region, the region ends above it, `_rows` never sees it,
+and the label loses its last word. `_rows`'s wrap rule was never the problem:
+it is positional and anchor-independent, and it joins the line correctly the
+moment the region contains it.
+
+Traced on `jlbc-approps-fy2018-dcs-0002`, both stores, read-only:
+
+| | anchors (last two) | printed line 51 (`Grant`, x0 66.96) | region | rebuilt label |
+|---|---|---|---|---|
+| live corpus (pass 1) | `…NEEDY FAMILIES BLOCK`, **`GRANT`** | hits `['GRANT']` | `[44, 52)` | `…Block Grant` ✅ |
+| rehearsal copy (pass 2) | `…NEEDY FAMILIES BLOCK GRANT` | hits `[]` | **`[44, 51)`** | `…Block` ❌ |
+
+### 🔴 It is a READER defect, not only a re-run artefact — and one live chunk proves it
+
+Whether the continuation matches an anchor is a property of **how MinerU
+split that cell**, not of the page. `jlbc-approps-fy2024-axs-0000` already
+carries the complete `TOBACCO TAX AND HEALTH CARE FUND - MEDICALLY NEEDY
+ACCOUNT` in MinerU's own output today, and its printed `Account` line
+survives into the region **only because the neighbouring fund's cell happens
+to be a bare `ACCOUNT`** (read off the live corpus:
+`hits=['ACCOUNT', 'ACCOUNT']`). Remove that coincidence — a different MinerU
+version, a page where the other fund does not wrap — and a live ingest drops
+the last word of a fund name with nothing detecting it. The arithmetic gate
+cannot see a label defect.
+
+**What it is NOT:** it never touches a figure. All four cases differ by one
+word of one label; every figure is identical on both passes.
+
+### The fix, in two parts
+
+**Reader (`chunking/readers/text_layer_table.py::_region`).** After the end
+is settled, the region absorbs a trailing line when all three hold: it
+carries no figure, it is indented more than `WRAP_INDENT` past the last row,
+and **the join of the two labels is contained in one of MinerU's own
+labels**. The last clause is the same evidence `_rows`'s second wrap shape
+already demands, and it is what stops an indented heading belonging to the
+block below being swallowed.
+
+**Plan (`chunking/repair_tables.py::plan_document`).** A chunk this pass has
+already repaired fails the body-equality gate *by construction* — the stored
+text is this pass's own output, so of course it is not MinerU's — and used to
+fall to the html fallback, which anchors the rebuild on the REPAIRED labels.
+The plan then stopped being a function of the corpus alone. It now refines
+the cached extractor table anyway and, when that reproduces the stored text
+exactly, reports the chunk on the extractor path with no note. The
+exact-text comparison is load-bearing: cached output that refines to a
+*different* table (three rows of an eleven-row page) also comes back
+`rebuilt`, and accepting that would silently replace the chunk.
+
+`already repaired` was deliberately NOT made a separate verdict: the summary
+already prints *"Rebuilds byte-identical to the stored text"*, which is the
+honest way to say a re-run found nothing to do, and a new verdict would have
+to be taught to every counter and to the apply, which counts `rebuilt`.
+
+### The live dry run did not move — measured, not assumed
+
+The fix is inert on the corpus as it stands today. A full dry run on the live
+corpus with the fix in place is **identical to the recorded plan on all 4,875
+rows** — same `verdict`, `reason`, `source`, `note`, `new_text`, `new_html`,
+`rows_after`, `anchor_match`, `figure_retention`, `digit_disagreements`:
+
+```
+   all    4875     4656      219  95.5%
+Source of the MinerU table: {'extractor': 4533, 'html': 342}
+Rebuilds byte-identical to the stored text: 66 of 4656 (1.4%)
+chunks that moved vs the recorded plan: 0
+```
+
+So every number in the sections above still stands, and the four labels are
+still repaired correctly on the first apply. What the fix buys is that they
+no longer depend on a coincidence.
+
+### The rehearsal, re-run from a FRESH copy
+
+`$R` was deleted and re-made from the live data dir (`lancedb/`,
+`documents.json`, `settings.json` copied; `pdfs/` copied as a REAL directory
+— a symlink drops the pass to 6.7%, see the configuration-trap section above;
+`extractor-output/` symlinked; empty `backups/`). Verified current before
+anything ran: **83,197 `budget_chunks`, 22,889 table rows, SHA-256
+`4504f94a17e16a52` on both stores**, `documents.json` identical.
+
+| | live dry run (fixed code) | copy, pre-apply | copy, post-apply (pass 2) |
+|---|---|---|---|
+| in-scope tables | 4,875 | 4,875 | 4,875 |
+| rebuilt / unverified | 4,656 / 219 | 4,656 / 219 | **4,656 / 219** |
+| source extractor / html | 4,533 / 342 | 4,533 / 342 | **4,533 / 342** |
+| notes | `{}` | `{}` | **`{}`** |
+| byte-identical rebuilds | 66 (1.4%) | 66 (1.4%) | **4,656 (100.0%)** |
+
+The pre-apply run matched the live run on **all 4,875 rows, 0 moved**.
+
+The apply: start `2026-09-02T13:23:58Z`, end `13:34:01Z` — **10 min 3 s**,
+exit 0, **4,656 rows written, 0 skipped**, no warning banner. Snapshot
+`backups/lancedb-20260902T132654Z.zip` (670,968,512 bytes, CRC-verified
+before the first row moved); reversal record
+`table-rebuild-reversal-budget_chunks-2026-09-02T1327Z.json` (30.5 MB);
+`verified 4656 rewritten rows in full and 200 untouched rows`; full-text
+index rebuilt. (This run's plan phase was COLD — the ~7 min of the first
+rehearsal was warm-cache, as that section warned.)
+
+### The gate: 100% byte-identical, 0 verdict flips
+
+```
+   all    4875     4656      219  95.5%
+Rebuilds byte-identical to the stored text: 4656 of 4656 (100.0%)
+```
+
+Diffed row by row against the pre-apply plan, all 4,875:
+
+* **0 rows whose OUTPUT moved** — `verdict`, `reason`, `source`, `note`,
+  `new_text`, `new_html`, `rows_after` identical everywhere.
+* **0 verdict flips.** `jlbc-approps-fy2008-dhsbehav-0000`, the fifth chunk
+  of §4, stays `rebuilt` at anchor 91.8% on both passes; the flip to
+  `unverified — arithmetic` is gone with the html re-anchoring that caused it.
+* **219 rows describe their INPUT differently, and every one is on the html
+  path** (`rows_before`, `anchor_match`, `figure_retention`,
+  `merged_cells_removed`). Those chunks have no cached extractor output, so
+  pass 2 parses the REPAIRED `table_html` — which is the point of the
+  measurement, not a defect: the output is identical anyway.
+* **`digit_disagreements` is empty on all 4,875 rows** on pass 2, where pass 1
+  had 1,141 on 613. It reports old-vs-new figures, and on pass 2 there is no
+  difference to report.
+
+### G-OT3 — drift 0, unchanged
+
+```
+extractor-source rebuilt documents: 4268
+of which the source PDF resolves: 4268
+documents: 40   table chunks compared: 119   drift: 0
+```
+
+Same 40-document fixed-seed sample, re-chunked through the real `chunk_doc`
+with `source_pdf` passed (spec D7). The reader fix is on the ingest path too,
+so this is the check that the repair and a from-scratch re-chunk still agree.
+
+### G-OT2 — the eval, re-run on both sides at the fixed commit
+
+| | control — LIVE corpus | after the apply — the copy |
+|---|---|---|
+| file | `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` (committed) | `<scratch>/eval-rehearsal2/2026-09-02T1340Z-1d04ace.{json,md}` |
+| recall@5 / @15 / @20 | 85.71% / 97.62% / 100.00% | **85.71% / 97.62% / 100.00%** |
+| refusal precision / recall | 60.00% / 60.00% | **60.00% / 60.00%** |
+| fallback rate | 30.95% | **30.95%** |
+| lookup / comparison recall@5 | 89.19% / 60.00% | **89.19% / 60.00%** |
+| latency p50 / p95 | 1164 / 1596 ms | 860 / 960 ms |
+
+The control reproduces the committed `2026-09-02T1238Z-46a3d5e` baseline
+exactly on every headline figure, so the code change moved nothing on an
+unchanged corpus either.
+
+Per query: **`STATUS FLIPPED: []`**, **0 rank changes**, **0 `matched_via`
+changes**, **0 `top_score` changes** across all 47. **One top-5 list moved —
+`q-017`**, every chunk of it `agao-afr-*` (Auditor General, no operating
+tables, never touched by this pass), still passing at rank 1 with the same
+top hit: the same benign FTS-statistics movement the first rehearsal
+recorded. **`q-013`**, the one in-scope ground-truth id, is byte-identical —
+pass, rank 1, `dimensions_fallback`, `top_score` 5.404738426208496, same
+top-5.
+
+The latency figures are lower on the copy because it sits on tmpfs and the
+control on btrfs; the control itself ran while nothing else was on the box.
+
+### ⏸ What this changes about the live run
+
+* **The do-not-re-run banner is NO LONGER warranted on damage grounds, and
+  should not be added.** A second apply is now a verified no-op in content:
+  every one of the 4,656 rows would be written back byte-identical.
+* **It is still not free.** The apply does not filter rows whose text is
+  unchanged (spec D4 rewrites four columns unconditionally), so a second run
+  would spend a 670 MB snapshot, a 30 MB reversal record, 4,656 re-embeddings
+  and ~10 minutes to write the same bytes. Worth one sentence in the plan —
+  *"a second run is a no-op that still costs a snapshot and ten minutes"* —
+  not a banner.
+* Everything else the rehearsal established is unchanged: run it from a
+  checkout that carries `data/cached-pdfs/`, re-run the dry run immediately
+  before, and a fresh control eval if time passes.
 
 ## G-OT3 — the repair and the ingest path agree: drift 0
 
@@ -1027,7 +1228,9 @@ In total the two readings disagree about **1,141 figures on 613 tables**.
 
 ## Does it hurt search? No — measured before and after
 
-Same 47 questions, same code, 17 minutes apart, corpus the only difference:
+Same 47 questions, same code, 17 minutes apart, corpus the only difference.
+**Re-run in full on 2026-09-02 after the reader fix, one minute apart, with
+the same result** (`eval/results/2026-09-02T1339Z-1d04ace` as the control):
 
 | | before | after |
 |---|---|---|
@@ -1056,11 +1259,15 @@ change; the read pairs and the arithmetic gate are what actually check it.
 * The rehearsal wrote **4,656 rows, skipped 0**, and no warning was printed.
 * Verified afterwards: **no passage was added, removed, or renamed.**
 
-**One caution.** Running the apply a *second* time would be a small step
-backwards: four fund labels would lose their last word again (`…Medically
-Needy Account` → `…Medically Needy`; the figures are unaffected). So it must
-be run **exactly once**, and the plan will carry a do-not-re-run banner the
-way the section-path repair does. Re-ingesting a document later is *not*
+**A caution that has since been closed.** The first rehearsal found that
+running the apply a *second* time would take four fund labels a small step
+backwards (`…Medically Needy Account` → `…Medically Needy`; figures
+unaffected). That was traced to the reader and **fixed on 2026-09-02** — the
+whole rehearsal was re-run from a fresh copy and the second pass is now
+**byte-identical on all 4,656 rebuilt tables, with no verdict changing**
+(see *"§4 resolved"* above). A second run is a no-op in content; it would
+still spend a 670 MB snapshot and about ten minutes writing the same bytes,
+so there is no reason to do it. Re-ingesting a document later is *not*
 affected — that path re-reads the PDF, and was tested: 40 documents
 re-processed from scratch produced byte-identical tables.
 
