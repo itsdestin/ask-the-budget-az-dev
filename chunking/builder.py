@@ -38,6 +38,7 @@ from chunking.readers.types import (
     ExtractedDocument,
     Section,
 )
+from chunking.table_text import OPERATING_TABLE_DOC_TYPES
 from chunking.types import Chunk, ChunkProvenance
 
 log = logging.getLogger(__name__)
@@ -70,8 +71,16 @@ def chunk_doc(
     doc_meta: DocMeta,
     output_dir: Path | str | None = None,
     stamper: EntityStamper | None = None,
+    source_pdf: Path | str | None = None,
 ) -> list[Chunk]:
-    """Read one doc's extractor output, build chunks, stamp, optionally write."""
+    """Read one doc's extractor output, build chunks, stamp, optionally write.
+
+    `source_pdf` (spec §3.2) lets the MinerU reader rebuild agency
+    operating tables from the PDF text layer. It is used only for the two
+    in-scope doc types (`OPERATING_TABLE_DOC_TYPES`) and only when the
+    given path is a `.pdf` — a DOCX source or an out-of-scope doc type
+    reads exactly as before, and `MinerUReader` never opens the file.
+    """
     if not doc_meta.extractor:
         raise ValueError(
             "doc_meta.extractor is required (one of: "
@@ -84,7 +93,21 @@ def chunk_doc(
             f"(known: {sorted(_READER_REGISTRY.keys())})"
         )
 
-    doc = reader_cls().read(Path(extractor_output_path))
+    pdf = Path(source_pdf) if source_pdf is not None else None
+    # WHY `reader_cls is MinerUReader` rather than `doc_meta.extractor in
+    # (...)`: 'mineru' and 'mineru-ocr' both map to MinerUReader in
+    # _READER_REGISTRY (same class object), so this one check covers both
+    # rungs without hardcoding their names here too.
+    if (
+        pdf is not None
+        and reader_cls is MinerUReader
+        and doc_meta.doc_type in OPERATING_TABLE_DOC_TYPES
+        and pdf.suffix.lower() == ".pdf"
+    ):
+        reader = MinerUReader(source_pdf=pdf)
+    else:
+        reader = reader_cls()
+    doc = reader.read(Path(extractor_output_path))
 
     # Build chunks. Tables first (PDFs), then narrative; or section-per-chunk
     # for DOCX. The orchestrator owns the chunk-index sequence so all chunks

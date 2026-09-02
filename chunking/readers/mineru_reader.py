@@ -31,6 +31,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from chunking.readers.text_layer_table import refine_operating_table
 from chunking.readers.types import (
     Bbox,
     Block,
@@ -44,12 +45,20 @@ from chunking.readers.types import (
     Row,
     Table,
 )
+from chunking.table_text import has_ladder_marker
 
 _PAGE_FILE_RE = re.compile(r"^page-(\d+)\.json$", re.IGNORECASE)
 
 
 class MinerUReader:
     """Reads MinerU per-page output → ExtractedDocument."""
+
+    def __init__(self, *, source_pdf: Path | None = None) -> None:
+        # WHY: spec D5 — the text-layer rebuild of operating tables lives
+        # INSIDE the reader so ingest and the one-time repair are one
+        # producer. Without the PDF the reader behaves exactly as before
+        # (every existing caller constructs `MinerUReader()` with no args).
+        self._source_pdf = Path(source_pdf) if source_pdf is not None else None
 
     def read(self, path: Path | str) -> ExtractedDocument:
         path = Path(path)
@@ -64,6 +73,9 @@ class MinerUReader:
 
         # Multi-page table reassembly happens after all pages are loaded.
         pages = self._reassemble_multi_page_tables(pages)
+
+        if self._source_pdf is not None:
+            pages = self._refine_operating_tables(pages)
 
         outline = self._build_outline(pages)
 
@@ -219,6 +231,43 @@ class MinerUReader:
                 new_blocks.append(block)
             page.blocks = new_blocks
 
+        return pages
+
+    # --- operating-table refinement (spec §3.1/§3.2) --------------------------
+
+    def _refine_operating_tables(self, pages: list[Page]) -> list[Page]:
+        """Rebuild every table carrying a ladder marker from the PDF text
+        layer; a rebuild that does not reconcile is dropped and MinerU's
+        table stays (spec D3).
+
+        WHY the qualifying-block scan runs BEFORE `fitz.open`: opening the
+        PDF is not guarded here, and a corrupt or placeholder source_pdf
+        raises `pymupdf.FileDataError` immediately — confirmed with a
+        9-byte `%PDF-1.4\n` placeholder, the exact fixture
+        `tests/test_ingest_worker.py`'s FakeExtractor writes for its
+        `baseline-per-agency` job. That fixture's table carries no ladder
+        marker, so without this pre-scan every `run_job` test using it
+        would fail on a PDF the refinement was never going to touch.
+        Scanning first means a document with no in-scope table never pays
+        for, or risks, opening its source file at all.
+        """
+        qualifying: list[tuple[Page, int, Table]] = [
+            (page, i, block)
+            for page in pages
+            for i, block in enumerate(page.blocks)
+            if isinstance(block, Table)
+            and has_ladder_marker(" ".join(c.text for r in block.rows for c in r.cells))
+        ]
+        if not qualifying:
+            return pages
+
+        import fitz  # lazy: the reader is imported by code paths that never open a PDF
+
+        with fitz.open(str(self._source_pdf)) as pdf:
+            for page, i, block in qualifying:
+                outcome = refine_operating_table(block, pdf)
+                if outcome.table is not None:
+                    page.blocks[i] = outcome.table
         return pages
 
     # --- outline tree --------------------------------------------------------

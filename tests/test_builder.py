@@ -235,3 +235,29 @@ def test_chunk_doc_requires_extractor_field():
             extractor_output_path=FIXTURES / "mineru-jlbc-approps-p513.json",
             doc_meta=_approps_meta(extractor=""),
         )
+
+
+def test_chunk_doc_passes_the_pdf_only_for_in_scope_doc_types(tmp_path, monkeypatch):
+    """Spec §3.2: an out-of-scope doc type never opens the PDF; an in-scope
+    one hands it to the MinerU reader."""
+    import chunking.builder as builder
+    seen: list = []
+
+    class SpyReader:
+        def __init__(self, *, source_pdf=None):
+            seen.append(source_pdf)
+        def read(self, path):
+            from chunking.readers.mineru_reader import MinerUReader
+            return MinerUReader().read(path)
+
+    monkeypatch.setattr(builder, "MinerUReader", SpyReader)
+    monkeypatch.setitem(builder._READER_REGISTRY, "mineru", SpyReader)
+    pdf = tmp_path / "x.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    chunk_doc(extractor_output_path=FIXTURES / "mineru-jlbc-approps-p513.json",
+              doc_meta=_approps_meta(doc_type="approps-per-agency"), source_pdf=pdf)
+    chunk_doc(extractor_output_path=FIXTURES / "mineru-jlbc-approps-p513.json",
+              doc_meta=_approps_meta(doc_type="bh-pdf"), source_pdf=pdf)
+    chunk_doc(extractor_output_path=FIXTURES / "mineru-jlbc-approps-p513.json",
+              doc_meta=_approps_meta(doc_type="approps-per-agency"), source_pdf=tmp_path / "x.docx")
+    assert seen == [pdf, None, None]

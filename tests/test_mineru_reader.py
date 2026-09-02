@@ -233,3 +233,25 @@ def test_mineru_reader_handles_table_with_no_explicit_thead(tmp_path):
     table = doc.tables[0]
     assert len(table.rows) == 2
     assert [c.text for c in table.rows[0].cells] == ["Fund", "FY2026"]
+
+
+def test_reader_refines_operating_tables_when_given_the_pdf(tmp_path):
+    """Spec D5: the refinement is inside the reader, so ingest and repair share it."""
+    import fitz
+    from tests.test_text_layer_table import CLEAN_HTML, PageBuilder, _clean_page
+
+    pdf = fitz.open()
+    _clean_page(PageBuilder(pdf))
+    pdf_path = tmp_path / "axs.pdf"
+    pdf.save(str(pdf_path))
+    page_json = tmp_path / "page-1.json"
+    page_json.write_text(json.dumps({
+        "extractor": "mineru-3.1.6", "page": 1,
+        "blocks": [{"type": "table", "table_body": CLEAN_HTML, "bbox": [78, 85, 918, 907]}],
+    }), encoding="utf-8")
+
+    plain = MinerUReader().read(page_json).tables[0]
+    refined = MinerUReader(source_pdf=pdf_path).read(page_json).tables[0]
+    assert [c.text for c in plain.rows[0].cells] == ["", "FY 2024 ACTUAL", "FY 2025 ESTIMATE", "FY 2026 APPROVED"]
+    assert [c.text for c in refined.rows[3].cells] == ["Personal Services", "100", "200", "300"]
+    assert refined.page == plain.page and refined.bbox == plain.bbox
