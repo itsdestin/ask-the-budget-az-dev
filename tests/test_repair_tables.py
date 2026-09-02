@@ -653,6 +653,13 @@ def test_apply_skips_a_row_whose_text_moved_and_counts_it(corpus):
     # The row that moved keeps what the re-ingest put there -- never the
     # planned rewrite, which was computed against text that is now stale.
     assert moved.rows[0]["table_html"] == FUSED_HTML
+    # The record on disk is what was really written, not what was planned:
+    # replaying a skipped row's `before` would put the stale table back over
+    # the re-ingest that moved it.
+    payload = json.loads(Path(result.reversal_path).read_text())
+    assert payload["stage"] == "written"
+    assert [r["chunk_id"] for r in payload["rows"]] == [f"{ADC}-0000"]
+    assert payload["skipped_moved"] == [f"{DOC}-0000"]
 
 
 def test_reversal_record_round_trips(corpus):
@@ -827,3 +834,54 @@ def test_a_row_that_vanished_under_the_plan_refuses_rather_than_writing_the_rest
 
     with pytest.raises(RuntimeError, match="vanished"):
         _apply(root, _VanishedStore(store.rows))
+
+
+def test_a_row_deleted_by_the_write_is_caught_by_the_chunk_id_set(corpus):
+    """The one check that sees a delete landing on ids nobody sampled. It
+    runs FIRST, so a lost row is reported as a lost row rather than as
+    whatever the untouched sample happens to notice about it."""
+    root, store = corpus
+    _defective(root, store)
+
+    class _DeletingStore(_FakeStore):
+        def upsert_chunks(self, name, rows):
+            super().upsert_chunks(name, rows)
+            self.rows = [r for r in self.rows if r["chunk_id"] != f"{DOC}-0002"]
+
+    with pytest.raises(RuntimeError, match="chunk-id set changed"):
+        _apply(root, _DeletingStore(store.rows))
+
+
+def test_a_row_this_pass_never_touched_that_changed_is_caught(corpus):
+    """The untouched half of the verify: an in-process check that the delete
+    landed on the right ids."""
+    root, store = corpus
+    _defective(root, store)
+
+    class _SplashingStore(_FakeStore):
+        def upsert_chunks(self, name, rows):
+            super().upsert_chunks(name, rows)
+            for r in self.rows:
+                if r["chunk_id"] == f"{DOC}-0002":
+                    r["text"] = "clobbered"
+
+    with pytest.raises(RuntimeError, match="never supposed to change"):
+        _apply(root, _SplashingStore(store.rows))
+
+
+def test_the_verify_refuses_a_rewritten_row_that_still_holds_a_merged_cell():
+    """The post-condition of the whole pass, asserted against the corpus
+    rather than against the rebuild's own report. Driven directly, because
+    the refinement structurally cannot emit a merged cell -- so the only way
+    to reach this branch through the plan would be a regression in the
+    producer, which is exactly what it is here to catch."""
+    from chunking.repair_common import all_columns
+    from chunking.repair_tables import _verify_nothing_was_lost
+
+    row = {c: None for c in all_columns()}
+    row.update(chunk_id="d-0000", doc_id="d", vector=[1.0, 0.0, 0.0, 0.0],
+               text="FY 2026 Budget\nPersonal Services Equipment\t100 50\t200 50\t300 50")
+    store = _FakeStore([row])
+    with pytest.raises(RuntimeError, match="merged cell"):
+        _verify_nothing_was_lost(store, "budget_chunks", [dict(row)], {"d-0000"}, {}, 500,
+                                 lambda m: None)
