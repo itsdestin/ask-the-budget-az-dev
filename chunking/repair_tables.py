@@ -1239,9 +1239,11 @@ def _print_summary(summary: PlanSummary, changes: list[TableChange], pairs: int)
     missing = summary.reasons.get("no source pdf", 0)
     print(f"\nno source pdf: {missing}")
     print(f"  resolved against REPO_ROOT = {REPO_ROOT}")
-    print("  A non-zero count here is usually the run's own checkout, not the corpus: "
-          "a git worktree does not carry the gitignored data/cached-pdfs/ download cache, "
-          "so run from the main checkout (or symlink it in) and re-read this number "
+    print("  A non-zero count here is a CONFIGURATION fact, never a corpus fact: "
+          "329 in-scope documents record a repo-relative data/cached-pdfs/ path and "
+          "resolve ONLY through REPO_ROOT, and a git worktree does not carry that "
+          "gitignored download cache. Run from a checkout that has it (or hard-link "
+          "it in -- a symlink is resolved away and fails the containment check) "
           "before recording those tables as unrepairable.")
 
     rates = sorted(summary.match_rates)
@@ -1350,6 +1352,7 @@ def main(argv: list[str] | None = None) -> int:
         # filter belongs.
         parser.error("--apply rewrites the whole table; drop --doc")
 
+    from app.routes.pdf import REPO_ROOT
     from store.chunk_store import ChunkStore
     from store.config import data_dir
     store = ChunkStore(create=False)
@@ -1367,6 +1370,7 @@ def main(argv: list[str] | None = None) -> int:
         only=set(args.doc) if args.doc else None, batch_size=args.batch_size,
     )
     _print_summary(result.summary, result.changes, args.pairs)
+    missing = result.summary.reasons.get("no source pdf", 0)
     if args.report:
         atomic_write_json(args.report, {
             "table": args.table, "dry_run": not args.apply, "written": result.written,
@@ -1382,6 +1386,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.apply:
         print(f"\nwrote {result.written} rows; skipped {len(result.skipped_moved)} (text moved); "
               f"snapshot {result.snapshot_name}; reversal {result.reversal_path}")
+
+    # A FULL run that cannot reach some PDFs has not measured the corpus, and
+    # the numbers above are not the gate's numbers. Measured 2026-09-02: the
+    # 329 documents whose sidecar records `data/cached-pdfs/<shard>/<sha>.pdf`
+    # resolve ONLY through `REPO_ROOT / <relative>`, so from a checkout without
+    # that cache the same pass reports 88.7% overall and FY2025/26/27 at
+    # 47-50% -- it FAILS G-OT1's per-year floor, on a corpus that is fine.
+    # That is a configuration fact every time, so it exits non-zero rather than
+    # printing a sentence somebody scrolls past. A `--doc` run is exempt: it is
+    # deliberately partial and its author picked the documents.
+    if missing and not args.doc:
+        print("\n" + "!" * 74)
+        print(f"!! REFUSING TO REPORT THIS RUN AS A MEASUREMENT: {missing} of "
+              f"{len(result.changes)} tables")
+        print("!! could not reach their source PDF. That is this checkout, not the "
+              "corpus.")
+        print(f"!! {missing} tables would be refused as `no source pdf` if this were "
+              "an apply.")
+        print("!! Run from a checkout where data/cached-pdfs/ resolves under")
+        print(f"!!   {REPO_ROOT}")
+        print("!! (hard-link it in with `cp -al`; a symlink is resolved away and "
+              "rejected).")
+        print("!" * 74)
+        return 1
     return 0
 
 

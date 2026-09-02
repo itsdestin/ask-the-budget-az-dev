@@ -153,12 +153,30 @@ def _has_figures(line: _Line) -> bool:
     return any(_is_figure(w.text) for w in line.words)
 
 
+# Every spelling of the "no value" placeholder JLBC prints in a figure
+# column. `_is_figure` already accepts the ASCII hyphen, so this exists for
+# the ones it does not -- and the em dash is not an edge case: measured over
+# 250 sampled in-scope pages of the live corpus, 2026-09-02, the standalone
+# dash-only tokens are `-` x1,123, **`—` (U+2014) x243**, `–` (U+2013) x7 and
+# `--` x5. Before this, a page whose whole column read `--`/`—` kept its
+# figures inside `_label_text`, so no anchor could match it and the table was
+# refused for a low anchor rate with every one of its labels printed plainly
+# on the page (`jlbc-baseline-fy2013-irc-0000`, 29%).
+_DASH_ZEROS = frozenset("-‐‑‒–—―−")
+
+
+def _is_dash_zero(token: str) -> bool:
+    """A token that is nothing but dashes — JLBC's printed zero."""
+    return bool(token) and all(ch in _DASH_ZEROS for ch in token)
+
+
 def _label_text(line: _Line) -> str:
     """The printed label: the line with its TRAILING figures, markers and
     dash-zeros removed. Only trailing ones — `Proposition 204 Services`
     and `Travel - In State` keep their number and their dash."""
     words = [w.text for w in line.words]
-    while words and (_is_figure(words[-1]) or _is_marker(words[-1]) or words[-1] == "-"):
+    while words and (_is_figure(words[-1]) or _is_marker(words[-1])
+                     or _is_dash_zero(words[-1])):
         words.pop()
     return normalise_label(" ".join(words))
 
@@ -442,7 +460,15 @@ def _rows(region: Sequence[_Line], cols: _Columns, anchors: Sequence[str]) -> li
                 # is dead code (it cannot change any answer), so it is not here
                 # pretending to be a guard.
                 markers[cols.nearest(w.centre)] = w.text
-            elif _is_figure(w.text) or w.text == "-":
+            elif _is_figure(w.text) or _is_dash_zero(w.text):
+                # `_is_dash_zero`, not `w.text == "-"`: the second call site of
+                # the same rule, and it has to move with the first. Stripping
+                # a trailing `--` in `_label_text` WITHOUT this makes the
+                # anchor match and then files the dash as part of the LABEL --
+                # verified on `jlbc-baseline-fy2013-irc-0000`, which rebuilt as
+                # `Lump Sum Appropriation -- | 106,100 | 3,000,000 | ` with its
+                # FY 2013 column empty. That is worse than MinerU's own
+                # reading, which has the `--` in the right column.
                 j = cols.nearest(w.centre)
                 if j in figures:
                     return None  # two figures in one column: the assignment is wrong

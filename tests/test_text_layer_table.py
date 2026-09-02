@@ -11,6 +11,7 @@ baseline page, not invented.
 """
 from __future__ import annotations
 
+import pytest
 import fitz
 
 from chunking.readers.mineru_reader import MinerUReader
@@ -832,3 +833,87 @@ def test_a_figureless_group_heading_cannot_end_the_region():
     assert ["County Funds", "10", "20", "30"] in cells
     assert ["Federal Medicaid Authority", "5", "10", "15"] in cells
     assert cells[-1] == ["SUBTOTAL - Appropriated/Expenditure Authority Funds", "115", "230", "345"]
+
+
+# --- JLBC's printed "no value" placeholder (Task 10 dry run) ------------------
+
+_DASH_HTML = (
+    "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td>"
+    "<td>FY 2026 APPROVED</td></tr>"
+    "<tr><td>OPERATING BUDGET</td><td></td><td></td><td></td></tr>"
+    "<tr><td>Lump Sum Appropriation</td><td>150</td><td>250</td><td></td></tr>"
+    "<tr><td>AGENCY TOTAL</td><td>150</td><td>250</td><td></td></tr>"
+    "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+    "<tr><td>General Fund</td><td>150</td><td>250</td><td></td></tr>"
+    "<tr><td>SUBTOTAL - Appropriated Funds</td><td>150</td><td>250</td><td></td></tr>"
+    "<tr><td>TOTAL - ALL SOURCES</td><td>150</td><td>250</td><td></td></tr></table>"
+)
+
+
+# `--` and `-` only, deliberately. PyMuPDF's default `helv` face has no
+# em/en dash glyph and SUBSTITUTES `·` (U+00B7) on `insert_text`, so a page
+# built with `—` here does not contain an em dash at all and would be testing
+# the fixture, not the reader. The em dash — which is the COMMON spelling in
+# the real corpus (x243 against x5 for `--`) — is covered at the token level
+# in `test_every_dash_spelling_the_corpus_prints_is_a_dash_zero` below, where
+# the token is exactly what the real text layer yields.
+@pytest.mark.parametrize("dash", ["--", "-"])
+def test_a_column_printed_as_dashes_still_matches_its_anchors(dash):
+    """JLBC prints a dash for "no value", and `_label_text`'s docstring has
+    always said dash-zeros are stripped -- but it enumerated only the ASCII
+    hyphen. A page whose whole last column is `--` or an em dash therefore
+    kept its figures inside the label text, so NO anchor could match it and
+    the table was refused for a low anchor rate with every one of its labels
+    printed plainly on the page.
+
+    Measured on the live corpus 2026-09-02, over 250 sampled in-scope pages,
+    the standalone dash-only tokens are `-` x1,123, `—` x243, `–` x7,
+    `--` x5 -- so the em dash, not the double hyphen, is the common one.
+    Real example: `jlbc-baseline-fy2013-irc-0000` scored 29%.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("OPERATING BUDGET")
+    b.row("Lump Sum Appropriation", "150", "250", dash)
+    b.row("AGENCY TOTAL", "150", "250", dash)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "150", "250", dash)
+    b.row("SUBTOTAL - Appropriated Funds", "150", "250", dash, x0=61)
+    b.row("TOTAL - ALL SOURCES", "150", "250", dash)
+
+    out = refine_operating_table(_minerU(_DASH_HTML), doc)
+    assert out.table is not None, out.reason
+    # Every one of the six labels is found, not just the two with no trailing
+    # dash -- which is what the anchor rate is measuring.
+    assert out.anchor_match == 1.0
+    cells = _cells(out.table)
+    # ...and the dash lands in its own COLUMN, not glued to the label. Fixing
+    # `_label_text` alone makes the anchor match and then files the dash as
+    # part of the label, which is worse than MinerU's own reading.
+    assert cells[2] == ["Lump Sum Appropriation", "150", "250", dash]
+    assert cells[-1] == ["TOTAL - ALL SOURCES", "150", "250", dash]
+
+
+def test_every_dash_spelling_the_corpus_prints_is_a_dash_zero():
+    """Measured over 250 sampled in-scope pages of the live corpus,
+    2026-09-02, the standalone dash-only tokens JLBC's text layer yields are
+    `-` x1,123, `—` (U+2014) x243, `–` (U+2013) x7 and `--` x5. All four have
+    to strip, and the em dash is the one that matters most."""
+    from chunking.readers.text_layer_table import _is_dash_zero
+
+    for tok in ("-", "--", "\u2014", "\u2013", "\u2012", "\u2212", "\u2010"):
+        assert _is_dash_zero(tok), tok
+    for tok in ("", "150", "3/", "-150", "A-1"):
+        assert not _is_dash_zero(tok), tok
+
+
+def test_a_dash_inside_a_label_is_never_stripped():
+    """`Travel - In State` and `SUBTOTAL - Appropriated Funds` keep their
+    dash: only TRAILING dash-zeros go."""
+    from chunking.readers.text_layer_table import _Line, _Word, _label_text
+
+    line = lambda *ws: _Line(words=[_Word(0, 0, 0, 0, w) for w in ws])
+    assert _label_text(line("Travel", "-", "In", "State")) == "TRAVEL - IN STATE"
+    assert _label_text(line("SUBTOTAL", "-", "Appropriated", "Funds", "150", "—")) \
+        == "SUBTOTAL - APPROPRIATED FUNDS"

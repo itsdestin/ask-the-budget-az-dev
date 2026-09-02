@@ -1098,11 +1098,40 @@ def test_a_missing_pdf_is_printed_with_the_repo_root_that_could_not_find_it(cli,
     root, store = cli
     for p in (root / "pdfs").glob("*.pdf"):
         p.unlink()
-    assert main(["--pairs", "0"]) == 0
+    assert main(["--pairs", "0"]) == 1
     out = capsys.readouterr().out
     assert "no source pdf: 2" in out
     assert str(REPO_ROOT) in out
-    assert "worktree" in out
+    assert "data/cached-pdfs/" in out
+
+
+def test_a_full_run_that_cannot_reach_a_pdf_exits_non_zero(cli, capsys):
+    """Measured 2026-09-02: the 329 in-scope documents whose sidecar records a
+    repo-relative `data/cached-pdfs/` path resolve ONLY through REPO_ROOT, so
+    from a checkout without that gitignored cache the same pass reports 88.7%
+    overall and FY2025/26/27 at 47-50% -- it FAILS the G-OT1 per-year floor on
+    a corpus that is fine. A run in that state has not measured anything, so
+    it must not exit 0 and be pasted into a record."""
+    root, store = cli
+    for p in (root / "pdfs").glob("*.pdf"):
+        p.unlink()
+    assert main(["--pairs", "0"]) == 1
+    out = capsys.readouterr().out
+    assert "REFUSING TO REPORT THIS RUN AS A MEASUREMENT" in out
+    assert "That is this checkout, not the corpus." in out
+
+
+def test_a_partial_run_keeps_the_sentence_and_still_exits_zero(cli, capsys):
+    """`--doc` is deliberately partial and its author chose the documents, so
+    the banner would be noise; the explanatory sentence still prints."""
+    root, store = cli
+    for p in (root / "pdfs").glob("*.pdf"):
+        p.unlink()
+    assert main(["--doc", DOC, "--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "no source pdf: 1" in out
+    assert "CONFIGURATION fact" in out
+    assert "REFUSING TO REPORT" not in out
 
 
 def test_a_clean_run_still_names_the_repo_root_it_resolved_pdfs_against(cli, capsys):
