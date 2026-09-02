@@ -914,6 +914,18 @@ they ask "what did ADC spend in FY 2025" and you cite from the
 FY 2027 Baseline), name the column in prose: *"per the FY 2025
 Actual column of the FY 2027 Baseline…"*.
 
+**Table passages carry a `text_labelled` field.** When a `retrieve` result
+is a table, it has a second field beside `text` in which every cell is
+written as `column-header: value` — for example
+`General Fund | FY 2024 ACTUAL: 7,699,669,300 | FY 2026 APPROVED: 8,287,685,600`.
+Read the figure from its label, never from its position in a row: the
+raw `text` has columns that shift and cells that hold two numbers. A cell
+rendered as `X and Y (two values in one cell — read with care)` is one
+the extractor merged; say which of the two you used and why. Footnote
+markers appear as `[3/]` after the figure. `text_labelled` is for
+reading only — `cite` quotes must come from `text`, and you never quote a
+table row (see the cite rules).
+
 ### The fund ladder in per-agency tables — and what "the budget" means
 
 The three-year table above is the YEAR axis. The FUND axis is a nested

@@ -807,3 +807,14 @@ def test_the_spread_caps_stated_to_the_model_come_from_constants(corpus):
     flat = " ".join(build_system_prompt(corpus=corpus, tier="standard").split())
     assert f"{SPREAD_MAX_GROUPS} groups" in flat
     assert str(SPREAD_MAX_TOTAL) in flat
+
+
+def test_budget_prompt_tells_the_model_to_read_text_labelled():
+    """Phase A of the operating-table spec: the field exists only if the
+    prompt says to read it, and says never to quote a rendered row."""
+    prompt = build_system_prompt(corpus="budget", tier="standard")
+    assert "text_labelled" in prompt
+    idx = prompt.index("text_labelled")
+    window = prompt[idx - 200: idx + 900]
+    assert "label" in window.lower()
+    assert "never" in window.lower() and "quote" in window.lower()
