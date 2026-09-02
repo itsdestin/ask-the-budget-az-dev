@@ -26,6 +26,7 @@ section, so even matching column-headers belong to a separate logical table.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -48,6 +49,8 @@ from chunking.readers.types import (
 from chunking.table_text import has_ladder_marker
 
 _PAGE_FILE_RE = re.compile(r"^page-(\d+)\.json$", re.IGNORECASE)
+
+log = logging.getLogger(__name__)
 
 
 class MinerUReader:
@@ -250,6 +253,27 @@ class MinerUReader:
         would fail on a PDF the refinement was never going to touch.
         Scanning first means a document with no in-scope table never pays
         for, or risks, opening its source file at all.
+
+        WHY every failure below is CAUGHT rather than propagated: spec D3
+        says an unrefinable TABLE keeps its current (MinerU) text — the
+        refinement can only improve a chunk, never remove one. But both
+        in-scope doc types (`data/document-types.yaml`) prefer `mineru`,
+        so `ingest/ladder.py`'s fallback ladder for them is
+        `[mineru, mineru-ocr]` — every rung is this same reader with the
+        same `source_pdf`. Before this guard, a `source_pdf` MinerU
+        extracted fine but `fitz.open()` refuses (or any exception inside
+        `refine_operating_table` itself) raised out of THIS method,
+        which is called from `read()`, which every rung calls — so the
+        exception would exhaust the whole ladder and the document would
+        be HELD OUT OF SEARCH, where before this task it reached `live`
+        with MinerU's own tables untouched. That is a strictly worse
+        outcome than D3 ever intends for one bad table: it turns a
+        table-level "keep the old text" into a document-level "keep
+        nothing at all". Caught at two points — the whole-document open,
+        and each table's refinement — so one bad table never costs its
+        siblings, and a source_pdf the ladder produced (real, extracted
+        successfully) but that PyMuPDF still can't read never costs the
+        document.
         """
         qualifying: list[tuple[Page, int, Table]] = [
             (page, i, block)
@@ -263,9 +287,26 @@ class MinerUReader:
 
         import fitz  # lazy: the reader is imported by code paths that never open a PDF
 
-        with fitz.open(str(self._source_pdf)) as pdf:
+        try:
+            pdf = fitz.open(str(self._source_pdf))
+        except Exception:
+            log.warning(
+                "operating-table refinement: could not open %s; keeping MinerU's tables",
+                self._source_pdf, exc_info=True,
+            )
+            return pages
+
+        with pdf:
             for page, i, block in qualifying:
-                outcome = refine_operating_table(block, pdf)
+                try:
+                    outcome = refine_operating_table(block, pdf)
+                except Exception:
+                    log.warning(
+                        "operating-table refinement: table on page %s of %s raised; "
+                        "keeping MinerU's table",
+                        page.page_number, self._source_pdf, exc_info=True,
+                    )
+                    continue
                 if outcome.table is not None:
                     page.blocks[i] = outcome.table
         return pages
