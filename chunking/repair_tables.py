@@ -98,7 +98,14 @@ class TableChange:
     doc_id: str
     fiscal_year: int
     verdict: str            # "rebuilt" | "unverified"
+    # ONE refusal class per refusal (`rebuilt`, `arithmetic`, `no text layer`,
+    # `no source pdf`, `figure retention 12%`, ...), so `PlanSummary.reasons`
+    # counts refusals per class. Provenance -- where this table was read from
+    # and why -- is `note`, and it is deliberately NOT folded in here: a note
+    # prefix would split one refusal class across as many counter keys as
+    # there are provenance stories, and the dry run reports refusal classes.
     reason: str
+    note: str               # provenance; "" when the extractor path was used
     source: str             # "extractor" | "html"
     anchor_match: float
     # How much of MinerU's own figure evidence the rebuild kept. Carried
@@ -130,9 +137,18 @@ class PlanSummary:
     per_year: dict[int, dict[str, int]] = field(default_factory=dict)
     reasons: Counter = field(default_factory=Counter)
     sources: Counter = field(default_factory=Counter)
+    # Why a chunk did not use its document's cached extractor output. Empty
+    # for every chunk that did. `sources["html"]` counts the fallback; this
+    # says WHICH fallback, and in particular tells a document that was never
+    # cached (no note) from one whose recorded reading is missing on disk.
+    notes: Counter = field(default_factory=Counter)
     match_rates: list[float] = field(default_factory=list)
     digit_disagreements: int = 0
     eval_intersection: list[dict[str, Any]] = field(default_factory=list)
+    # How many ground-truth chunk ids `eval/queries.yaml` holds in total.
+    # Printed BESIDE `len(eval_intersection)` so G-OT2 cannot read as
+    # stronger than it is -- see `_eval_intersection`.
+    eval_ground_truth_total: int = 0
 
 
 def _chunk_index(chunk_id: str) -> int | None:
@@ -167,10 +183,22 @@ def _figures_in(text: str) -> set[str]:
 
 
 def _body(text: str) -> str:
-    """Everything below line 0 -- what `_build_text` produced from the table.
+    """Everything below line 0 of a stored chunk text.
 
-    Line 0 is the section path, which this pass never touches (spec D4) and
-    which the section-path repair owns.
+    Line 0 is USUALLY the section path, which this pass never touches (spec
+    D4) and which the section-path repair owns. It is not always: measured
+    on the live corpus 2026-09-01, **3,870 of the 4,875 in-scope rows (79.4%)
+    carry an EMPTY `section_path`**, and `table_chunk._build_text` opens with
+    `if section_path:` -- so for four rows in five there is no section line
+    and this strips the table's HEADER row instead.
+
+    That is still self-consistent, which is why the comparison it feeds is
+    sound: both sides of `_body(_build_text(table, path)) == _body(old_text)`
+    are built by the same `_build_text` from the same path, so they drop the
+    same line. But be clear about what the gate is worth on those rows: it
+    compares one row FEWER than it appears to, and the row it stops comparing
+    is the header. It cannot, on an empty-path chunk, catch cached extractor
+    output that differs from the corpus only in its header row.
     """
     return "\n".join(text.split("\n")[1:])
 
@@ -195,9 +223,24 @@ def plan_document(
     (rows_before, merged cells, digit disagreements) -- both of which the
     producer discards. It calls the producer's own refinement function, on
     the table objects the producer would have refined, so the OUTPUT is the
-    producer's; `test_a_rebuilt_chunk_is_byte_identical_to_a_re_chunk_through_the_one_producer`
-    pins that equality so a future change to either side cannot drift the
-    corpus away from what a re-ingest would now write (spec D7).
+    producer's.
+
+    WHAT THE PARITY TESTS PIN, EXACTLY, so nobody reads more into them:
+    `tests/test_repair_tables.py` runs `MinerUReader(source_pdf=…)` over one
+    table on each of the two source paths (cached extractor output, and the
+    stored-html fallback ~398 uncached documents take) and asserts this
+    plan's `new_text` and `new_html` are byte-identical to it. That is an
+    equality of OUTPUT on a rebuilt table. It says nothing about SELECTION,
+    and selection already differs: `MinerUReader._refine_operating_tables`
+    qualifies a table on its ladder marker alone, while `in_scope` also
+    requires `OPERATING_TABLE_DOC_TYPES` (spec D1). Measured on the live
+    corpus 2026-09-01: of 4,986 table chunks carrying a ladder marker,
+    **111 are outside this pass -- 98 `detailed-list-pdf` and 13
+    `topic-pdf`** -- and the producer WOULD rebuild all 111 at re-ingest.
+    So after this repair those 111 chunks still hold MinerU's own table and
+    would change if their document were ever re-ingested. That is a known
+    gap in spec D7's "the repair equals a re-chunk", not something these
+    tests cover.
 
     `method` is the sidecar's `extraction.method` -- it picks WHICH reading
     on disk is the one the corpus holds. See `ingest/extract_dirs.py` for
@@ -206,13 +249,27 @@ def plan_document(
     import fitz
 
     tables: list | None = None
-    read_error = ""
+    # Why the extractor path was not available for this whole document. ""
+    # means "no cached extractor output at all", which is the ordinary case
+    # for the ~398 documents that have none -- every OTHER way of not having
+    # it gets its own words, because each is a different thing to go and fix.
+    doc_note = ""
     located = resolve_extract_dir(doc_id, root, method=method)
     if located is not None:
         try:
             tables = MinerUReader().read(located[0]).tables
         except Exception as exc:  # noqa: BLE001 -- recorded per chunk below, never fatal
-            tables, read_error = None, f"extractor output unreadable: {exc}; "
+            tables, doc_note = None, f"extractor output unreadable: {exc}"
+    else:
+        base = root / "extractor-output" / doc_id
+        if method and base.is_dir() and not (base / method).is_dir():
+            # `ingest/extract_dirs.py` calls this a FINDING and refuses to fall
+            # back to another folder: the sidecar says the corpus holds this
+            # reading and the reading is not on disk. Counted apart from
+            # never-cached so the dry run does not bury it in that number.
+            doc_note = f"the recorded reading ({method}) has no folder on disk"
+        elif base.is_dir():
+            doc_note = "cached extractor output has no readable page files"
 
     out: list[TableChange] = []
     pdf = fitz.open(str(pdf_path)) if pdf_path is not None and pdf_path.exists() else None
@@ -221,16 +278,28 @@ def plan_document(
             idx = _chunk_index(str(row["chunk_id"]))
             section_path = list(row.get("section_path") or [])
             old_text = str(row.get("text") or "")
-            table, source, note = None, "html", read_error
-            if tables is not None and idx is not None and idx < len(tables) and \
-                    _body(_build_text(tables[idx], section_path)) == _body(old_text):
-                table, source, note = tables[idx], "extractor", ""
-            elif tables is not None:
-                # The positional chunk->table mapping is a hypothesis about
-                # what was ingested, not a fact about what is on disk now.
-                # Recorded rather than trusted; the stored HTML always is
-                # what the corpus holds.
-                note = "extractor output differs from the stored text; "
+            # Three separate things can send a chunk to the html fallback
+            # even though its document HAS cached output, and they were one
+            # sentence until the review: a chunk_id with no index (nothing to
+            # look up), an index past the end (the output holds fewer tables
+            # than the corpus does), and a real body mismatch (the output on
+            # disk is not what was ingested). Same fallback, three different
+            # findings, so three different sentences.
+            table, source, note = None, "html", doc_note
+            if tables is not None:
+                if idx is None:
+                    note = "chunk_id carries no positional index"
+                elif idx >= len(tables):
+                    note = (f"cached extractor output holds {len(tables)} tables; "
+                            f"this chunk is #{idx}")
+                elif _body(_build_text(tables[idx], section_path)) != _body(old_text):
+                    # The positional chunk->table mapping is a hypothesis
+                    # about what was ingested, not a fact about what is on
+                    # disk now. Recorded rather than trusted; the stored HTML
+                    # always is what the corpus holds.
+                    note = "extractor output differs from the stored text"
+                else:
+                    table, source, note = tables[idx], "extractor", ""
             if table is None:
                 table = MinerUReader._parse_html_table(
                     str(row.get("table_html") or ""), page=int(row.get("page") or 1), bbox=None)
@@ -257,7 +326,7 @@ def plan_document(
             change = TableChange(
                 chunk_id=str(row["chunk_id"]), doc_id=doc_id, fiscal_year=int(row.get("fiscal_year") or 0),
                 verdict="rebuilt" if outcome_table is not None else "unverified",
-                reason=note + reason, source=source, anchor_match=match, figure_retention=retention,
+                reason=reason, note=note, source=source, anchor_match=match, figure_retention=retention,
                 rows_before=len(table.rows), rows_after=len(outcome_table.rows) if outcome_table else 0,
                 merged_cells_removed=sum(1 for r in before_cells for c in r[1:] if len(figure_tokens(c)) >= 2),
                 notes_separated=0, digit_disagreements=[],
@@ -280,24 +349,54 @@ def plan_document(
     return out
 
 
+def _ground_truth_anchors(queries_path: Path = EVAL_QUERIES) -> list[tuple[str, str, str]]:
+    """(query_id, chunk_id, anchor_text) for every expected chunk in the
+    Layer 1 query set. 51 of them on 2026-09-01."""
+    if not queries_path.exists():
+        return []
+    return [(q["id"], exp.get("chunk_id"), exp.get("anchor_text") or "")
+            for q in yaml.safe_load(queries_path.read_text(encoding="utf-8")) or []
+            for exp in q.get("expected_chunks") or []]
+
+
 def _eval_intersection(changes: list[TableChange], queries_path: Path = EVAL_QUERIES) -> list[dict[str, Any]]:
     """G-OT2: the ground-truth chunks in scope must still contain their anchor_text.
 
     An unverified chunk is graded against the text it KEEPS, which is the
-    honest comparison -- the corpus still holds `old_text` for it.
+    honest comparison -- the corpus still holds `old_text` for it. The
+    consequence is that G-OT2 can only ever FAIL on a chunk this pass
+    actually rebuilt.
+
+    HOW SMALL THIS GATE IS, measured rather than assumed. The spec names five
+    in-scope ground-truth ids; run against the live corpus 2026-09-01,
+    **exactly ONE of the 51 ground-truth chunk ids in `eval/queries.yaml`
+    enters `changes`** -- `jlbc-approps-fy2025-unibor-0000`. The other four
+    the spec names sit in in-scope DOCUMENT TYPES but are not operating
+    tables and carry no ladder marker, so `in_scope` never admits them, and
+    reading them says the filter is right:
+
+      * `jlbc-baseline-fy2026-adc-0004`  "Table 1 FY 2024 Community
+        Corrections Program Expenditures"
+      * `jlbc-approps-fy2023-adc-0008`   "Table 4 Florence Prison Closure
+        3-Year Budget Plan"
+      * `jlbc-baseline-fy2027-des-0010`  an Auditor General "SUMMARY OF
+        FUNDS" table
+      * `jlbc-baseline-fy2022-dhs-0006`  a COVID-19 expenditure table
+
+    None of them is the agency operating table this pass rebuilds, so none of
+    them is evidence about it either way. `PlanSummary` therefore carries
+    `eval_ground_truth_total` beside this list, and Task 10 must print BOTH --
+    "1 of 51" is the true strength of this gate, and a bare list of one
+    passing row reads like five times more assurance than exists.
     """
-    if not queries_path.exists():
-        return []
     by_id = {c.chunk_id: c for c in changes}
     out: list[dict[str, Any]] = []
-    for q in yaml.safe_load(queries_path.read_text(encoding="utf-8")) or []:
-        for exp in q.get("expected_chunks") or []:
-            c = by_id.get(exp.get("chunk_id"))
-            if c is None:
-                continue
-            anchor = exp.get("anchor_text") or ""
-            out.append({"query": q["id"], "chunk_id": c.chunk_id, "verdict": c.verdict,
-                        "anchor_found": anchor in (c.new_text or c.old_text)})
+    for query_id, chunk_id, anchor in _ground_truth_anchors(queries_path):
+        c = by_id.get(chunk_id)
+        if c is None:
+            continue
+        out.append({"query": query_id, "chunk_id": c.chunk_id, "verdict": c.verdict,
+                    "anchor_found": anchor in (c.new_text or c.old_text)})
     return out
 
 
@@ -346,11 +445,14 @@ def plan_corpus(
             y[c.verdict] += 1
             summary.reasons[c.reason] += 1
             summary.sources[c.source] += 1
+            if c.note:
+                summary.notes[c.note] += 1
             summary.match_rates.append(c.anchor_match)
             summary.digit_disagreements += len(c.digit_disagreements)
         if n % 200 == 0:
             progress(f"planned {n}/{len(by_doc)} documents")
     summary.eval_intersection = _eval_intersection(changes)
+    summary.eval_ground_truth_total = len(_ground_truth_anchors())
     return changes, summary
 
 

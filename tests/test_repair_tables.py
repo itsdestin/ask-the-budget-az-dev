@@ -13,6 +13,7 @@ from pathlib import Path
 
 import fitz
 import pytest
+import yaml
 
 from chunking.builders.table_chunk import _build_text
 from chunking.readers.mineru_reader import MinerUReader
@@ -41,6 +42,14 @@ class _FakeStore:
         self.optimized: list[str] = []
 
     def scan(self, name, columns, *, where=None, limit=None):
+        """⚠ `where` is IGNORED except for the `chunk_id IN (...)` predicate.
+
+        Safe for the plan, which passes `is_table = true` and then re-checks
+        `is_table` in Python via `in_scope`. Task 9's apply path must not
+        inherit that assumption: if it ever relies on a `where` to EXCLUDE
+        rows, this fake will hand it the excluded ones and the test will pass
+        against code that writes them.
+        """
         out = [{c: r.get(c) for c in columns} for r in self.rows]
         if where and "chunk_id IN" in where:
             wanted = {p.strip().strip("'") for p in where.split("(", 1)[1].rstrip(")").split(",")}
@@ -172,10 +181,13 @@ def test_extractor_output_that_does_not_match_the_chunk_falls_back_to_html(corpu
         "blocks": [{"type": "table", "table_body": "<table><tr><td>Different</td><td>1</td></tr></table>",
                     "bbox": [0, 0, 1, 1]}],
     }), encoding="utf-8")
-    changes, _ = plan_corpus(store, root, "budget_chunks")
+    changes, summary = plan_corpus(store, root, "budget_chunks")
     c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
-    assert c.source == "html" and "extractor output differs" in c.reason
-    assert c.verdict == "rebuilt"          # the fallback still rebuilds
+    assert c.source == "html" and c.note == "extractor output differs from the stored text"
+    # The refusal class stays a class of its own — a note prefixed onto it
+    # would split "rebuilt" across as many keys as there are notes.
+    assert c.reason == "rebuilt" and c.verdict == "rebuilt"
+    assert summary.notes[c.note] == 1 and summary.reasons["rebuilt"] == 2
 
 
 def test_unverifiable_table_is_counted_not_rewritten(corpus):
@@ -315,6 +327,9 @@ def test_a_malformed_chunk_id_falls_back_to_html_instead_of_crashing(corpus):
     changes, _ = plan_corpus(store, root, "budget_chunks")
     c = next(x for x in changes if x.chunk_id == f"{DOC}-odd")
     assert c.source == "html" and c.verdict == "rebuilt"
+    # Its own words: this is not "the output differs", it is "there was
+    # nothing to look the output up by".
+    assert c.note == "chunk_id carries no positional index"
 
 
 def test_eval_intersection_reports_whether_the_anchor_survived(tmp_path):
@@ -333,7 +348,7 @@ def test_eval_intersection_reports_whether_the_anchor_survived(tmp_path):
     )
     changes = [
         TableChange(chunk_id="a-0000", doc_id="a", fiscal_year=2026, verdict="rebuilt",
-                    reason="rebuilt", source="extractor", anchor_match=1.0, figure_retention=1.0,
+                    reason="rebuilt", note="", source="extractor", anchor_match=1.0, figure_retention=1.0,
                     rows_before=3, rows_after=3, merged_cells_removed=0, notes_separated=0,
                     digit_disagreements=[], old_text="old", new_text="Personal Services\t1",
                     old_html=None, new_html=None),
@@ -341,12 +356,12 @@ def test_eval_intersection_reports_whether_the_anchor_survived(tmp_path):
         # is graded against — grading it against a rebuild that was refused
         # would report every refusal as a lost anchor.
         TableChange(chunk_id="b-0000", doc_id="b", fiscal_year=2026, verdict="unverified",
-                    reason="arithmetic", source="html", anchor_match=1.0, figure_retention=1.0,
+                    reason="arithmetic", note="", source="html", anchor_match=1.0, figure_retention=1.0,
                     rows_before=3, rows_after=0, merged_cells_removed=0, notes_separated=0,
                     digit_disagreements=[], old_text="Equipment\t500,001", new_text=None,
                     old_html=None, new_html=None),
         TableChange(chunk_id="c-0000", doc_id="c", fiscal_year=2026, verdict="rebuilt",
-                    reason="rebuilt", source="html", anchor_match=1.0, figure_retention=1.0,
+                    reason="rebuilt", note="", source="html", anchor_match=1.0, figure_retention=1.0,
                     rows_before=3, rows_after=3, merged_cells_removed=0, notes_separated=0,
                     digit_disagreements=[], old_text="Equipment\t500,001",
                     new_text="Equipment\t500,000", old_html=None, new_html=None),
@@ -412,5 +427,91 @@ def test_extractor_output_that_cannot_be_READ_says_so_instead_of_reading_as_abse
     (root / "extractor-output" / DOC / "page-2.json").write_text("{ truncated", encoding="utf-8")
     changes, summary = plan_corpus(store, root, "budget_chunks")
     c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
-    assert c.source == "html" and "extractor output unreadable" in c.reason
-    assert summary.reasons[c.reason] == 1
+    assert c.source == "html" and "extractor output unreadable" in c.note
+    assert c.reason == "rebuilt"
+    assert summary.notes[c.note] == 1
+
+
+def test_the_html_fallback_also_matches_the_one_producer(corpus):
+    """The other half of spec D7. ~398 documents have no cached extractor
+    output at all, so their table is rebuilt from the stored `table_html` —
+    a different SOURCE reaching the same refinement. If that path ever
+    diverged, four hundred documents would hold text no re-ingest reproduces
+    and nothing on the extractor path would notice."""
+    root, store = corpus
+    store.rows[1]["table_html"] = FUSED_HTML
+    store.rows[1]["text"] = _build_text(
+        MinerUReader._parse_html_table(FUSED_HTML, page=1, bbox=None), ["FY 2025 Budget"])
+
+    changes, _ = plan_corpus(store, root, "budget_chunks")
+    c = next(x for x in changes if x.doc_id == ADC)
+    assert c.source == "html" and c.note == ""      # nothing cached, the ordinary case
+
+    # What ingest would now write for the same table and the same PDF.
+    page = root / "extractor-output" / ADC / "page-1.json"
+    page.parent.mkdir(parents=True)
+    page.write_text(json.dumps({
+        "extractor": "mineru-3.1.6", "page": 1,
+        "blocks": [{"type": "table", "table_body": FUSED_HTML, "bbox": [78, 85, 918, 907]}],
+    }), encoding="utf-8")
+    produced = MinerUReader(source_pdf=root / "pdfs" / "adc.pdf").read(page).tables[0]
+
+    assert c.new_text == _build_text(produced, ["FY 2025 Budget"])
+    assert c.new_html == produced.html
+    assert c.new_html != c.old_html and c.merged_cells_removed == 3
+
+
+def test_a_chunk_with_no_section_path_is_planned_from_its_header_row_down(corpus):
+    """79.4% of the live in-scope rows (3,870 of 4,875, measured 2026-09-01)
+    carry an EMPTY section_path, so `_build_text` emits no section line and
+    `_body` strips the HEADER row instead. Both sides of the body gate are
+    built the same way, so the comparison still holds — this pins that, and
+    pins that line 0 of the rebuilt text is then the header, not a blank."""
+    root, store = corpus
+    mineru = MinerUReader().read(root / "extractor-output" / DOC / "page-1.json").tables[0]
+    store.rows[0]["section_path"] = []
+    store.rows[0]["text"] = _build_text(mineru, [])
+
+    changes, _ = plan_corpus(store, root, "budget_chunks")
+    c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
+    assert c.source == "extractor" and c.verdict == "rebuilt"
+    assert not c.new_text.startswith("\n")
+    assert c.new_text.split("\n")[0] == "\tFY 2024 ACTUAL\tFY 2025 ESTIMATE\tFY 2026 APPROVED"
+    assert c.new_text == _build_text(
+        MinerUReader(source_pdf=root / "pdfs" / "axs.pdf").read(
+            root / "extractor-output" / DOC / "page-1.json").tables[0], [])
+
+
+def test_a_recorded_reading_that_is_not_on_disk_is_its_own_finding(corpus):
+    """`ingest/extract_dirs.py` refuses to fall back to another folder when
+    the sidecar's method names a reading that is not there — the corpus holds
+    a reading nobody can produce. That must not be counted as one of the
+    ~398 documents that were simply never cached."""
+    root, store = corpus
+    docs = json.loads((root / "documents.json").read_text())
+    docs[DOC]["extraction"] = {"method": "mineru-ocr"}      # no such folder on disk
+    (root / "documents.json").write_text(json.dumps(docs), encoding="utf-8")
+
+    changes, summary = plan_corpus(store, root, "budget_chunks")
+    c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
+    assert c.source == "html"
+    assert c.note == "the recorded reading (mineru-ocr) has no folder on disk"
+    assert summary.notes[c.note] == 1
+    # ...and the document that genuinely has nothing cached carries no note,
+    # so the two are countable apart.
+    assert next(x for x in changes if x.doc_id == ADC).note == ""
+
+
+def test_the_summary_reports_how_much_ground_truth_it_actually_covers(corpus):
+    """G-OT2 reads as five times stronger than it is unless both numbers are
+    carried: measured live 2026-09-01, ONE of the 51 ground-truth chunk ids
+    in eval/queries.yaml is in this pass's scope."""
+    root, store = corpus
+    _, summary = plan_corpus(store, root, "budget_chunks")
+    # Counted here by parsing the query set directly, so this cannot pass by
+    # agreeing with the same helper it is checking, and does not go red the
+    # day somebody adds a query.
+    expected = sum(len(q.get("expected_chunks") or [])
+                   for q in yaml.safe_load(Path("eval/queries.yaml").read_text(encoding="utf-8")))
+    assert summary.eval_ground_truth_total == expected >= 51
+    assert len(summary.eval_intersection) == 0      # the fixture holds no ground-truth id
