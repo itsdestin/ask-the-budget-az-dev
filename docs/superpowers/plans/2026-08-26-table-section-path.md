@@ -1,5 +1,18 @@
 # Table Section Paths Implementation Plan
 
+> ## ⛔ EXECUTED AND APPLIED — DO NOT RE-RUN
+>
+> All eight tasks ran, and **Task 8's `--apply` wrote the live corpus on
+> 2026-09-01** (8,168 `budget_chunks` rows, 397 `fiscal_note_chunks` rows;
+> snapshots `lancedb-20260902T023505Z.zip` and `lancedb-20260902T024612Z.zip`,
+> reversal records beside them in the data dir). **Task 8's `--apply` must
+> never be executed again against this corpus.** A second apply is a no-op
+> by design — the plan is recomputed from the stored rows — but it still
+> takes the ingest lock and zips the whole corpus for nothing. This plan is
+> the record of design intent; `STATUS.md` → *Table section paths — the
+> corpus repair* is what actually happened, including the numbers that
+> differ from this document's estimates and the items left open.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A table chunk's `section_path` becomes the heading it physically sits under, instead of the first heading anywhere in the document containing one of its cell strings — and the ~10,200 corpus rows already carrying the wrong answer are repaired in place.
