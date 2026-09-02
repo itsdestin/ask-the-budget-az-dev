@@ -436,6 +436,18 @@ def plan_corpus(
         # A document with no `source_blob_path`, or whose PDF is not on this
         # machine, gets `None` and every one of its tables is counted under
         # "no source pdf" -- a finding, not a silent skip.
+        #
+        # 🔴 RUN THIS PASS FROM THE MAIN CHECKOUT, NOT A WORKTREE. Many
+        # sidecar entries record a REPO-relative `data/cached-pdfs/<shard>/
+        # <sha>.pdf`, and `_resolve_blob`'s second candidate is
+        # `app.routes.pdf.REPO_ROOT / <that path>` -- the checkout the code is
+        # running from. A git worktree does not carry that (gitignored)
+        # download cache. Measured 2026-09-01: from the `agency-tables-t8`
+        # worktree **342 of the 4,875 in-scope rows (329 documents) report
+        # "no source pdf"**; with REPO_ROOT pointed at the main checkout,
+        # **4,875 of 4,875 resolve**. Nothing is wrong with those documents,
+        # and the difference is invisible in the output -- it reads as 342
+        # tables this pass cannot repair.
         pdf_path = _resolve_blob(str(rec.get("source_blob_path") or ""))
         method = (rec.get("extraction") or {}).get("method")
         for c in plan_document(doc_id, doc_rows, root, pdf_path=pdf_path, method=method):
