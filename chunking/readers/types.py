@@ -158,8 +158,10 @@ class OutlineNode:
     level: int
     page: int
     children: list["OutlineNode"] = field(default_factory=list)
-    # Block indices belonging to this section's body. Lets `outline_path`
-    # search section content without re-scanning every block per query.
+    # The blocks that physically sit under this heading, recorded at read
+    # time by `_build_outline`. Read by `ExtractedDocument.owner_path`
+    # (which section is this block in?) and by
+    # `narrative_chunk.visit` (which paragraphs belong to this section?).
     body_blocks: list[Block] = field(default_factory=list)
 
 
@@ -175,6 +177,13 @@ class ExtractedDocument:
     # PDF readers leave this empty; the chunk-orchestrator branches on
     # whichever surface is populated.
     sections: list[Section] = field(default_factory=list)
+    # Memo for `owner_path`, built on first call. Readers construct the
+    # outline as the LAST step of `read()` and never mutate it afterwards,
+    # so one build is safe; `init=False` + `compare=False` keep it out of
+    # the dataclass's constructor, equality and repr.
+    _owner_memo: dict[int, list[str]] | None = field(
+        default=None, init=False, compare=False, repr=False
+    )
 
     @property
     def has_tables(self) -> bool:
@@ -184,41 +193,37 @@ class ExtractedDocument:
     def tables(self) -> list[Table]:
         return [b for p in self.pages for b in p.blocks if isinstance(b, Table)]
 
-    def outline_path(self, query: str) -> list[str]:
-        """Return the breadcrumb of section titles to the deepest section
-        whose heading text OR body content contains `query` (case-insensitive
-        substring match). Empty list when no match.
+    def owner_path(self, block: Block) -> list[str]:
+        """Breadcrumb of the outline node that PHYSICALLY owns `block`.
 
-        Used by chunk builders / entity stamper to ask "which section does
-        this content live under?"
+        `_build_outline` (both PDF readers) appends every non-`Heading`
+        block to `stack[-1].body_blocks` — the innermost heading open at
+        that point in the document. So the answer to "which section is this
+        block in?" was recorded at read time and needs no searching.
+
+        Matching is by IDENTITY (`is`), never by text. That is the whole
+        point: on 2026-08-26 the text-searching `outline_path` was measured
+        binding tables to headings a median of 93 pages away, because two
+        different blocks routinely carry the same string — a contents page
+        lists every agency name in the book, so an agency's own table finds
+        its name there first (spec §1.1).
+
+        Returns `[]` when no node owns `block` — a block appearing before
+        the document's first heading, which `_build_outline` attaches to
+        nothing. Spec D2 makes that an empty `section_path` rather than a
+        guess.
         """
-        q = query.casefold()
-        best_path: list[str] = []
+        if self._owner_memo is None:
+            memo: dict[int, list[str]] = {}
 
-        def walk(node: OutlineNode, ancestors: list[str]) -> None:
-            nonlocal best_path
-            here = ancestors + [node.text]
-            # Recurse first — children are deeper, prefer them on a match.
-            for child in node.children:
-                walk(child, here)
-            if best_path and len(best_path) >= len(here):
-                # A deeper or equal-depth match was already found via descendants.
-                return
-            if q in node.text.casefold() or any(
-                q in _block_text(b).casefold() for b in node.body_blocks
-            ):
-                best_path = here
+            def walk(node: "OutlineNode", ancestors: list[str]) -> None:
+                here = ancestors + [node.text]
+                for b in node.body_blocks:
+                    memo[id(b)] = here
+                for child in node.children:
+                    walk(child, here)
 
-        for root in self.outline:
-            walk(root, [])
-
-        return best_path
-
-
-def _block_text(block: Block) -> str:
-    """Surface searchable text for a block. Tables flatten cell text."""
-    if isinstance(block, Heading) or isinstance(block, Paragraph):
-        return block.text
-    if isinstance(block, Table):
-        return " ".join(c.text for r in block.rows for c in r.cells)
-    return ""
+            for root in self.outline:
+                walk(root, [])
+            self._owner_memo = memo
+        return list(self._owner_memo.get(id(block), []))

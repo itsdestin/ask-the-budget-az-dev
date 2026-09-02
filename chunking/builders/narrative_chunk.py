@@ -24,7 +24,7 @@ Algorithm:
      the call site). See `_orphaned_paragraphs`.
 
 Section path is the breadcrumb of outline-node texts from root to current
-node, identical to what `ExtractedDocument.outline_path` would return for
+node, identical to what `ExtractedDocument.owner_path` returns for
 content matched inside this section.
 """
 from __future__ import annotations

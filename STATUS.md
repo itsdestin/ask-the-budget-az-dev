@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-08-26
+**Last updated:** 2026-09-01
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -61,6 +61,243 @@ source. When something ships, update only this file.
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
 | Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B (text-layer rebuild) not started. See the section below |
+| **Table section paths — the corpus write** | ✅ **APPLIED TO THE LIVE CORPUS 2026-09-01**, all gates passed, eval per-query identical | Branch `table-section-path`. A table passage's heading breadcrumb used to be found by searching the whole document for matching text, so a table on page 400 could carry a heading from page 3 — measured at a **median 266 pages away** in the FY2026 Governor's Budget. It is now the heading the table physically sits under. **8,168 budget rows + 397 fiscal-note rows rewritten** (four columns; agency and fund labels byte-identical corpus-wide, `drift 0`). 1,079 Governor tables labelled *Table of Contents* → **5** (an extractor gap, not this work). Snapshots + reversal records for both tables. Layer 1 eval: **zero queries changed status**. **399 migration-era documents could not be repaired and are still wrong** — see the section below |
+
+## Table section paths — the corpus repair, APPLIED to the live corpus (2026-09-01)
+
+Spec: `docs/superpowers/specs/2026-08-26-table-section-path-design.md`
+(D1–D3, gates G-T1–G-T6). Plan:
+`docs/superpowers/plans/2026-08-26-table-section-path.md` (8 tasks).
+Dry-run record:
+`docs/superpowers/investigations/2026-08-26-section-path-repair-dry-run.md`.
+Branch `table-section-path`. **The corpus was written on 2026-09-01
+(timestamps below are UTC, so they read 2026-09-02).**
+
+**In plain English.** Every passage in the corpus carries a breadcrumb —
+the heading it sits under, like *Corrections, State Department of*. For
+tables, the app used to work that breadcrumb out by searching the whole
+document for text that looked similar, anywhere in it. So a table on page
+400 of a book could end up captioned with a heading from page 3. In the
+FY2026 Governor's Budget the wrong heading was **a median of 266 pages
+away** from the table wearing it, and 1,079 of that book's 1,246 tables
+were captioned *Table of Contents*. The code now reads the heading the
+table is physically printed under, and this pass went back and corrected
+every table already stored. Analysts see the change in three places: the
+snippet under a Budget Documents result, the breadcrumb line in an AI Mode
+tool card, and the heading on a fiscal note. Where a table genuinely has no
+heading of its own — about half the rewritten rows, nearly all of them JLBC
+per-agency summary tables — the app now shows **no caption at all** rather
+than a wrong one (spec D2, Destin's decision).
+
+### The write, exactly as it ran
+
+Both tables were dry-run again immediately before the write (gate G-T5),
+against the live corpus, and both matched the 2026-08-26 dry run to the
+row. Each apply took the ingest lock, snapshotted the corpus, wrote a
+reversal record, rewrote its rows with compare-and-swap, re-read and
+verified **every** changed row plus a 200-row untouched sample, and rebuilt
+the full-text index.
+
+| | `budget_chunks` | `fiscal_note_chunks` |
+|---|---|---|
+| rows scanned | 83,197 | 14,161 |
+| documents planned / skipped | 5,071 / **399** | 2,103 / 0 |
+| **rows changed** | **8,168** | **397** |
+| dry run the same day (G-T5) | 8,168 — exact | 397 — exact |
+| of those, caption removed | 4,143 | 315 |
+| of those, caption corrected | 4,025 | 82 |
+| documents with ≥1 changed row | 3,519 | 353 |
+| verified after the write | 8,168 in full + 200 untouched | 397 in full + 200 untouched |
+| snapshot | `backups/lancedb-20260902T023505Z.zip` (721 MB) | `backups/lancedb-20260902T024612Z.zip` (641 MB) |
+| reversal record | `section-path-reversal-budget_chunks-2026-09-02T0235Z.json` (47.7 MB) | `section-path-reversal-fiscal_note_chunks-2026-09-02T0246Z.json` (0.3 MB) |
+| wall clock | ~12 min (02:33:51Z → 02:45Z) | ~71 s (02:46:10Z → 02:47:21Z) |
+
+Skips, `budget_chunks`: **398 no cached extractor output**, 1 docx document
+(`legislature-budget-bill-fy2026-sb1735-2025`, which has no table chunks at
+all). **No `body mismatch` skips in either table** — every document whose
+extractor output is on disk still matched what the corpus holds.
+
+### The gates
+
+**G-T3 — nothing but the four intended columns moved, corpus-wide, both
+tables.** All 97,358 rows were dumped before the write and re-read after:
+
+```
+budget_chunks       chunks 83197 (before: 83197)  reversal rows 8168  missing 0  not landed 0  drift 0
+fiscal_note_chunks  chunks 14161 (before: 14161)  reversal rows  397  missing 0  not landed 0  drift 0
+```
+
+`drift 0` is the spec's *"`agency_canonical_ids` and `fund_mentions`
+byte-identical corpus-wide"* — and it also covers `page`, `bbox`,
+`doc_type` and `fiscal_year`.
+
+**G-T2 — Layer 1 eval, control and post-write, 14 minutes apart on this
+machine.** Same 47-query set, same code (`cc24905`), corpus the only
+variable:
+
+| | control (pre-write) | after the write |
+|---|---|---|
+| file | `eval/results/2026-09-02T0233Z-cc24905.json` | `eval/results/2026-09-02T0248Z-cc24905.json` |
+| recall@5 / @15 / @20 | 85.71% / 97.62% / 100.00% | **85.71% / 97.62% / 100.00%** |
+| refusal precision | 60.00% | **60.00%** |
+| latency p95 | 790 ms | 723 ms |
+
+Per-query: **`STATUS FLIPPED: []`**. Three queries moved one rank slot —
+`q-003` 1→2, `q-019` 2→1, `q-021` 5→4. Both runs are identical to the
+recorded 2026-08-18 baseline on all four headline figures.
+
+**🔴 Read that verdict narrowly.** `eval/queries.yaml` holds 51 ground-truth
+chunk ids. Only **14 are table chunks** at all — the other 37 are prose and
+this pass cannot touch them. Of those 14: **11 sit in documents that could
+not be repaired** (no cached extractor output), 2 were already correct, and
+**exactly ONE is in the change set** — `jlbc-baseline-fy2022-dhs-0006`
+(query `n-006`), whose caption shortened from `['FOOTNOTES', 'Public Health
+Emergencies Fund COVID-19 Expenditures']` to
+`['Public Health Emergencies Fund COVID-19 Expenditures']`; it still passes
+at rank 2 with an unchanged score of 7.3355. So a clean eval says
+*"nothing broke on the queries we have"*, and the queries we have can
+barely see this change. **G-T4 and G-T6 are what actually check the write**,
+and the plan said so before the run rather than after it.
+
+**G-T4 — read the documents, do not count them.** Table chunks only (the
+literal script's larger numbers include prose chunks this pass never
+touches, which is why both counts are stated twice):
+
+| document | chunks / tables | still labelled *Table of Contents* | still claiming *(expressed in thousands)* |
+|---|---|---|---|
+| `governor-governors-budget-fy2026` | 1,577 / 1,246 | **5** tables (18 counting prose) | 0 |
+| `agao-afr-fy2024` | 450 / 422 | 0 | **51** tables (52 counting prose) |
+| `agao-afr-fy2021` | 177 / 151 | 0 | 0 |
+
+51 is the spec's stated prediction, exactly. The 5 are explained in their
+own bullet below. Reading the repaired paths by eye: the Governor's tables
+now name the agency whose page they are printed on — `Acupuncture
+Examiners, Board of` (p10–12), `Economic Security, Department of` (p137),
+`Power Authority` (p366), `Capital Projects` (p646–648) — and JLBC
+per-agency summary tables carry no caption, opening straight on their own
+column headers.
+
+**The write is settled and idempotent — verified after the fact.** Re-running
+the planner over the four documents the spec names, which between them
+carried 1,439 of the changes an hour earlier, now reports **`rows changed 0`**
+on all four (1,246 / 422 / 151 / 3 tables, 0 changed each). A second `--apply`
+would therefore find nothing to do — which is why the spec and plan now carry
+a do-not-re-run banner rather than a warning about damage.
+
+**G-T5** (a dry run immediately precedes every write) and **G-T6** (the
+repair equals a from-scratch re-chunk, 0 mismatches over three documents)
+both passed; G-T6 was run once, on the rehearsal copy, against the same
+plan the live apply re-derived.
+
+### Seen on screen, on the repaired live corpus
+
+Three screenshots were taken in this session's scratchpad (temporary, not
+committed) with headless Chromium against the real corpus on port 9300,
+which was stopped afterwards. Searching *"Acupuncture Examiners executive
+budget FY 2026"* on Budget Documents shows the change and its limit in one
+frame:
+
+- the **FY 2026** Executive Budget passage now opens *"Acupuncture
+  Examiners, Board of — BY APPROPRIATED FUND…"*;
+- the **FY 2027** Executive Budget passage directly beneath it still opens
+  *"Table of Contents — BY APPROPRIATED FUND…"*, because that document is
+  one of the 399 with no cached extractor output. The open item below is
+  visible on screen.
+
+A second search shows the caption-removed shape live: FY2022 Dental
+Examiners and FY2020 Parents Commission passages open straight on
+*"Funds Expended 1,142,800…"* with no heading above them.
+
+### The counts the spec predicted, and the two it got wrong
+
+Per document, every prediction held (Task 6). Per table, both corpus-wide
+estimates missed, **in opposite directions**, and both sit outside the
+spec's stated ~8% sampling band:
+
+| table | spec §3.5 estimate | measured | difference |
+|---|---|---|---|
+| `budget_chunks` | ≈9,850 | **8,168** | −1,682, **−17.1%** |
+| `fiscal_note_chunks` | ≈351 | **397** | +46, **+13.1%** |
+
+This is a finding about how the spec's 234-document sample weighted two
+document shapes, not a code defect — recorded so nobody reads *"close to
+8,000 either way"* as validated. It is not.
+
+**A second spec figure was a misapplication and was caught before the run.**
+The plan carried `≈261 (61.9%)` as `agao-afr-fy2024`'s predicted change
+count; 61.9% is the **four-AFR type average** from spec §3.5, not a
+per-document prediction. The real figure is **96 of 422 tables (22.7%)**,
+recorded rather than gated.
+
+### Open items — every one of these is still open
+
+- **399 documents could not be repaired and still carry the old, wrong
+  captions.** 398 have no cached extractor output on this machine; 1 is a
+  docx with no tables. Two of them are among the eight worst-affected
+  documents on record — **`governor-governors-budget-fy2027`** (visible in
+  the screenshot above, still reading *Table of Contents*) and
+  **`agao-afr-fy2025`**. They stay wrong until something regenerates their
+  extractor output. Three more skipped documents carry eval ground truth
+  (`jlbc-approps-fy2025-unibor`, `jlbc-baseline-fy2026-adc`,
+  `jlbc-baseline-fy2027-des`).
+- **5 tables in `governor-governors-budget-fy2026` are still labelled
+  *Table of Contents*, and this is an extractor gap, not a repair defect.**
+  They are `-0000`..`-0004`, the Board of Accountancy chapter on pages 7–9.
+  OpenDataLoader emitted *"Accountancy, Board of"* on page 7 as plain text
+  rather than a `#` heading, so the outline has no node for that chapter and
+  by the ownership rule its tables belong to the previous node — which is
+  the book's genuine *Table of Contents* section starting on page 2. Those
+  5 carried the same label before this pass (1,079 = 1,074 relabelled + 5
+  untouched), and a from-scratch re-chunk gives the same answer (G-T6).
+  Fixing it means fixing the extraction of that page, not this code.
+- **51 passages in `agao-afr-fy2024` still claim "(expressed in thousands)"
+  over whole-dollar figures** (spec §5.1) — Destin's call, down from 121.
+- **Garbage strings are still accepted as headings** (spec §5.2) — e.g.
+  `agao-afr-fy2024`'s tables sit under `OFFICE OF THE DIRECTOR 100 NORTH
+  FIFTEENTH AVENUE ∙ SUITE 302 PHOENIX, ARIZONA 85007 (602) 542-1500`,
+  which is a letterhead, not a heading. Nothing in this pass filters it.
+- **🔴 The catalog still holds the nine merged-away agency ids and the
+  stamper still mints them** (spec §5.3). Every upload re-splits those
+  agencies; the corpus is clean only because nothing has been ingested
+  since 2026-08-16. **This is also why this repair rewrote four columns
+  instead of re-chunking** — a re-chunk would have silently undone part of
+  the 2026-08-16 identity merge.
+- **Saved AI-Mode chats still show the OLD breadcrumbs** in their tool
+  cards: they render the retrieve JSON stored in the transcript, not the
+  live row. Not a defect — a new question shows the repaired caption.
+- **The Budget Documents passage card changed too, on every repaired
+  table** — its snippet is `text[:280]` and line 0 is now the owning
+  heading, or nothing at all for the caption-removed rows. The spec named
+  only AI Mode and fiscal notes; this surface was found in the rehearsal,
+  shown to Destin at the checkpoint, and **the live rendering after the
+  write WAS seen** (screenshots above).
+- **The fiscal-note breadcrumb (`FiscalNoteResult`) has not been looked at
+  on the copy or live.** 397 fiscal-note rows changed (315 of them losing a
+  caption — typically `['Description']` → nothing) and nobody has watched
+  one render. jsdom applies no stylesheet.
+- **The median-distance figures above are this run's, not the spec's.**
+  Measured after the write over each document's own changed tables:
+  `agao-afr-fy2024` median 99 pages (mean 101.6, max 188) across 96 tables;
+  `governor-governors-budget-fy2026` median 266 (mean 272.9, max 641)
+  across 1,196. The spec's recorded 93 pages for the AFR was measured
+  2026-08-26 over a different population and is not contradicted by this.
+
+### Gates at the write
+
+pytest **3545 passed / 5 skipped** (worktree) · vitest **1196 passed
+(97 files)** · `tsc -b` 0 · `npm run build` 0 (main checkout — the worktree
+has no `webapp/node_modules`). The webapp is untouched by this work and its
+counts are unchanged.
+
+**⚠ A second Claude session was reading this repo during the write** (it
+wrote `eval/results/agent/*/false-link-report*.json` in the main checkout
+between 19:44 and 19:46 local, inside the budget apply's window). Its work
+is read-only against the corpus, `documents.json` is untouched since
+2026-08-16, no stale ingest lock was left behind, and G-T3 verified the
+corpus row-by-row after the write — but both eval runs were taken under
+that load, which is why the p95 figures move and the recall figures do not.
+
+---
 
 ## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
 
