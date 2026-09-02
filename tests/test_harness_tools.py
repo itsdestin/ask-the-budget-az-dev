@@ -498,6 +498,9 @@ def test_retrieve_response_shape_matches_the_locked_contract(monkeypatch, tmp_pa
     uuid.UUID(out["retrieval_id"])  # raises if it isn't a real uuid
 
     chunk = out["chunks"][0]
+    # `text_labelled` is the one OPTIONAL key (phase A of the operating-table
+    # spec): present only on table chunks with a detectable header. The
+    # fake chunk here is prose, so the locked set below is the full set.
     assert set(chunk) == {
         "chunk_id",
         # The per-conversation handle the model tags figures with (spec A1).
@@ -1665,3 +1668,35 @@ def test_all_three_can_appear_together(monkeypatch):
     assert out["preferred_agencies"] == ["agency:adc"]
     assert out["dropped_filters"] == ["doc_type"]
     assert out["year_coverage"] == {"2019": 7}
+
+
+# ---------------------------------------------------------------------------
+# Phase A of the operating-table spec: labelled cells ride beside `text`
+# ---------------------------------------------------------------------------
+
+_TABLE_TEXT = "\n".join([
+    "FY 2026 Budget",
+    "\tFY 2024 ACTUAL\tFY 2025 ESTIMATE\tFY 2026 APPROVED",
+    "General Fund\t7,699,669,300\t7,882,875,800\t8,287,685,600",
+])
+
+
+def test_table_chunk_carries_text_labelled_beside_unchanged_text(monkeypatch):
+    _fake_retrieve(monkeypatch, _chunk(is_table=True, text=_TABLE_TEXT))
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    chunk = _run(ex, "retrieve", {"query": "q"})["chunks"][0]
+    # `text` is what the linker, the viewer and the scorer read — never replaced.
+    assert chunk["text"] == _TABLE_TEXT
+    assert chunk["text_length"] == len(_TABLE_TEXT)
+    assert "General Fund | FY 2024 ACTUAL: 7,699,669,300" in chunk["text_labelled"]
+
+
+def test_narrative_chunk_and_headerless_table_have_no_text_labelled(monkeypatch):
+    _fake_retrieve(monkeypatch, [
+        _chunk(),                                                    # prose
+        _chunk(chunk_id="t2", is_table=True, text="FUND SOURCES\nGeneral Fund\t1\t2\t3"),
+    ])
+    ex = ToolExecutor("conv-1", "budget", "standard")
+    chunks = _run(ex, "retrieve", {"query": "q"})["chunks"]
+    assert "text_labelled" not in chunks[0]
+    assert "text_labelled" not in chunks[1]

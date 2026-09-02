@@ -81,6 +81,7 @@ from retrieval import (
     retrieve_spread,
 )
 from retrieval.citations import CiteValidateBody, validate_cite, validate_cites
+from retrieval.table_view import render_labelled
 from store.chunk_store import CORPUS_TABLES
 from identity.resolve import resolve_titles
 from store.documents import (
@@ -1167,6 +1168,52 @@ def _sorted_values(
 # ---------------------------------------------------------------------------
 
 
+def _chunk_entry(
+    c, *, alias: str, title: str, group: Any, include_group: bool
+) -> dict[str, Any]:
+    """One `chunks[]` entry. Pulled out of the `_retrieve` comprehension
+    so the table-labelling branch (below) has somewhere to live without
+    turning the comprehension into an unreadable nested conditional."""
+    entry: dict[str, Any] = {
+        "chunk_id": c.chunk_id,
+        # The short handle the model tags figures with (`[[c3]]`). Short
+        # on purpose: it is written after every figure in the answer, and
+        # a full chunk_id there would cost tokens on every number.
+        "alias": alias,
+        "doc_id": c.doc_id,
+        "doc_title": title,
+        "publisher": c.publisher,
+        "fiscal_year": c.fiscal_year,
+        "doc_type": c.doc_type,
+        "section_path": c.section_path,
+        # v1 chunks are single-page, so start == end. Both fields exist
+        # because the interface renders a range.
+        "page_start": c.page,
+        "page_end": c.page,
+        "bbox": c.bbox,
+        "text": c.text,
+        # Saves the model counting characters when it wants explicit
+        # offsets instead of a quote.
+        "text_length": len(c.text or ""),
+        "score": c.score,
+    }
+    if include_group:
+        entry["group"] = group
+    if c.is_table:
+        # Phase A of the operating-table spec (§5): the model reads a
+        # label, not a position. `text` stays as-is above because the
+        # citation linker, the viewer and the Layer 2 scorer all read it
+        # and the first two hold offsets into the stored text — this is
+        # an ADDITIONAL field, never a replacement. `render_labelled`
+        # returns None for a headerless or oversized table (no tab-joined
+        # rows, no detectable header row, or over LABELLED_MAX_CHARS), in
+        # which case the model sees exactly what it sees today.
+        labelled = render_labelled(c.text or "")
+        if labelled is not None:
+            entry["text_labelled"] = labelled
+    return entry
+
+
 def _dump(payload: dict[str, Any]) -> str:
     """One place that turns a tool result into the string the model reads.
 
@@ -1428,31 +1475,13 @@ class ToolExecutor:
 
         response: dict[str, Any] = {
             "chunks": [
-                {
-                    "chunk_id": c.chunk_id,
-                    # The short handle the model tags figures with
-                    # (`[[c3]]`). Short on purpose: it is written after
-                    # every figure in the answer, and a full chunk_id
-                    # there would cost tokens on every number.
-                    "alias": self._alias_by_chunk[c.chunk_id],
-                    "doc_id": c.doc_id,
-                    "doc_title": titles.get(c.doc_id, ""),
-                    "publisher": c.publisher,
-                    "fiscal_year": c.fiscal_year,
-                    "doc_type": c.doc_type,
-                    "section_path": c.section_path,
-                    # v1 chunks are single-page, so start == end. Both
-                    # fields exist because the interface renders a range.
-                    "page_start": c.page,
-                    "page_end": c.page,
-                    "bbox": c.bbox,
-                    "text": c.text,
-                    # Saves the model counting characters when it wants
-                    # explicit offsets instead of a quote.
-                    "text_length": len(c.text or ""),
-                    "score": c.score,
-                    **({"group": _group_of(c)} if spread is not None else {}),
-                }
+                _chunk_entry(
+                    c,
+                    alias=self._alias_by_chunk[c.chunk_id],
+                    title=titles.get(c.doc_id, ""),
+                    group=_group_of(c),
+                    include_group=spread is not None,
+                )
                 for c in result.chunks
             ],
             # Raw cross-encoder logit (roughly -10..10, negatives normal),
