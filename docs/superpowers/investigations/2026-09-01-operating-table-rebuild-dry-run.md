@@ -122,7 +122,7 @@ both shapes are over-represented in the refusals below.
 
 ---
 
-## Reasons for the 222 refusals
+## Reasons for the 219 refusals
 
 ```
      143  arithmetic
@@ -940,7 +940,7 @@ so this is the check that the repair and a from-scratch re-chunk still agree.
 
 | | control — LIVE corpus | after the apply — the copy |
 |---|---|---|
-| file | `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` | `eval/results/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` |
+| file | `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` | `eval/results/rehearsal/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` |
 | recall@5 / @15 / @20 | 85.71% / 97.62% / 100.00% | **85.71% / 97.62% / 100.00%** |
 | refusal precision / recall | 60.00% / 60.00% | **60.00% / 60.00%** |
 | fallback rate | 30.95% | **30.95%** |
@@ -949,7 +949,12 @@ so this is the check that the repair and a from-scratch re-chunk still agree.
 
 **Both files are committed**, and the after-run's name and its own header say
 what it is: `…-rehearsal-copy` was run against the rehearsal COPY after the
-apply, in a scratch data dir, and is not a live run. The other two results in
+apply, in a scratch data dir, and is not a live run. It lives in
+**`eval/results/rehearsal/`**, not in `eval/results/` itself: among the dated
+result files its name sorted FIRST under `eval/calibrate_refusal.py`'s
+reverse-sorted `results_dir.glob("*.json")`, so a bare `calibrate_refusal` run
+could have picked a rehearsal-copy run as "the latest result". That glob is
+non-recursive, so a subdirectory is invisible to it (moved 2026-09-02). The other two results in
 `eval/results/` for this date (`…T1238Z-46a3d5e` and `…T1339Z-1d04ace`) are
 both LIVE controls. The control reproduces the committed
 `2026-09-02T1238Z-46a3d5e` baseline exactly on every headline figure, so the
@@ -1285,6 +1290,15 @@ change; the read pairs and the arithmetic gate are what actually check it.
 * The rehearsal wrote **4,656 rows, skipped 0**, and no warning was printed.
 * Verified afterwards: **no passage was added, removed, or renamed.**
 
+**One deviation from the spec, said plainly so it is heard as one.** Spec §4.1
+said the arithmetic rule should be tuned *"until the clean tables pass"* — the
+tables MinerU already read without a merged cell. They pass at **81.6%**, not
+100%, and that number was accepted rather than chased: reading the failures
+shows they are MinerU's own row and label fusion in the STORED text, not the
+rule mis-adding a column, and the same rule scores **95.5%** on the rebuilt
+text it is actually there to judge. A rule loosened until 100% of MinerU's
+readings passed would be a rule that had stopped catching a wrong figure.
+
 **A caution that has since been closed.** The first rehearsal found that
 running the apply a *second* time would take four fund labels a small step
 backwards (`…Medically Needy Account` → `…Medically Needy`; figures
@@ -1299,10 +1313,16 @@ re-processed from scratch produced byte-identical tables.
 
 ## Two conditions on the live run
 
-1. **It must run from this worktree** (`~/ask-the-budget-az-worktrees/agency-tables`),
-   or any checkout that has `data/cached-pdfs/`. 329 documents' PDFs are only
-   findable there, and from a checkout without them 327 tables that should be
-   rebuilt would be refused instead, with FY2025–27 dropping to about 48%.
+1. **It must run from a checkout that has `data/cached-pdfs/`** — this
+   worktree (`~/ask-the-budget-az-worktrees/agency-tables`), or the main
+   checkout `/home/destin/YouCoded/Projects/ask-the-budget-az-dev`, which
+   carries the same cache and is where to run it once this worktree is
+   removed after the merge. 329 documents' PDFs are only findable there, and
+   from a checkout without them 327 tables that should be rebuilt would be
+   refused instead, with FY2025–27 dropping to about 48%. An `--apply` in
+   that state now **refuses before it takes the lock or the snapshot** and
+   writes nothing (2026-09-02); it used to notice only after it had already
+   rewritten every row it could reach.
 2. **A fresh control eval must be run immediately before it** if any time
    passes — a remembered number is not a control.
 
@@ -1336,7 +1356,7 @@ Each writes `eval/results/<UTC>-<git sha>.{json,md}`; commit both and name
 them in the record. **Both are LIVE runs** — a run against anything else must
 be written elsewhere with `--results-dir` and, if it is committed, carry a
 name and a header saying so, the way
-`eval/results/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` does.
+`eval/results/rehearsal/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` does.
 
 ## The question
 

@@ -1,5 +1,31 @@
 # Agency Operating Tables Implementation Plan
 
+> ## ⏸ EXECUTION STATE (2026-09-02) — READ THIS BEFORE RUNNING ANYTHING
+>
+> **Tasks 1–11 are DONE and committed on branch `agency-tables`.** Phase A
+> (Tasks 1–4) shipped 2026-09-01. Phase B's code (Tasks 5–9), the live dry run
+> (Task 10) and the rehearsal on a copy plus G-OT2/G-OT3 (Task 11) are all
+> built, run and recorded in
+> `docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`.
+>
+> **Task 12 — the live apply — has NOT run and is waiting on Destin's explicit
+> yes** at the checkpoint in that record. Nothing has been written to the live
+> corpus by this plan.
+>
+> **A second apply is a content no-op, so run it once.** The rehearsal proved
+> it: all 4,656 rebuilt tables come back byte-identical on a second pass, with
+> no verdict changing. But the apply rewrites four columns unconditionally
+> (spec D4), so a second run still spends a ~670 MB snapshot, a ~30 MB
+> reversal record, 4,656 re-embeddings and about ten minutes to write exactly
+> the same bytes. There is no reason to do it.
+>
+> **⚠ The G-OT2 commands below are WRONG as written.** `eval/run_eval.py` has
+> no `--note` flag (its options are `--queries`, `--threshold`,
+> `--results-dir`, `--corpus`), so `--note "..."` exits 2 and writes nothing —
+> run and observed, not inferred. Drop the flag; the filename and the record
+> are what label a run. The same wrong flag appears at Task 4's
+> `run_agent_eval` line and was not checked there (that run costs money).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the model labelled table cells in every `retrieve` result (phase A), then rebuild every JLBC agency operating table from the PDF's own text layer, accept only the ones whose subtotals add up, and write them back without moving a chunk (phase B).
