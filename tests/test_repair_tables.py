@@ -817,6 +817,9 @@ def test_an_untouched_sample_that_comes_back_empty_refuses_before_writing(corpus
     with pytest.raises(RuntimeError, match="EMPTY"):
         _apply(root, blind)
     assert blind.written == []          # refused BEFORE the first row moved
+    # ...and no orphan reversal record is left behind describing a write that
+    # never happened.
+    assert _reversal_files(root) == []
 
 
 def test_a_row_that_vanished_under_the_plan_refuses_rather_than_writing_the_rest(corpus):
@@ -885,3 +888,129 @@ def test_the_verify_refuses_a_rewritten_row_that_still_holds_a_merged_cell():
     with pytest.raises(RuntimeError, match="merged cell"):
         _verify_nothing_was_lost(store, "budget_chunks", [dict(row)], {"d-0000"}, {}, 500,
                                  lambda m: None)
+
+
+# --- review fixes: I1 (the record on a failure path), I2 (short embed), M1 ---
+
+
+class _StingyEmbedder(_FakeEmbedder):
+    """Returns one vector FEWER than it was given texts."""
+
+    def embed_batch(self, texts, *, input_type="document"):
+        return super().embed_batch(texts, input_type=input_type)[:-1]
+
+
+class _CorruptOnWriteStore(_FakeStore):
+    """Moves one row's text (so the compare-and-swap skips it) AND corrupts a
+    pass-through column on the write (so the verify fails afterwards)."""
+
+    def scan(self, name, columns, *, where=None, limit=None):
+        out = super().scan(name, columns, where=where, limit=limit)
+        if "vector" in columns:
+            for r in out:
+                if r["chunk_id"] == f"{DOC}-0000":
+                    r["text"] = r["text"] + "\nmoved"
+        return out
+
+    def upsert_chunks(self, name, rows):
+        rows = [dict(r) for r in rows]
+        rows[0]["publisher"] = "somebody else"
+        super().upsert_chunks(name, rows)
+
+
+def test_a_failure_after_the_write_still_leaves_an_EXACT_reversal_record(corpus):
+    """I1. Left at `stage: "planned"` the record lists rows the
+    compare-and-swap SKIPPED, and the inherited remedy invites a replay --
+    which would write the stale plan-time text back over the fresh re-ingest
+    that caused the skip. That is the exact harm the two-stage record exists
+    to prevent, and every post-write failure path went round it."""
+    root, store = corpus
+    _defective(root, store)
+    with pytest.raises(RuntimeError) as excinfo:
+        _apply(root, _CorruptOnWriteStore(store.rows))
+    record = json.loads(_reversal_files(root)[0].read_text())
+    assert record["stage"] == "written"
+    assert record["skipped_moved"] == [f"{DOC}-0000"]
+    # The skipped row is NAMED and is NOT in `rows`, so a replay cannot reach it.
+    assert [r["chunk_id"] for r in record["rows"]] == [f"{ADC}-0000"]
+    # ...and only now may the message offer a replay at all.
+    assert "replay" in str(excinfo.value)
+
+
+def test_a_record_that_could_not_be_rewritten_is_never_offered_for_replay(corpus, monkeypatch):
+    """The other half of I1: when the record on disk is still the PLANNED
+    one, the remedy must name the snapshot only."""
+    import chunking.repair_tables as rt
+
+    root, store = corpus
+    _defective(root, store)
+    calls: list[int] = []
+
+    real = rt.atomic_write_json
+
+    def _fail_the_second_write(path, payload):
+        calls.append(1)
+        if len(calls) > 1:
+            raise OSError("share went away")
+        real(path, payload)
+
+    monkeypatch.setattr(rt, "atomic_write_json", _fail_the_second_write)
+    with pytest.raises(RuntimeError) as excinfo:
+        _apply(root, store)
+    message = str(excinfo.value)
+    assert "Do NOT replay it" in message and "lancedb-test.zip" in message
+    assert "or replay" not in message
+    assert json.loads(_reversal_files(root)[0].read_text())["stage"] == "planned"
+    # The planned record says so on its own face, for whoever finds it after a
+    # crash with no scrollback left.
+    assert "Do NOT replay" in json.loads(_reversal_files(root)[0].read_text())["note"]
+
+
+def test_an_embedder_that_returns_too_few_vectors_refuses_before_the_write(corpus):
+    """I2. `zip(pending, vectors)` truncates in silence, so the trailing rows
+    would be written with their NEW text and their OLD vector -- and
+    `_passthrough_mismatch` compares `vector` by LENGTH only (it round-trips
+    through Arrow float32, so equality is unavailable), so the verify
+    structurally cannot see it."""
+    root, store = corpus
+    _defective(root, store)
+    with pytest.raises(RuntimeError, match="embedder returned"):
+        _apply(root, store, embedder=_StingyEmbedder())
+    assert store.written == [] and store.fts_built == []
+
+
+def test_the_record_holds_the_html_that_was_actually_overwritten(corpus):
+    """M1. The compare-and-swap guards `text` only, so a row's `table_html`
+    can have moved between the plan and the lock. A record carrying the
+    plan-time value would replay HTML that was never in the corpus."""
+    root, store = corpus
+    _defective(root, store)
+
+    class _HtmlMovedStore(_FakeStore):
+        """The moved html is visible on the PRE-write fetch only. Injecting it
+        into the post-write read too (the first draft) makes the pass-through
+        verify fail for the right reason on the wrong row -- it would be
+        modelling a store that rewrites a column after the write, not a
+        re-ingest that happened before the lock."""
+
+        wrote = False
+
+        def scan(self, name, columns, *, where=None, limit=None):
+            out = super().scan(name, columns, where=where, limit=limit)
+            if "vector" in columns and not self.wrote:
+                for r in out:
+                    if r["chunk_id"] == f"{ADC}-0000":
+                        r["table_html"] = "<table><tr><td>under the lock</td></tr></table>"
+            return out
+
+        def upsert_chunks(self, name, rows):
+            super().upsert_chunks(name, rows)
+            self.wrote = True
+
+    result = _apply(root, _HtmlMovedStore(store.rows))
+    record = json.loads(Path(result.reversal_path).read_text())
+    by_id = {r["chunk_id"]: r for r in record["rows"]}
+    assert by_id[f"{ADC}-0000"]["before"]["table_html"] == \
+        "<table><tr><td>under the lock</td></tr></table>"
+    # ...and the row whose html did not move still records what it held.
+    assert by_id[f"{DOC}-0000"]["before"]["table_html"] == FUSED_HTML

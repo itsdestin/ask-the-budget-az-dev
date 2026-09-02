@@ -535,25 +535,36 @@ class RepairResult:
     reversal_path: Path | None = None
 
 
+@dataclass
 class _TableWriteState(_WriteState):
-    """`_WriteState` with the one sentence that is column-specific restated.
+    """`_WriteState` with the two sentences that are specific to this pass.
 
     Everything else -- the counters, `state_sentence()`, the index phrase,
     the no-write and verified branches of `remedy()` -- is inherited
     unchanged, because it is about what happened to the corpus and not about
     which columns moved.
 
-    The half-committed-batch branch is the exception and it is the one that
-    matters: it tells the operator the reversal record CANNOT bring back a
-    row a failed batch deleted, and it names what the record does hold. The
-    section-path pass's wording names `section_path` and `text`; this pass's
-    record holds `text` and `table_html`, so inheriting that sentence would
-    hand an operator a false description of the file they are about to
-    replay, on the one failure path that has actually lost data.
+    `reversal_exact` is the one piece of state `_WriteState` has no reason to
+    carry: the section-path pass RAISES on a row whose text moved, so its
+    reversal record always describes exactly what it wrote. This pass SKIPS
+    such a row, so a record still at `stage: "planned"` lists rows that were
+    never written -- and replaying one of those would put the stale plan-time
+    table back over the fresh re-ingest that caused the skip. Until the
+    record has been rewritten with the rows really written, it is not safe to
+    replay and the remedy must name the snapshot only.
+
+    The half-committed-batch branch is restated for the same class of reason:
+    it names what the record holds, and the section-path wording says
+    `section_path` and `text` where this pass writes `text` and
+    `table_html`. Handing an operator a false description of the file they
+    are about to replay is worst on the one path that has actually lost data.
     """
 
+    reversal_exact: bool = False
+    record_error: BaseException | None = None
+
     def remedy(self) -> str:
-        if self.batches_attempted and not self.verified and self.batches_written < self.batches_attempted:
+        if self.batches_attempted and self.batches_written < self.batches_attempted and not self.verified:
             return (
                 f"{self._snapshot_phrase()} is the ONLY way to bring deleted rows "
                 f"back; the reversal record at {self.reversal_path} carries a "
@@ -562,11 +573,34 @@ class _TableWriteState(_WriteState):
                 "column), so replaying it restores values on rows that still exist "
                 "and CANNOT recreate a row that the failed batch removed."
             )
+        if self.batches_attempted and not self.reversal_exact:
+            correct = ("The rows are correct and verified, so do NOT roll the corpus "
+                       "back. " if self.verified else "")
+            return (
+                f"{correct}The reversal record at {self.reversal_path} could NOT be "
+                "rewritten after the write, so it still lists every row the PLAN would "
+                "have rebuilt -- including any the compare-and-swap skipped because the "
+                "corpus had moved under the plan. Do NOT replay it: a skipped row's "
+                "`before` would write a stale table back over a fresh re-ingest. "
+                f"{self._snapshot_phrase()} is the only safe way back."
+            )
         return super().remedy()
 
 
-def _reversal_rows(changes: list[TableChange]) -> list[dict[str, Any]]:
+def _reversal_rows(
+    changes: list[TableChange],
+    overwritten: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """The row-level undo: what each rebuilt chunk held, and what it becomes.
+
+    `overwritten` is what the row really held when the lock was won, keyed by
+    chunk_id, and it WINS over the plan-time values. The compare-and-swap
+    guards `text` only, so `table_html` can legitimately have moved between
+    the plan (read tens of minutes earlier, off the share) and the write --
+    and a record carrying the plan-time HTML would replay markup that was
+    never in the corpus. Absent (the pre-write `planned` record, which is
+    written before any row is fetched in full), the plan-time values are all
+    there is, which is part of why that record is marked not-replay-safe.
 
     `token_count` and `vector` are deliberately absent. Both are DERIVED
     from `text` (`count_tokens`, and the embedder), so a replay recomputes
@@ -574,10 +608,14 @@ def _reversal_rows(changes: list[TableChange]) -> list[dict[str, Any]]:
     a ~30 MB file on the share for values that are reproducible from the two
     fields above it.
     """
-    return [{"chunk_id": c.chunk_id, "doc_id": c.doc_id,
-             "before": {"text": c.old_text, "table_html": c.old_html},
-             "after": {"text": c.new_text, "table_html": c.new_html}}
-            for c in changes]
+    out: list[dict[str, Any]] = []
+    for c in changes:
+        was = (overwritten or {}).get(c.chunk_id)
+        out.append({"chunk_id": c.chunk_id, "doc_id": c.doc_id,
+                    "before": {"text": was["text"] if was else c.old_text,
+                               "table_html": was["table_html"] if was else c.old_html},
+                    "after": {"text": c.new_text, "table_html": c.new_html}})
+    return out
 
 
 def _write_changed_rows(
@@ -588,8 +626,17 @@ def _write_changed_rows(
     batch_size: int,
     progress: Callable[[str], None],
     state: _TableWriteState,
-) -> tuple[list[dict[str, Any]], list[str]]:
+    written: list[dict[str, Any]],
+    skipped: list[str],
+    overwritten: dict[str, dict[str, Any]],
+) -> None:
     """Fetch each rebuilt row in full, rewrite four columns, embed, write.
+
+    `written`, `skipped` and `overwritten` are filled IN PLACE rather than
+    returned, because every one of them is needed on the failure path too:
+    the reversal record is rewritten with the rows really written and the
+    ids really skipped before any post-write failure is raised, and a
+    returned value is lost the moment this function raises.
 
     Per-row compare-and-swap (spec §6.4): the plan was computed BEFORE the
     lock -- planning reads thousands of documents' cached extractor output
@@ -615,8 +662,6 @@ def _write_changed_rows(
     """
     by_id = {c.chunk_id: c for c in changes}
     ordered = sorted(by_id)
-    written: list[dict[str, Any]] = []
-    skipped: list[str] = []
     total_batches = math.ceil(len(ordered) / batch_size) if ordered else 0
     for batch_num, start in enumerate(range(0, len(ordered), batch_size), start=1):
         ids = ordered[start:start + batch_size]
@@ -632,6 +677,12 @@ def _write_changed_rows(
             if str(row.get("text") or "") != change.old_text:
                 skipped.append(change.chunk_id)
                 continue
+            # What this row REALLY held when the lock was won -- the row-level
+            # undo is built from this, not from the plan-time values, because
+            # the compare-and-swap guards `text` only and `table_html` can
+            # have moved in between.
+            overwritten[change.chunk_id] = {"text": str(row.get("text") or ""),
+                                            "table_html": row.get("table_html")}
             new_row = dict(row)
             new_row["text"] = change.new_text
             new_row["table_html"] = change.new_html
@@ -656,6 +707,21 @@ def _write_changed_rows(
         # is asymmetric, and a passage embedded with the QUERY instruction
         # quietly degrades every future search against it.
         vectors = embedder.embed_batch(texts, input_type="document")
+        if len(vectors) != len(pending):
+            # `zip` truncates in SILENCE, so a short return would leave the
+            # trailing rows carrying their new `text` and their OLD vector --
+            # a passage whose embedding describes the table it used to hold,
+            # which is worse than either the old row or the new one. The
+            # verify cannot catch it: `_passthrough_mismatch` compares
+            # `vector` by LENGTH only, because it round-trips through Arrow
+            # float32 and the values that come back are not the Python floats
+            # that went in. Raised BEFORE this batch's upsert, so nothing
+            # moves.
+            raise RuntimeError(
+                f"batch {batch_num}: the embedder returned {len(vectors)} vector(s) for "
+                f"{len(pending)} row(s). Batch {batch_num} and every batch after it is "
+                "NOT written; re-run the dry run"
+            )
         for new_row, vector in zip(pending, vectors):
             new_row["vector"] = vector
         # The ATTEMPT is recorded before the call, not its success after it:
@@ -671,7 +737,6 @@ def _write_changed_rows(
         state.batches_written = batch_num
         progress(f"{table}: wrote batch {batch_num}/{total_batches} "
                  f"({len(written)}/{len(ordered)} rows, {len(skipped)} skipped -- text moved)")
-    return written, skipped
 
 
 def _untouched_baseline(
@@ -894,29 +959,45 @@ def repair_tables(
         # restore that also throws away every upload since.
         reversal_path = Path(reversal_dir) / f"table-rebuild-reversal-{table}-{reversal_stamp()}.json"
         result.reversal_path = reversal_path
+
+        changed_ids = {c.chunk_id for c in rebuilt}
+        all_ids = sorted(str(r["chunk_id"]) for r in store.scan(table, ["chunk_id"]))
+        # The baseline read runs FIRST because it can refuse, and it refuses
+        # before a single row has moved. Writing the record above it left an
+        # orphan record on the share describing a write that never happened.
+        # The record still precedes the first `upsert_chunks`, which is the
+        # property that matters.
+        untouched = _untouched_baseline(store, table, all_ids, changed_ids, batch_size, progress)
+
         progress(f"writing reversal record to {reversal_path}")
         # `stage` is the difference between intent and fact, and it matters
         # for THIS pass in a way it did not for the section-path one: a row
         # whose text moved is skipped rather than written, so a "planned"
         # record can name a row that was never touched -- and replaying that
         # row's `before` would put a stale table back over somebody's fresh
-        # re-ingest. The record is rewritten as `written` once the write has
-        # returned, and only then is it exact.
-        atomic_write_json(reversal_path, {"table": table, "snapshot": snapshot,
-                                          "stage": "planned", "skipped_moved": [],
-                                          "rows": _reversal_rows(rebuilt)})
+        # re-ingest. It says so on its own face, because whoever finds this
+        # file after a crash has no scrollback to read.
+        atomic_write_json(reversal_path, {
+            "table": table, "snapshot": snapshot, "stage": "planned",
+            "skipped_moved": [],
+            "note": ("PLANNED, not written. `rows` is every table the plan would "
+                     "rebuild, which may include rows the write then SKIPPED because "
+                     "the corpus had moved under the plan. Do NOT replay this record "
+                     "blind: a skipped row's `before` would write a stale table back "
+                     "over a fresh re-ingest. A record left at this stage means the "
+                     "write phase never reported back -- restore the snapshot instead."),
+            "rows": _reversal_rows(rebuilt)})
         progress(f"reversal record written: {reversal_path}")
-
-        changed_ids = {c.chunk_id for c in rebuilt}
-        all_ids = sorted(str(r["chunk_id"]) for r in store.scan(table, ["chunk_id"]))
-        untouched = _untouched_baseline(store, table, all_ids, changed_ids, batch_size, progress)
 
         state = _TableWriteState(snapshot=snapshot, reversal_path=reversal_path)
         failure: BaseException | None = None
         written: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        overwritten: dict[str, dict[str, Any]] = {}
         try:
-            written, skipped = _write_changed_rows(
-                store, table, rebuilt, embedder, batch_size, progress, state
+            _write_changed_rows(
+                store, table, rebuilt, embedder, batch_size, progress, state,
+                written, skipped, overwritten
             )
             result.written, result.skipped_moved = len(written), skipped
             _verify_nothing_was_lost(
@@ -969,24 +1050,45 @@ def repair_tables(
                         progress("the full-text index WAS rebuilt; optimize FAILED: "
                                  f"{optimize_exc} -- old versions were not pruned, "
                                  "search is correct; re-run optimize by hand")
+        # The record becomes exact as soon as the write phase has stopped
+        # moving rows -- ON THE FAILURE PATH TOO, and before anything is
+        # raised. Left at `stage: "planned"` it lists rows the compare-and-swap
+        # skipped, and every post-write failure hands the operator a remedy
+        # that offers to replay it; doing so writes the stale plan-time table
+        # back over the fresh re-ingest that caused the skip. `rows` is what
+        # was really written and `skipped_moved` names what was not, so
+        # neither a replay nor a reader can reach a row this pass left alone.
+        result.written, result.skipped_moved = len(written), list(skipped)
+        written_ids = {str(r["chunk_id"]) for r in written}
+        try:
+            atomic_write_json(reversal_path, {
+                "table": table, "snapshot": snapshot, "stage": "written",
+                "skipped_moved": result.skipped_moved,
+                "note": ("WRITTEN. `rows` is exactly what this pass overwrote; "
+                         "replaying a row restores the `before` text and table_html it "
+                         "held when the lock was won. Rows under `skipped_moved` were "
+                         "NOT written and are not in `rows`."),
+                "rows": _reversal_rows([c for c in rebuilt if c.chunk_id in written_ids],
+                                       overwritten)})
+            state.reversal_exact = True
+        except BaseException as record_exc:  # noqa: BLE001 -- reported below
+            # Same reasoning as the index rebuild's own handler: this must not
+            # replace whatever is propagating, and it must not pass in silence
+            # either -- the record on the share is now the PLANNED one, which
+            # `_TableWriteState.remedy` will refuse to offer for replay.
+            state.record_error = record_exc
+            progress(f"THE REVERSAL RECORD COULD NOT BE REWRITTEN: {record_exc} -- the "
+                     f"record at {reversal_path} still describes the PLAN and must not "
+                     "be replayed")
         if failure is not None:
             # Composed after the `finally`, so it states whether the index
             # really was rebuilt rather than what was true when the error was
             # raised. `rebuild_error` first because it is the one that costs
             # search correctness.
-            secondary = state.rebuild_error or state.optimize_error
+            secondary = state.rebuild_error or state.optimize_error or state.record_error
             if secondary is not None:
                 failure.__cause__ = secondary
             raise RuntimeError(f"{failure} -- {state.hint()}") from failure
-        # The record becomes exact only now: `rows` is what was really
-        # written, and the rows the compare-and-swap skipped are named rather
-        # than left in a list a replay would apply.
-        atomic_write_json(reversal_path, {"table": table, "snapshot": snapshot,
-                                          "stage": "written",
-                                          "skipped_moved": result.skipped_moved,
-                                          "rows": _reversal_rows(
-                                              [c for c in rebuilt
-                                               if c.chunk_id not in set(result.skipped_moved)])})
         if state.rebuild_error is not None:
             # The write and the verification both passed and the rebuild did
             # not: rows live behind a stale BM25 index, which is the most
@@ -1006,6 +1108,16 @@ def repair_tables(
                 f"and search is correct; re-run optimize on {table} by hand to prune "
                 "the old table versions."
             ) from state.optimize_error
+        if state.record_error is not None:
+            # The rows landed, verified, and the index was rebuilt -- only the
+            # row-level undo on the share is stale. It costs nothing today and
+            # everything on the day somebody reaches for it, and scrollback is
+            # gone by then, so it terminates the run rather than sitting in a
+            # progress line.
+            raise RuntimeError(
+                "the reversal record could not be rewritten after a clean, verified "
+                f"write -- {state.state_sentence()}. {state.remedy()}"
+            ) from state.record_error
     progress(f"{table}: {result.written} table(s) rewritten, "
              f"{len(result.skipped_moved)} skipped (text moved)")
     return result
