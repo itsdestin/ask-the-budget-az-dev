@@ -940,25 +940,42 @@ so this is the check that the repair and a from-scratch re-chunk still agree.
 
 | | control — LIVE corpus | after the apply — the copy |
 |---|---|---|
-| file | `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` (committed) | `<scratch>/eval-rehearsal2/2026-09-02T1340Z-1d04ace.{json,md}` |
+| file | `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` | `eval/results/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` |
 | recall@5 / @15 / @20 | 85.71% / 97.62% / 100.00% | **85.71% / 97.62% / 100.00%** |
 | refusal precision / recall | 60.00% / 60.00% | **60.00% / 60.00%** |
 | fallback rate | 30.95% | **30.95%** |
 | lookup / comparison recall@5 | 89.19% / 60.00% | **89.19% / 60.00%** |
 | latency p50 / p95 | 1164 / 1596 ms | 860 / 960 ms |
 
-The control reproduces the committed `2026-09-02T1238Z-46a3d5e` baseline
-exactly on every headline figure, so the code change moved nothing on an
-unchanged corpus either.
+**Both files are committed**, and the after-run's name and its own header say
+what it is: `…-rehearsal-copy` was run against the rehearsal COPY after the
+apply, in a scratch data dir, and is not a live run. The other two results in
+`eval/results/` for this date (`…T1238Z-46a3d5e` and `…T1339Z-1d04ace`) are
+both LIVE controls. The control reproduces the committed
+`2026-09-02T1238Z-46a3d5e` baseline exactly on every headline figure, so the
+code change moved nothing on an unchanged corpus either.
 
-Per query: **`STATUS FLIPPED: []`**, **0 rank changes**, **0 `matched_via`
-changes**, **0 `top_score` changes** across all 47. **One top-5 list moved —
-`q-017`**, every chunk of it `agao-afr-*` (Auditor General, no operating
-tables, never touched by this pass), still passing at rank 1 with the same
-top hit: the same benign FTS-statistics movement the first rehearsal
-recorded. **`q-013`**, the one in-scope ground-truth id, is byte-identical —
-pass, rank 1, `dimensions_fallback`, `top_score` 5.404738426208496, same
-top-5.
+Per query, all 47: **`STATUS FLIPPED: []`**, **0 rank changes**, **0
+`matched_via` changes**, **0 `top_score` changes**, and the summary block is
+identical except latency. **There is exactly ONE real difference between the
+two files, and it is `q-017`'s top-5 list.** Stated positionally, because the
+short version ("position 5 swapped") is not what the files say — one chunk
+left the list and the ones below it moved up:
+
+| rank | control (live) | copy (after the apply) |
+|---|---|---|
+| 1 | `agao-afr-fy2025-0088` | `agao-afr-fy2025-0088` |
+| 2 | **`agao-afr-fy2024-0438`** ← dropped out | `agao-afr-fy2025-0030` |
+| 3 | `agao-afr-fy2025-0030` | `agao-afr-fy2025-0185` |
+| 4 | `agao-afr-fy2025-0185` | `agao-afr-fy2024-0440` |
+| 5 | `agao-afr-fy2024-0440` | **`agao-afr-fy2025-0034`** ← entered |
+
+So the set difference is `agao-afr-fy2024-0438` out, `agao-afr-fy2025-0034`
+in; rank 1 is unchanged and the three survivors each move up one slot. The
+query still passes at rank 1 with the same `top_score`. Every other query's
+top-5 is identical. **`q-013`**, the one in-scope ground-truth id, is
+byte-identical — pass, rank 1, `dimensions_fallback`, `top_score`
+5.404738426208496, same top-5.
 
 The latency figures are lower on the copy because it sits on tmpfs and the
 control on btrfs; the control itself ran while nothing else was on the box.
@@ -1030,12 +1047,17 @@ headline figures.
 
 * **`STATUS FLIPPED: []`** — no query changed pass/fail.
 * **0 rank changes** and **0 `matched_via` changes** across all 47 queries.
-* **One query's top-5 list moved: `q-017`**, and it is not this pass's doing
-  in any direct sense — all five of its chunks are `agao-afr-*`, an Auditor
-  General document type that carries no operating tables and that this pass
-  never touches. Rewriting 4,656 chunks changes corpus-wide term statistics,
-  and rebuilding the full-text index re-scores every document; `q-017` still
-  passes at rank 1 with the same top hit.
+* **One query's top-5 list moved: `q-017`, and this pass caused it.**
+  Rewriting 4,656 chunks changes corpus-wide term statistics and the full-text
+  index was rebuilt, which re-scores every document — including documents this
+  pass did not rewrite. All five of `q-017`'s chunks are `agao-afr-*` (Auditor
+  General, no operating tables), so none of them was rewritten, and the list
+  moved anyway: `agao-afr-fy2024-0438` dropped out of rank 2, the three below
+  it moved up a slot, and `agao-afr-fy2025-0034` entered at rank 5. Benign —
+  it still passes at rank 1 with the same top hit and the same score. Say it
+  that way rather than "not this pass's doing": a corpus-wide rewrite moving a
+  ranking on an untouched document is exactly what to expect, and anyone
+  diffing eval runs after the live apply should expect it too.
 
 **`q-013`, the ONE in-scope ground-truth id** (`jlbc-approps-fy2025-unibor-0000`,
 *"Board of Regents' approved General Fund appropriation in FY 2025…"*):
@@ -1240,8 +1262,12 @@ the same result** (`eval/results/2026-09-02T1339Z-1d04ace` as the control):
 | refusal precision | 60.00% | **60.00%** |
 
 **Not one question changed pass/fail, and not one changed rank.** One
-question's fifth result swapped for a different Auditor General passage —
-a document type this pass never touches.
+question's list of five results reshuffled: one Auditor General passage
+dropped off it (`agao-afr-fy2024-0438`) and another joined it
+(`agao-afr-fy2025-0034`). That **is** this change's doing — rewriting 4,656 passages and rebuilding the search index
+re-scores every document in the corpus, including the ones this pass leaves
+alone, and the Auditor General reports are ones it leaves alone. The question
+still passes, at the same rank, with the same top result.
 
 Be careful how much comfort you take from that: **only 1 of the 51
 ground-truth passages in the eval set is one of these tables**. It passes,
@@ -1279,6 +1305,38 @@ re-processed from scratch produced byte-identical tables.
    rebuilt would be refused instead, with FY2025–27 dropping to about 48%.
 2. **A fresh control eval must be run immediately before it** if any time
    passes — a remembered number is not a control.
+
+### 🔴 The plan's eval command does not work — `run_eval` has no `--note`
+
+`docs/superpowers/plans/2026-09-01-agency-table-rebuild.md` Task 12 (lines
+3010 and 3047) gives the G-OT2 commands as
+`… -m eval.run_eval --note "G-OT2 control before the operating-table rebuild"`.
+**There is no `--note` flag on this version of `eval/run_eval.py`** — its
+whole option set is `--queries`, `--threshold`, `--results-dir`, `--corpus`
+— so both commands exit **2** with
+`run_eval.py: error: unrecognized arguments: --note …` and write nothing
+(run and observed, not inferred).
+(The same wrong flag is at line 769 for `run_agent_eval`; not checked, and
+that run costs money.) The intent — labelling which run is which — is served
+by the filename and by this document instead. Run these EXACTLY:
+
+```bash
+cd ~/ask-the-budget-az-worktrees/agency-tables
+
+# the control, immediately BEFORE the apply, against the live corpus
+JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data   uv run python -m eval.run_eval
+
+# ...the apply...
+
+# the after run, same command, same corpus
+JLBC_DATA_DIR=/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data   uv run python -m eval.run_eval
+```
+
+Each writes `eval/results/<UTC>-<git sha>.{json,md}`; commit both and name
+them in the record. **Both are LIVE runs** — a run against anything else must
+be written elsewhere with `--results-dir` and, if it is committed, carry a
+name and a header saying so, the way
+`eval/results/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}` does.
 
 ## The question
 
