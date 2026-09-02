@@ -16,6 +16,7 @@ import fitz
 from chunking.readers.mineru_reader import MinerUReader
 from chunking.readers.text_layer_table import (
     ANCHOR_MIN_MATCH,
+    MIN_FIGURE_RETENTION,
     refine_operating_table,
     render_html,
 )
@@ -75,11 +76,22 @@ class PageBuilder:
             if fig:
                 self.right(self.y, fig, rx)
         if marker:
-            # 6-pt, one point below the baseline, right of the last column — as
-            # printed. Measured: the marker's y0 sits 4.2 pt below the row's,
-            # inside the half-median-height tolerance (6.2 pt), so it groups
-            # onto the row rather than becoming a line of its own.
-            self.page.insert_text((534, self.y + 1), marker, fontsize=6)
+            # 6-pt SUPERSCRIPT, right of the last column — as printed. Raised
+            # above the row's baseline so the word boxes reproduce the
+            # real geometry measured on `jlbc-approps-fy2010-rad` page 1,
+            # where the marker's y0 sits ~1.35 pt ABOVE its own row's. That
+            # is inside the half-median-height tolerance, so it groups onto
+            # the row; it also means a marker that ever failed to group would
+            # arrive BEFORE its row, which is why `_rows` looks down.
+            self.page.insert_text((534, self.y - 4.5), marker, fontsize=6)
+        self.y += 11.5
+
+    def masthead(self, left: str, right: str) -> None:
+        """One printed line carrying both the director and the JLBC analyst —
+        the shape that makes MinerU's first cell unmatchable (see
+        `test_four_column_edition_rebuilds_its_own_header`)."""
+        self.page.insert_text((52, self.y), left, fontsize=9)
+        self.page.insert_text((283, self.y), right, fontsize=9)
         self.y += 11.5
 
     def prose(self, text: str) -> None:
@@ -264,28 +276,29 @@ def test_continuation_without_its_own_header_borrows_the_previous_page():
 
 def test_four_column_edition_rebuilds_its_own_header():
     """The FY2006 biennial shape (spec §2: 152 tables carry FOUR year
-    columns; 156 measured in the live corpus 2026-09-01, all FY2006).
+    columns; 156 measured in the live corpus 2026-09-01, all FY2006), read
+    off `jlbc-approps-fy2006-agr-0000` and its PDF.
 
-    Two real properties are pinned here, both read off
-    `jlbc-approps-fy2006-agr-0000` and its PDF:
+    Two real properties are pinned:
 
     1. MinerU's own header row is unusable — on the real page it comes out
-       as `['Director: Donald Butler', 'JLBC Analyst: Eric Jorgensen']`,
-       and on a sibling page MinerU even mis-read the analyst's name
-       (`JLBC Anaiyst: Nick Kiingernan`). The reader anchors on cell 0
-       only and rebuilds the header from the printed year tokens.
-    2. Because MinerU's row 0 cell 0 is that director line, the anchor
-       region STARTS ABOVE the year header — so the header line and its
-       kind line fall INSIDE the region and must be skipped when the rows
-       are built, and the header itself has to be found inside the region
-       rather than above it.
-
-    Both year forms are exercised: `FY 2004` (two words) and `FY2006`
-    (one word), which the books mix.
+       as `['Director: Donald Butler', 'JLBC Analyst: Eric Jorgensen']`, and
+       on a sibling page MinerU even mis-read the analyst's name (`JLBC
+       Anaiyst: Nick Kiingernan`). The reader anchors on cell 0 only and
+       rebuilds the header from the printed year tokens, in both the
+       `FY 2004` (two words) and `FY2006` (one word) forms the books mix.
+    2. MinerU's FIRST anchor cannot be matched at all: it fuses the page
+       masthead into cell 0 as `Director: Donald Butler`, while the page
+       prints `Director: Donald Butler JLBC Analyst: Eric Jorgensen` as ONE
+       line, which is LONGER than the anchor and so fails a containment
+       running page → MinerU. `_region` must fall back to the first matched
+       line instead of refusing. **705 of the 4,875 in-scope chunks (14.5%)
+       are in this state, measured 2026-09-01** — refusing them would throw
+       away every four-column page, the ones MinerU reads worst.
     """
     doc = fitz.open()
     b = PageBuilder(doc, centres=CENTRES4, rights=RIGHTS4)
-    b.row("Director: Donald Butler")          # printed above the year header
+    b.masthead("Director: Donald Butler", "JLBC Analyst: Eric Jorgensen")
     b.header(
         years=("FY 2004", "FY 2005", "FY2006", "FY2007"),
         kinds=("ACTUAL", "ESTIMATE", "APPROVED", "APPROVED"),
@@ -298,8 +311,8 @@ def test_four_column_edition_rebuilds_its_own_header():
     b.row("SUBTOTAL - Appropriated Funds", "110", "220", "330", "440", x0=61)
     b.row("TOTAL - ALL SOURCES", "110", "220", "330", "440")
     html = (
-        # MinerU's four-column header, as it really comes out: the director
-        # line in cell 0 and the year labels scrambled.
+        # MinerU's four-column header, as it really comes out: the masthead
+        # fused into cell 0 and the year labels scrambled.
         "<table><tr><td>Director: Donald Butler</td><td>FY 2005</td><td>JLBC Anaiyst</td></tr>"
         "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td><td>400</td></tr>"
         "<tr><td>Employee Related Expenditures</td><td>10</td><td>20</td><td>30</td><td>40</td></tr>"
@@ -317,9 +330,6 @@ def test_four_column_edition_rebuilds_its_own_header():
     ]
     assert cells[-1] == ["TOTAL - ALL SOURCES", "110", "220", "330", "440"]
     assert all(len(r) == 5 for r in cells)
-    # The header and kind lines are inside the region; neither may become a row.
-    labels = [r[0] for r in cells[1:]]
-    assert not any("FY 2004" in l or "ACTUAL" in l for l in labels), labels
 
 
 def test_four_columns_printed_under_a_three_column_header_is_refused():
@@ -490,3 +500,335 @@ def test_last_minerU_row_must_be_found_on_the_page():
 
 def test_render_html_escapes_and_shapes():
     assert render_html([["", "FY 2024"], ["A & B", "1"]]) == "<table><tr><td></td><td>FY 2024</td></tr><tr><td>A &amp; B</td><td>1</td></tr></table>"
+
+
+# ---------------------------------------------------------------------------
+# Two tables on one page. Anchor labels are generic (`AFIS Replacement`,
+# `General Fund`, `TOTAL - ALL SOURCES`), so a region that starts at "the
+# first line matching anything" and ends at "the last line matching the last
+# anchor" reads the wrong table — and the arithmetic gate cannot see it,
+# because the wrong table reconciles perfectly well with itself. Measured on
+# the live corpus 2026-09-01: 2 chunks read a neighbouring table outright and
+# 31 more swallowed a sibling. All three tests below are that defect.
+# ---------------------------------------------------------------------------
+
+def test_the_region_starts_at_minerUs_own_first_row_not_the_first_match():
+    """`jlbc-approps-fy2017-doa-apf-0001`, reduced.
+
+    Its 39-row Individual Projects table starts at y=291, but the page also
+    carries an 11-row General Fund Transfers table above it that repeats the
+    labels `AFIS Replacement` and `TOTAL - ALL SOURCES`. Anchoring on the
+    first line matching ANY label put the region on the upper table and
+    reported `rebuilt`, losing ~28 rows of per-project dollars.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("GENERAL FUND TRANSFERS")                      # the OTHER table
+    b.row("AFIS Replacement", "18,400,000", "2,383,000", "0", x0=65)
+    b.row("TOTAL - ALL SOURCES", "18,400,000", "2,383,000", "0")
+    b.y += 22
+    b.row("INDIVIDUAL PROJECTS")                         # MinerU's own table
+    b.row("AFIS Replacement", "16,783,600", "2,500,000", "0", x0=65)
+    b.row("e-Procurement System Replacement", "0", "0", "12,000,000", x0=65)
+    b.row("TOTAL - ALL PROJECTS", "16,783,600", "2,500,000", "12,000,000")
+    b.row("FUND SOURCES")
+    b.row("General Fund", "16,783,600", "2,500,000", "12,000,000")
+    b.row("SUBTOTAL - Appropriated Funds", "16,783,600", "2,500,000", "12,000,000", x0=61)
+    b.row("TOTAL - ALL SOURCES", "16,783,600", "2,500,000", "12,000,000")
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>INDIVIDUAL PROJECTS</td><td></td><td></td><td></td></tr>"
+        "<tr><td>AFIS Replacement</td><td>16,783,600</td><td>2,500,000</td><td>0</td></tr>"
+        "<tr><td>e-Procurement System Replacement</td><td>0</td><td>0</td><td>12,000,000</td></tr>"
+        "<tr><td>TOTAL - ALL PROJECTS</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr>"
+        "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+        "<tr><td>General Fund</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr>"
+        "<tr><td>TOTAL - ALL SOURCES</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    assert cells[1][0] == "INDIVIDUAL PROJECTS"
+    assert [r[0] for r in cells].count("TOTAL - ALL SOURCES") == 1
+    # Not one figure from the table above may appear.
+    flat = [c for r in cells for c in r]
+    assert "18,400,000" not in flat and "2,383,000" not in flat
+    assert cells[2] == ["AFIS Replacement", "16,783,600", "2,500,000", "0"]
+
+
+def test_the_region_ends_at_the_first_occurrence_of_minerUs_last_row():
+    """`…-ata-0002` / `…-judspa-0001` / `…-sdb-0000`, reduced: a page with two
+    programmes, each ending `TOTAL - ALL SOURCES`. MinerU's block is the
+    FIRST one. Ending the region at the LAST line matching the last anchor
+    swallowed the sibling — 5 MinerU rows came back as 22, and the gate
+    passed because concatenated ladders each reconcile from their own
+    boundary."""
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("OPERATING BUDGET")
+    b.row("Personal Services", "100", "200", "300")
+    b.row("OPERATING SUBTOTAL", "100", "200", "300", x0=61)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("SUBTOTAL - Appropriated Funds", "100", "200", "300", x0=61)
+    b.row("TOTAL - ALL SOURCES", "100", "200", "300")
+    b.y += 22
+    b.row("PROGRAM BUDGET")                              # the sibling table
+    b.row("Personal Services", "50", "60", "70")
+    b.row("OPERATING SUBTOTAL", "50", "60", "70", x0=61)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "50", "60", "70")
+    b.row("SUBTOTAL - Appropriated Funds", "50", "60", "70", x0=61)
+    b.row("TOTAL - ALL SOURCES", "50", "60", "70")
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>OPERATING BUDGET</td><td></td><td></td><td></td></tr>"
+        "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>OPERATING SUBTOTAL</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+        "<tr><td>General Fund</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>TOTAL - ALL SOURCES</td><td>100</td><td>200</td><td>300</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    assert len(cells) == 8, [r[0] for r in cells]      # header + MinerU's 7 rows
+    assert cells[-1] == ["TOTAL - ALL SOURCES", "100", "200", "300"]
+    flat = [c for r in cells for c in r]
+    assert "50" not in flat and "PROGRAM BUDGET" not in flat
+
+
+def test_a_rebuild_that_drops_minerUs_figures_is_refused():
+    """The backstop for the fallback above.
+
+    MinerU's block is the LOWER table, but its first anchor is a fused
+    masthead that nothing on the page can match, so the start falls back to
+    the first matched line — which is in the UPPER table, whose labels it
+    shares. The upper table reconciles with itself, so the arithmetic gate
+    passes it. Only the fact that almost none of MinerU's own figures
+    survived says the reader read the wrong thing.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("GENERAL FUND TRANSFERS")
+    b.row("AFIS Replacement", "18,400,000", "2,383,000", "0", x0=65)
+    b.row("e-Procurement System Replacement", "0", "0", "3,000,000", x0=65)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "18,400,000", "2,383,000", "3,000,000")
+    b.row("SUBTOTAL - Appropriated Funds", "18,400,000", "2,383,000", "3,000,000", x0=61)
+    b.row("TOTAL - ALL SOURCES", "18,400,000", "2,383,000", "3,000,000")
+    b.y += 22
+    # The page prints the fund name and the department on ONE line; MinerU
+    # kept only the first half in cell 0, so its anchor is SHORTER than what
+    # is printed and a containment running page → MinerU cannot match it.
+    b.masthead("INDIVIDUAL PROJECTS - Automation Projects Fund", "Department of Administration")
+    b.row("AFIS Replacement", "16,783,600", "2,500,000", "0", x0=65)
+    b.row("e-Procurement System Replacement", "0", "0", "12,000,000", x0=65)
+    b.row("General Fund", "16,783,600", "2,500,000", "12,000,000")
+    b.row("SUBTOTAL - Appropriated Funds", "16,783,600", "2,500,000", "12,000,000", x0=61)
+    b.row("TOTAL - ALL SOURCES", "16,783,600", "2,500,000", "12,000,000")
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>INDIVIDUAL PROJECTS - Automation Projects Fund</td><td></td><td></td><td></td></tr>"
+        "<tr><td>AFIS Replacement</td><td>16,783,600</td><td>2,500,000</td><td>0</td></tr>"
+        "<tr><td>e-Procurement System Replacement</td><td>0</td><td>0</td><td>12,000,000</td></tr>"
+        "<tr><td>General Fund</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr>"
+        "<tr><td>TOTAL - ALL SOURCES</td><td>16,783,600</td><td>2,500,000</td><td>12,000,000</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is None, _cells(out.table)
+    assert out.reason.startswith("figure retention"), out.reason
+    assert out.figure_retention < MIN_FIGURE_RETENTION
+    assert out.anchor_match >= ANCHOR_MIN_MATCH    # it got past the anchor gate
+
+
+def test_a_header_printed_inside_the_anchor_region_is_found_and_not_read_as_a_row():
+    """`jlbc-approps-fy2011-for-0000`, reduced — one of the 6 chunks in the
+    live corpus whose year header falls INSIDE the anchor region (measured
+    2026-09-01; the other 4,858 print it above).
+
+    MinerU's first cell is `State Forester: Victoria Christiansen` and the
+    page's first line is the bare masthead `State Forester`, which IS
+    contained in that anchor — so the region opens above the year header.
+    The header must then be found inside the region, and its two lines must
+    not become data rows.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.row("State Forester")
+    b.masthead("State Forester: Victoria Christiansen", "JLBC Analyst: Jay Chilton")
+    b.header(years=("FY 2009", "FY 2010", "FY 2011"))
+    b.row("OPERATING BUDGET")
+    b.row("Personal Services", "100", "200", "300")
+    b.row("OPERATING SUBTOTAL", "100", "200", "300", x0=61)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("SUBTOTAL - Appropriated Funds", "100", "200", "300", x0=61)
+    b.row("TOTAL - ALL SOURCES", "100", "200", "300")
+    html = (
+        "<table><tr><td>State Forester: Victoria Christiansen</td><td></td><td></td><td></td></tr>"
+        "<tr><td>OPERATING BUDGET</td><td></td><td></td><td></td></tr>"
+        "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>OPERATING SUBTOTAL</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+        "<tr><td>General Fund</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>TOTAL - ALL SOURCES</td><td>100</td><td>200</td><td>300</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    assert cells[0] == ["", "FY 2009 ACTUAL", "FY 2010 ESTIMATE", "FY 2011 APPROVED"]
+    labels = [r[0] for r in cells[1:]]
+    assert not any("FY 2009" in l or "ACTUAL" in l for l in labels), labels
+    assert "TOTAL - ALL SOURCES" in labels
+
+
+def test_a_marker_left_on_its_own_line_attaches_to_the_row_below():
+    """JLBC prints markers as superscripts, so a marker's word box sits ABOVE
+    its own row (measured on `jlbc-approps-fy2010-rad` p1: `1/` at y0=154.31
+    against its row at 155.66) and lines are ordered by `y0`. A marker that
+    ever failed to group therefore arrives BEFORE its row, never after it.
+
+    This is a safety net — it fired 0 times across 400 real tables — so the
+    marker is raised further here than any real page raises it, purely to
+    reach the branch and pin its DIRECTION. Attaching upwards would put the
+    footnote on the wrong figure.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("Personal Services", "100", "200", "300")
+    # Ordinary rows sit 11.5 pt apart against a ~6.2 pt tolerance, so no
+    # position BETWEEN two of them is isolated; the gap is opened first.
+    b.page.insert_text((534, b.y - 3.5), "3/", fontsize=6)
+    b.y += 12
+    b.row("OPERATING SUBTOTAL", "100", "200", "300", x0=61)
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>OPERATING SUBTOTAL</td><td>100</td><td>200</td><td>3003/</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    assert cells[1] == ["Personal Services", "100", "200", "300"]      # NOT the row above
+    assert cells[2] == ["OPERATING SUBTOTAL", "100", "200", "300 [3/]"]
+
+
+def test_a_fused_last_row_extends_the_region_over_both_printed_lines():
+    """`jlbc-approps-fy2009-hla-0000`, reduced. MinerU's LAST cell is two
+    printed rows fused into one — `Federal Funds TOTAL - ALL SOURCES` — and
+    both printed lines are contained in it. Stopping at the first occurrence
+    ends the table one row early, dropping the `TOTAL - ALL SOURCES` row
+    itself; the remaining rows still reconcile, so the gate cannot catch it.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("Personal Services", "100", "200", "300")
+    b.row("OPERATING SUBTOTAL", "100", "200", "300", x0=61)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "60", "120", "180")
+    b.row("Federal Funds", "40", "80", "120")
+    b.row("TOTAL - ALL SOURCES", "100", "200", "300")
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>OPERATING SUBTOTAL</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+        "<tr><td>General Fund</td><td>60</td><td>120</td><td>180</td></tr>"
+        "<tr><td>Federal Funds TOTAL - ALL SOURCES</td><td>40 100</td><td>80 200</td><td>120 300</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    assert cells[-1] == ["TOTAL - ALL SOURCES", "100", "200", "300"]
+    assert ["Federal Funds", "40", "80", "120"] in cells
+
+
+def test_a_repeated_minerU_label_is_counted_once_in_the_match_rate():
+    """17 of 400 sampled tables repeat a cell-0 label (the same fund under
+    two headings). `matched` is a SET of labels, so counting the repeat twice
+    in the denominator understates the rate — here it is the difference
+    between 4/5 = 80% (accepted) and 4/6 = 67% (refused), and it would also
+    skew the distribution the dry run uses to set the threshold.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.masthead("Director: Jane Doe", "JLBC Analyst: John Roe")   # never matchable
+    b.row("Personal Services", "100", "200", "300")
+    b.row("OPERATING SUBTOTAL", "100", "200", "300", x0=61)
+    b.row("FUND SOURCES")
+    b.row("General Fund", "60", "120", "180")
+    b.row("Other Appropriated Funds")
+    b.row("General Fund", "40", "80", "120")
+    b.row("SUBTOTAL - Other Appropriated Funds", "40", "80", "120", x0=61)
+    b.row("TOTAL - ALL SOURCES", "100", "200", "300")
+    html = (
+        "<table><tr><td>Director: Jane Doe</td><td></td><td></td><td></td></tr>"
+        "<tr><td>Personal Services</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>OPERATING SUBTOTAL</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>General Fund</td><td>60</td><td>120</td><td>180</td></tr>"
+        "<tr><td>General Fund</td><td>40</td><td>80</td><td>120</td></tr>"
+        "<tr><td>TOTAL - ALL SOURCES</td><td>100</td><td>200</td><td>300</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    assert out.anchor_match == 0.8, out.anchor_match
+
+
+def test_a_figureless_group_heading_cannot_end_the_region():
+    """`jlbc-baseline-fy2013-axs-0000`, reduced.
+
+    MinerU's last anchor is the fused
+    `SUBTOTAL - APPROPRIATED/EXPENDITURE AUTHORITY FUNDS`. The bare group
+    heading `Expenditure Authority Funds`, printed well ABOVE the real
+    subtotal, is contained in that label and has two words, so it matched —
+    and ended the region ten lines early, dropping the whole
+    expenditure-authority block. On the real page the cross-check caught it
+    (7,024,518,200 against 1,417,666,800) and the table was refused, costing
+    a repair; a truncation that removed the cross-check's own rows would
+    have passed in silence.
+
+    A real last row is a subtotal or a total and always prints figures. The
+    terminus here is also the wrap shape — `SUBTOTAL - Appropriated/
+    Expenditure` carries the figures and `Authority Funds` continues the
+    label on the next line with none — so the CONTIGUOUS extension must
+    still accept a figure-less line.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("General Fund", "100", "200", "300")
+    b.row("SUBTOTAL - Appropriated Funds", "100", "200", "300", x0=61)
+    b.row("Expenditure Authority Funds")            # the false terminus
+    b.row("County Funds", "10", "20", "30")
+    b.row("Federal Medicaid Authority", "5", "10", "15")
+    b.row("SUBTOTAL - Expenditure Authority Funds", "15", "30", "45", x0=61)
+    b.row("SUBTOTAL - Appropriated/Expenditure", "115", "230", "345", x0=61)
+    b.row("Authority Funds", x0=69)                 # the label's own wrap
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>General Fund</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>Expenditure Authority Funds</td><td></td><td></td><td></td></tr>"
+        "<tr><td>County Funds</td><td>10</td><td>20</td><td>30</td></tr>"
+        "<tr><td>Federal Medicaid Authority</td><td>5</td><td>10</td><td>15</td></tr>"
+        "<tr><td>SUBTOTAL - Expenditure Authority Funds</td><td>15</td><td>30</td><td>45</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated/Expenditure Authority Funds</td><td>115</td><td>230</td><td>345</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    # The block between the false terminus and the real one must be present.
+    assert ["County Funds", "10", "20", "30"] in cells
+    assert ["Federal Medicaid Authority", "5", "10", "15"] in cells
+    assert cells[-1] == ["SUBTOTAL - Appropriated/Expenditure Authority Funds", "115", "230", "345"]

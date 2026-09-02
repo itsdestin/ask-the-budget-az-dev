@@ -12,6 +12,7 @@ rendering, so the two halves of this work cannot drift apart.
 from __future__ import annotations
 
 import html as _html
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -33,6 +34,9 @@ ANCHOR_MIN_MATCH = 0.8
 MAX_FORWARD_PAGES = 2
 # A wrapped label sits at least this much further right than its row.
 WRAP_INDENT = 3.0
+# Refuse a rebuild that keeps less than this share of MinerU's own figures
+# (see `_figure_retention` for the measurement behind the number).
+MIN_FIGURE_RETENTION = 0.5
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,7 @@ class RefineOutcome:
     table: Table | None
     reason: str
     anchor_match: float = 0.0
+    figure_retention: float = 1.0
 
 
 @dataclass
@@ -100,18 +105,21 @@ def _lines(page) -> list[_Line]:
     """Spec §3.1 steps 1-2. Two words share a line when their `y0` differ
     by less than half the median word height.
 
-    WHY half the median and not a fixed number: the 6-pt footnote markers
-    are printed one point below their row's baseline, so their word box
-    starts ~4.2 pt lower than the 9-pt words beside them (measured with
-    PyMuPDF on a synthetic page at the real coordinates). Half the median
-    height is ~6.2 pt there — wide enough to keep the marker on its row,
-    narrow enough that the next row, 11.5 pt down, stays separate.
+    WHY half the median and not a fixed number: JLBC prints the footnote
+    markers as 6-pt SUPERSCRIPTS, so a marker's word box sits slightly
+    ABOVE its own row. Measured on `jlbc-approps-fy2010-rad` page 1: the
+    marker `1/` is at y0=154.31 while its row (`Full Time Equivalent
+    Positions`) is at y0=155.66, and the same page has `2/3/` at 278.63 and
+    `4/` at 300.29 against rows at 280.0 and 301.6. Half the median word
+    height is ~5 pt there — wide enough to keep every marker on its row,
+    narrow enough that the next row, ~11.5 pt down, stays separate.
 
-    Only the UPPER bound is load-bearing and mutation-checked (tripling the
-    tolerance merges adjacent rows and fails 12 tests). Shrinking it cannot
-    be caught, because a marker that falls onto a line of its own is picked
-    up by `_rows`'s "a lone marker belongs to the row above" branch — two
-    independent paths put it on the right row, which is deliberate.
+    BOTH bounds are load-bearing, and an earlier version of this comment
+    claimed otherwise. Tripling the tolerance merges adjacent rows.
+    SHRINKING it drops `1/` and `2/3/` on that page and moves `4/` onto the
+    wrong row; the `_rows` fallback for a marker left on a line of its own
+    is a safety net that fired 0 times across 400 real tables, not a second
+    path that makes this value free to change.
     """
     raw = page.get_text("words")
     if not raw:
@@ -137,6 +145,12 @@ def _is_figure(text: str) -> bool:
 
 def _is_marker(text: str) -> bool:
     return MARKER_RE.fullmatch(text) is not None
+
+
+def _has_figures(line: _Line) -> bool:
+    """Does this printed line carry any figure? A subtotal or total row
+    always does; a group heading never does."""
+    return any(_is_figure(w.text) for w in line.words)
 
 
 def _label_text(line: _Line) -> str:
@@ -233,38 +247,161 @@ def _anchor_labels(table: Table) -> list[str]:
     return out
 
 
-def _region(lines: Sequence[_Line], anchors: Sequence[str]) -> tuple[int, int, set[str]]:
-    """Spec §3.1 step 3. Returns (start, end, matched anchors) as half-open
-    line indices; (0, 0, set()) when nothing on the page matched.
+def _line_hits(lines: Sequence[_Line], anchors: Sequence[str]) -> list[list[str]]:
+    """For each line, the anchor labels it matches.
 
     The containment runs page → MinerU because a merged MinerU label
     (`SUBTOTAL - Other Appropriated Funds SUBTOTAL - Appropriated Funds`)
     contains both printed lines, and nothing can split it the other way.
+    A one-word line matches only an anchor it equals — a lone `TOTAL` from
+    a summary table further down the page must not pass for
+    `TOTAL - ALL SOURCES`.
     """
-    matched_idx: list[int] = []
-    matched: set[str] = set()
-    last_anchor_idx: int | None = None
-    for i, line in enumerate(lines):
+    out: list[list[str]] = []
+    for line in lines:
         text = _label_text(line)
         if not text:
+            out.append([])
             continue
-        # A line matches an anchor it equals, or one it is contained in when
-        # it has at least two words — a lone `TOTAL` from a summary table
-        # further down the page must not pass for `TOTAL - ALL SOURCES`.
-        hits = [a for a in anchors if text == a or (text in a and len(text.split()) >= 2)]
-        if hits:
-            matched_idx.append(i)
-            matched.update(hits)
-            if anchors[-1] in hits:
-                last_anchor_idx = i
-    if not matched_idx:
+        out.append([a for a in anchors
+                    if text == a or (text in a and len(text.split()) >= 2)])
+    return out
+
+
+def _region(
+    lines: Sequence[_Line], anchors: Sequence[str], *, own_page: bool
+) -> tuple[int, int, set[str]]:
+    """Spec §3.1 step 3, amended by measurement. Returns (start, end, matched
+    anchors) as half-open line indices; (0, 0, set()) when nothing matched.
+
+    WHY the start and end are pinned to MinerU's OWN first and last rows,
+    rather than to "the first and last line matching any label" (which is
+    what step 3 says, and what this did until it was measured against the
+    whole corpus): anchor labels are generic — `AFIS Replacement`,
+    `General Fund`, `TOTAL - ALL SOURCES` — so on a page carrying TWO tables
+    the loose rule silently reads the wrong one, and the arithmetic gate
+    cannot see it, because the wrong table reconciles perfectly well with
+    itself. Measured over all 4,875 in-scope chunks, 2026-09-01:
+
+      * `jlbc-approps-fy2017-doa-apf-0001` (and its FY2016 baseline twin)
+        rebuilt the NEIGHBOURING chunk's 11-row table instead of its own
+        39-row one: the first line matching any of its anchors was the other
+        table's `AFIS Replacement` at y=131, and the only
+        `TOTAL - ALL SOURCES` printed below that belonged to the other table
+        too, at y=257. Its own table starts at y=291. ~28 rows of
+        per-project dollars were lost under the verdict `rebuilt`.
+      * 31 more chunks swallowed a sibling table because the END was the
+        LAST line matching the last anchor rather than its FIRST occurrence
+        at or after the start (`…-ata-0002` 5 MinerU rows → 22 rebuilt,
+        `…-judspa-0001` 16 → 26, `…-ema-0000` 10 → 28, `…-sdb-0000` 8 → 23
+        in seven editions). Concatenated ladders each reconcile from their
+        own boundary, so the gate passed every one of them.
+
+    WHY an unmatched first anchor FALLS BACK instead of refusing — a
+    deliberate deviation from the review's instruction, taken on
+    measurement: MinerU routinely fuses the page masthead into its first
+    cell, so that anchor is LONGER than anything printed and can never be
+    matched by a containment that runs page → MinerU. On the FY2006
+    four-column pages the first anchor is `DIRECTOR: DONALD BUTLER` while
+    the page prints `Director: Donald Butler JLBC Analyst: Eric Jorgensen`
+    as ONE line; `…-ema-0000` has the same shape with
+    `ADJUTANT GENERAL: HUGO SALAZAR`. Refusing those would throw away
+    hundreds of rebuilds that are correct today — including all 156
+    four-column pages, which are the ones MinerU reads worst and so the
+    ones this work exists for. The first anchor therefore pins the start
+    when it is found, and the old first-matched-line rule stands in when it
+    is not. `_figure_retention` is the backstop for what that lets through.
+
+    `own_page` is False for a page reached by the forward walk, where
+    MinerU's first row is on an earlier page by construction and the region
+    correctly begins at the first line matching anything.
+    """
+    hits = _line_hits(lines, anchors)
+    matched_lines = [i for i, h in enumerate(hits) if h]
+    if not matched_lines:
         return 0, 0, set()
-    # The region ends where MinerU's LAST row is printed, not at the last
-    # line that happens to match any label — a prose heading `Operating
-    # Budget` further down the page matches the anchor `OPERATING BUDGET`
-    # and would otherwise drag the performance-measures block in.
-    end = last_anchor_idx if last_anchor_idx is not None else matched_idx[-1]
-    return matched_idx[0], end + 1, matched
+
+    start = None
+    if own_page:
+        start = next((i for i in matched_lines if anchors[0] in hits[i]), None)
+    if start is None:
+        start = matched_lines[0]
+
+    # The first occurrence of MinerU's last row at or after the start THAT
+    # CARRIES FIGURES, then extended over any CONTIGUOUS lines matching it.
+    #
+    # The extension is what the whole project is about: MinerU's last cell is
+    # often several printed rows fused into one, and every one of them is
+    # contained in it. `jlbc-approps-fy2009-hla-0000`'s last anchor is
+    # `FEDERAL FUNDS TOTAL - ALL SOURCES`, printed as two adjacent lines;
+    # stopping at the first left the table with no check row at all.
+    # Contiguity is what stops that reopening the sibling hole above -- a
+    # second table's `TOTAL - ALL SOURCES` is many non-matching lines
+    # further down, never the very next one.
+    #
+    # The figure test is why a GROUP HEADING cannot end the region.
+    # `jlbc-baseline-fy2013-axs-0000`'s last anchor is
+    # `SUBTOTAL - APPROPRIATED/EXPENDITURE AUTHORITY FUNDS`, and the bare
+    # heading `Expenditure Authority Funds` printed ten lines above the real
+    # subtotal is CONTAINED in it, so the region ended at line 43 instead of
+    # 52 and the whole expenditure-authority block was dropped. That one was
+    # caught by the cross-check (7,024,518,200 against 1,417,666,800), but a
+    # truncation that removed the cross-check's own rows would pass in
+    # silence. A real last row is a subtotal or a total and always prints
+    # figures; a heading never does. Measured over all 4,875 in-scope chunks:
+    # requiring figures loses no rebuild and recovers this one.
+    #
+    # The EXTENSION deliberately does not require figures -- the very next
+    # line is often the label's own wrap (`SUBTOTAL - Appropriated/Expenditure`
+    # / `Authority Funds`, axs line 53), which `_rows` joins back on.
+    end = next(
+        (i for i in matched_lines
+         if i >= start and anchors[-1] in hits[i] and _has_figures(lines[i])),
+        None,
+    )
+    if end is None:
+        end = max(i for i in matched_lines if i >= start)
+    else:
+        while end + 1 < len(lines) and anchors[-1] in hits[end + 1]:
+            end += 1
+
+    matched: set[str] = set()
+    for i in range(start, end + 1):
+        matched.update(hits[i])
+    return start, end + 1, matched
+
+
+def _figure_retention(before: Sequence[Sequence[str]], after: Sequence[Sequence[str]]) -> float:
+    """How much of MinerU's own figure evidence survived into the rebuild.
+
+    Belt-and-braces behind the region rule above — spec D3 says refuse
+    rather than store a table nobody checked, and the failure it guards
+    against is one the arithmetic gate structurally cannot see. Measured
+    over all 4,607 rebuilds on 2026-09-01: 4,017 keep 100% of MinerU's
+    figure tokens, and every other honest rebuild keeps at least 83% (the
+    shortfall is recovery work — MinerU's fused `99,294,5003/` becoming
+    `99,294,500` + `[3/]`). The only two below that were the substituted
+    tables named above, at 0.097 and 0.114. So the distribution has an EMPTY
+    BAND whose edges are 0.114 and 0.833, and every threshold placed
+    anywhere inside it returns an identical verdict on every one of those
+    4,607 rebuilds. 0.5 is a value in that band, not a centre or an optimum
+    -- there is nothing in the data to optimise against. Both edges of the
+    band are bad in different ways: below it a substitution is missed, above
+    it a real recovery is refused.
+
+    With the region rule above in place it now fires ZERO times on the whole
+    corpus — the two tables it was calibrated on are caught earlier and
+    refused by the arithmetic gate instead, and no rebuild keeps under 83%.
+    That is the intended state: it is here for the 705 chunks whose first
+    anchor cannot be matched, where the region start is a fallback rather
+    than a fact. Refusing costs a repair, never correctness — the caller
+    keeps MinerU's own text (spec D3).
+    """
+    b = Counter(tok for row in before for cell in row[1:] for tok in figure_tokens(cell))
+    if not b:
+        return 1.0
+    a = Counter(tok for row in after for cell in row[1:] for tok in figure_tokens(cell))
+    return sum((b & a).values()) / sum(b.values())
 
 
 # --- rows --------------------------------------------------------------------
@@ -273,6 +410,18 @@ def _rows(region: Sequence[_Line], cols: _Columns, anchors: Sequence[str]) -> li
     """Spec §3.1 steps 5-7. One printed line is one row, except for the two
     label-wrap shapes. `None` means a column-assignment failure."""
     drafts: list[_Draft] = []
+    # Markers found on a line of their own, waiting for the row they belong
+    # to. They wait for the row BELOW: JLBC prints markers as superscripts,
+    # so a marker's word box sits ABOVE its own row's (measured — see
+    # `_lines`), and lines are ordered by `y0`, so a marker that failed to
+    # group arrives BEFORE its row, never after it.
+    #
+    # This is LOAD-BEARING on real pages, not a theoretical safety net: it
+    # fires on 10 chunks corpus-wide, 8 of which rebuild. On
+    # `jlbc-approps-fy2021-sos-0000` the marker `10/11/` is alone at
+    # y=331.4 and belongs to `Special Election` below it. The earlier
+    # version attached upwards, which put the footnote on the wrong row.
+    pending: dict[int, str] = {}
     for line in region:
         if _is_header_line(line):
             continue
@@ -304,11 +453,14 @@ def _rows(region: Sequence[_Line], cols: _Columns, anchors: Sequence[str]) -> li
             else:
                 label_words.append(w.text)
         label = " ".join(label_words)
+        if figures and pending:
+            # The line's own markers win over anything left waiting.
+            markers = {**pending, **markers}
+            pending.clear()
         if not figures:
             if not label:
-                # A marker on a line of its own: it belongs to the row above.
-                if markers and drafts:
-                    drafts[-1].markers.update(markers)
+                # A marker on a line of its own: it belongs to the row below.
+                pending.update(markers)
                 continue
             # Spec §3.1 step 5: indented under a row that has figures → the
             # label wrapped (`Account` under `Tobacco Products Tax Fund - …`).
@@ -387,18 +539,23 @@ def refine_operating_table(table: Table, pdf) -> RefineOutcome:
     # Step 3: anchor, walking forward while MinerU's labels keep matching.
     # MinerU merges a two-page table into its page-1 block (spec §1), so
     # `table.pages` cannot be trusted to say where the rows are.
-    region_start, region_end, matched = _region(first_lines, anchors)
+    region_start, region_end, matched = _region(first_lines, anchors, own_page=True)
     regions = [first_lines[region_start:region_end]]
     page_no = start
     while anchors[-1] not in matched and page_no - start < MAX_FORWARD_PAGES and page_no < len(pdf):
         page_no += 1
         more = _lines(pdf[page_no - 1])
-        m_start, m_end, more_matched = _region(more, anchors)
+        m_start, m_end, more_matched = _region(more, anchors, own_page=False)
         if not (more_matched - matched):
             break
         regions.append(more[m_start:m_end])
         matched |= more_matched
-    match_rate = len(matched) / len(anchors)
+    # The denominator counts each DISTINCT label once. 17 of 400 sampled
+    # tables repeat a cell-0 label (`Department of Administration Subtotal`
+    # under two headings, say), and `matched` is a set of labels, so counting
+    # the repeat twice below the line and once above it understates the rate
+    # and would skew the distribution the dry run uses to set the threshold.
+    match_rate = len(matched) / len(dict.fromkeys(anchors))
     if match_rate < ANCHOR_MIN_MATCH:
         return RefineOutcome(None, f"anchor match {match_rate:.0%}", match_rate)
     if anchors[-1] not in matched:
@@ -421,10 +578,18 @@ def refine_operating_table(table: Table, pdf) -> RefineOutcome:
         return RefineOutcome(None, "two figures in one column", match_rate)
     rows = _cells(drafts, cols)
 
-    # Step 8: the gate.
+    # Step 8a: did the rebuild keep MinerU's own figures? A region that landed
+    # on the wrong table reconciles with itself, so the arithmetic gate cannot
+    # see it; this can.
+    mineru_rows = [[c.text for c in row.cells] for row in table.rows]
+    retention = _figure_retention(mineru_rows, rows)
+    if retention < MIN_FIGURE_RETENTION:
+        return RefineOutcome(None, f"figure retention {retention:.0%}", match_rate, retention)
+
+    # Step 8b: the gate.
     verdict = reconcile(rows[1:])
     if not verdict.passed:
-        return RefineOutcome(None, verdict.reason, match_rate)
+        return RefineOutcome(None, verdict.reason, match_rate, retention)
 
     # Step 9: emit with MinerU's provenance untouched (spec D4).
     out_rows = [
@@ -436,4 +601,5 @@ def refine_operating_table(table: Table, pdf) -> RefineOutcome:
               pages=list(table.pages), html=render_html(rows)),
         "rebuilt",
         match_rate,
+        retention,
     )
