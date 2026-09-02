@@ -22,6 +22,7 @@ from chunking.repair_tables import (
     RepairResult,
     TableChange,
     _eval_intersection,
+    main,
     plan_corpus,
     plan_document,
     repair_tables,
@@ -1014,3 +1015,161 @@ def test_the_record_holds_the_html_that_was_actually_overwritten(corpus):
         "<table><tr><td>under the lock</td></tr></table>"
     # ...and the row whose html did not move still records what it held.
     assert by_id[f"{DOC}-0000"]["before"]["table_html"] == FUSED_HTML
+
+
+# --- the CLI (Task 10) -------------------------------------------------------
+
+
+@pytest.fixture()
+def cli(corpus, monkeypatch):
+    """`main` against the fake store, with no real LanceDB and no ONNX.
+
+    `main` resolves its store and its data dir at call time, so both are
+    monkeypatched at their source modules rather than on this one — the CLI
+    must keep going through the real names, or this fixture would be testing
+    a seam that production does not use.
+    """
+    root, store = corpus
+    import store.chunk_store as chunk_store_mod
+    import store.config as config_mod
+    monkeypatch.setattr(chunk_store_mod, "ChunkStore", lambda **kw: store, raising=True)
+    monkeypatch.setattr(config_mod, "data_dir", lambda: root, raising=True)
+    return root, store
+
+
+def test_the_cli_defaults_to_a_dry_run_and_writes_nothing(cli, capsys):
+    root, store = cli
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert store.written == [] and store.fts_built == []
+    assert "DRY RUN" in out
+    assert "Per fiscal year (G-OT1)" in out
+
+
+def test_the_cli_refuses_apply_with_a_document_filter(cli):
+    """`--apply` rewrites the whole table; a half-corpus apply would leave a
+    plan nobody can reason about."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--apply", "--doc", DOC])
+    assert excinfo.value.code == 2
+
+
+def test_only_writing_needs_apply_and_apply_is_what_turns_the_dry_run_off(cli, monkeypatch):
+    """The one property that matters most here: `dry_run` is `not --apply`,
+    and nothing else on the command line can turn writing on."""
+    root, store = cli
+    seen: list[bool] = []
+
+    def _recorder(**kw):
+        seen.append(kw["dry_run"])
+        return RepairResult([], PlanSummary())
+
+    monkeypatch.setattr("chunking.repair_tables.repair_tables", _recorder)
+    monkeypatch.setattr("chunking.repair_tables._load_embedder", lambda: object())
+    assert main([]) == 0
+    assert main(["--pairs", "0", "--doc", DOC]) == 0
+    assert main(["--apply"]) == 0
+    assert seen == [True, True, False]
+
+
+def test_the_cli_restricts_the_plan_to_named_documents(cli, capsys):
+    root, store = cli
+    assert main(["--doc", ADC, "--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "scanned 1 in-scope tables across 1 documents" in out
+
+
+def test_the_cli_writes_the_plan_as_json(cli, tmp_path, capsys):
+    root, store = cli
+    report = tmp_path / "plan.json"
+    assert main(["--report", str(report), "--pairs", "0"]) == 0
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert payload["dry_run"] is True and payload["written"] == 0
+    assert {"per_year", "reasons", "sources", "eval_intersection", "rows"} <= set(payload)
+    assert len(payload["rows"]) == 2
+
+
+def test_a_missing_pdf_is_printed_with_the_repo_root_that_could_not_find_it(cli, capsys):
+    """A Task 8 reviewer's ask. Run from a worktree, `_resolve_blob`'s
+    repo-relative candidate misses the (gitignored) download cache and every
+    table of 329 documents reads as unrepairable. The count is meaningless
+    without the root it was resolved against."""
+    from app.routes.pdf import REPO_ROOT
+    root, store = cli
+    for p in (root / "pdfs").glob("*.pdf"):
+        p.unlink()
+    assert main(["--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "no source pdf: 2" in out
+    assert str(REPO_ROOT) in out
+    assert "worktree" in out
+
+
+def test_a_clean_run_still_names_the_repo_root_it_resolved_pdfs_against(cli, capsys):
+    """Zero is the number that has to be believable, so it is printed too."""
+    assert main(["--pairs", "0"]) == 0
+    assert "no source pdf: 0" in capsys.readouterr().out
+
+
+def test_notes_are_bucketed_before_they_are_printed(cli, capsys):
+    """`PlanSummary.notes` keys carry the table count and the chunk index, so
+    a raw histogram is one row per chunk and says nothing."""
+    root, store = cli
+    extra = dict(store.rows[0])
+    extra["chunk_id"] = f"{DOC}-0007"
+    store.rows.append(extra)
+    assert main(["--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "cached extractor output holds N tables; this chunk is #N" in out
+    assert "holds 1 tables" not in out
+
+
+def test_reasons_are_bucketed_so_a_threshold_refusal_is_one_row(cli, capsys, monkeypatch):
+    """`anchor match 73%` and `anchor match 61%` are the same finding."""
+    from chunking.readers import text_layer_table
+
+    monkeypatch.setattr(text_layer_table, "ANCHOR_MIN_MATCH", 1.01)
+    assert main(["--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "anchor match <threshold>" in out
+
+
+def test_the_eval_intersection_is_printed_with_its_denominator(cli, capsys):
+    """"1 of 51" is the true strength of G-OT2; a bare list of passing rows
+    reads like five times more assurance than exists."""
+    assert main(["--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "0 of 51 ground-truth chunk ids" in out
+
+
+def test_only_prose_counts_as_a_pulled_in_row_not_a_section_heading(cli, capsys):
+    """Measured on the live corpus: 89% of bare label rows in a rebuild are
+    `FUND SOURCES` / `OPERATING BUDGET` -- real JLBC headings, most of them
+    ones MinerU had FUSED into the next row and the rebuild correctly split
+    out. A diagnostic that counts those fires on 4,650 of 4,653 rebuilds and
+    says nothing."""
+    from chunking.repair_tables import _prose_bare_labels
+
+    heading = "OPERATING BUDGET\t\t\t"
+    sentence = ("AGENCY DESCRIPTION — The board examines and licenses "
+                "occupational therapists.\t\t\t")
+    footnote = "1/ General Appropriation Act funds are appropriated as a Lump Sum.\t\t"
+    assert _prose_bare_labels(heading, "") == []
+    assert len(_prose_bare_labels(sentence + "\n" + footnote, "")) == 2
+    # ...and a prose row MinerU already had bare is not this pass's doing.
+    assert _prose_bare_labels(sentence, sentence) == []
+    assert main(["--pairs", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "Rebuilds that pulled PROSE in as a table row (spec §3.1 step 5): 0" in out
+
+
+def test_the_no_op_share_is_reported(cli, capsys):
+    """A rebuild whose text is byte-identical to what is stored is still
+    written by the apply path; Task 11 decides whether to skip them, and
+    cannot without this number."""
+    root, store = cli
+    assert main(["--pairs", "0"]) == 0
+    # Both fixture tables rebuild to exactly what is stored, so the share is
+    # 2 of 2 -- asserting the NUMBER, because a line that always prints "0 of
+    # N" would satisfy a phrase-only assertion forever.
+    assert "Rebuilds byte-identical to the stored text: 2 of 2 (100.0%)" in capsys.readouterr().out

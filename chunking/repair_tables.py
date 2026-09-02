@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import random
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1123,18 +1125,264 @@ def repair_tables(
     return result
 
 
+# --- the CLI (Task 10) -------------------------------------------------------
+
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def _bucket(text: str) -> str:
+    """The CLASS a per-chunk sentence belongs to.
+
+    `PlanSummary.reasons` and `.notes` are keyed on sentences built with
+    `f"..."`, and three of those carry a per-chunk number: `anchor match 73%`,
+    `figure retention 12%`, and `cached extractor output holds 4 tables; this
+    chunk is #7`. Printed raw, a histogram over 4,875 tables has one row per
+    distinct number and reports nothing -- the reader wants "52 tables were
+    refused for a low anchor match", not fifty-two rows reading 79%, 74%, 71%.
+    The two threshold refusals are re-labelled with the threshold they failed
+    (the number that matters is in the quantile line, which reports the whole
+    distribution), and every other number collapses to `N`.
+
+    `refinement raised: <exception text>` is genuinely unbounded and is
+    collapsed to its class here; the raw sentences are printed separately,
+    capped, so a systematic failure is still findable.
+    """
+    if text.startswith("anchor match "):
+        return "anchor match <threshold>"
+    if text.startswith("figure retention "):
+        return "figure retention <threshold>"
+    if text.startswith("refinement raised: "):
+        return "refinement raised"
+    return _DIGIT_RUN.sub("N", text)
+
+
+def _quantile(sorted_values: list[float], p: float) -> float:
+    return sorted_values[min(len(sorted_values) - 1, int(p * len(sorted_values)))]
+
+
+def _bare_labels(text: str) -> list[str]:
+    """The label of every line whose figure columns are all empty."""
+    out: list[str] = []
+    for line in (text or "").split("\n"):
+        cells = line.split("\t")
+        if len(cells) > 1 and cells[0].strip() and not any(c.strip() for c in cells[1:]):
+            out.append(cells[0].strip())
+    return out
+
+
+# A bare label row that reads like a SENTENCE rather than a section heading.
+# Measured on the 2026-09-01 dry run: 16,094 bare label rows across 4,653
+# rebuilds, of which 14,395 (89%) are just `FUND SOURCES`, `OPERATING BUDGET`,
+# `Other Appropriated Funds` and `SPECIAL LINE ITEMS` -- real JLBC section
+# headings, most of them ones MinerU had FUSED into the following row and the
+# rebuild correctly separated. So "does this rebuild carry a bare label row?"
+# fires on 4,650 of 4,653 and diagnoses nothing. What spec §3.1 step 5 is
+# actually a risk for is the region walking into the PROSE under the table
+# (`AGENCY DESCRIPTION — The board examines and licenses ...`, `FOOTNOTES`,
+# `1/ General Appropriation Act funds are appropriated as a Lump Sum`), and
+# that is what this matches: long, sentence-shaped, or a footnote body.
+_PROSE_LABEL = re.compile(r"^(AGENCY DESCRIPTION|FOOTNOTES\b|\d+/\s)|[a-z]\.$|^_{5,}")
+
+
+def _prose_bare_labels(new_text: str, old_text: str) -> list[str]:
+    """Bare label rows the REBUILD introduced that read as prose, not headings.
+
+    Compared against the stored text because a heading MinerU already had as
+    its own bare row is not something this pass did.
+    """
+    had = set(_bare_labels(old_text))
+    return [b for b in _bare_labels(new_text)
+            if b not in had and (len(b) > 60 or _PROSE_LABEL.search(b))]
+
+
+def _print_summary(summary: PlanSummary, changes: list[TableChange], pairs: int) -> None:
+    print("\nPer fiscal year (G-OT1):")
+    print(f"{'year':>6} {'tables':>7} {'rebuilt':>8} {'unverif':>8} {'rate':>6}")
+    tot = {"tables": 0, "rebuilt": 0, "unverified": 0}
+    for year in sorted(summary.per_year):
+        v = summary.per_year[year]
+        for k in tot:
+            tot[k] += v[k]
+        rate = v["rebuilt"] / v["tables"] if v["tables"] else 0.0
+        print(f"{year:>6} {v['tables']:>7} {v['rebuilt']:>8} {v['unverified']:>8} {rate:>6.1%}")
+    print(f"{'all':>6} {tot['tables']:>7} {tot['rebuilt']:>8} {tot['unverified']:>8} "
+          f"{(tot['rebuilt'] / max(tot['tables'], 1)):>6.1%}")
+
+    print("\nSource of the MinerU table:", dict(summary.sources))
+
+    print("\nReasons (bucketed):")
+    reasons = Counter()
+    for reason, n in summary.reasons.items():
+        reasons[_bucket(reason)] += n
+    for reason, n in reasons.most_common():
+        print(f"  {n:>6}  {reason}")
+    raised = sorted({c.reason for c in changes if c.reason.startswith("refinement raised: ")})
+    for r in raised[:5]:
+        print(f"          e.g. {r}")
+
+    print("\nWhy a chunk did not use its document's cached extractor output (bucketed):")
+    notes = Counter()
+    for note, n in summary.notes.items():
+        notes[_bucket(note)] += n
+    for note, n in notes.most_common():
+        print(f"  {n:>6}  {note}")
+    if not notes:
+        print("       (none -- every chunk used the extractor path)")
+
+    # 🔴 A "no source pdf" count is only meaningful beside the root it was
+    # resolved against. `_resolve_blob`'s second candidate is
+    # `app.routes.pdf.REPO_ROOT / <the sidecar's repo-relative path>`, and a
+    # git worktree does not carry the gitignored `data/cached-pdfs/` download
+    # cache -- so run from the wrong checkout this line reads as hundreds of
+    # unrepairable tables when nothing at all is wrong with them.
+    from app.routes.pdf import REPO_ROOT
+    missing = summary.reasons.get("no source pdf", 0)
+    print(f"\nno source pdf: {missing}")
+    print(f"  resolved against REPO_ROOT = {REPO_ROOT}")
+    print("  A non-zero count here is usually the run's own checkout, not the corpus: "
+          "a git worktree does not carry the gitignored data/cached-pdfs/ download cache, "
+          "so run from the main checkout (or symlink it in) and re-read this number "
+          "before recording those tables as unrepairable.")
+
+    rates = sorted(summary.match_rates)
+    if rates:
+        print(f"\nAnchor match rate over ALL {len(rates)} tables (rebuilt and refused): "
+              f"min {rates[0]:.0%}  p10 {_quantile(rates, 0.1):.0%}  "
+              f"p50 {_quantile(rates, 0.5):.0%}  p90 {_quantile(rates, 0.9):.0%}")
+    rebuilt_rates = sorted(c.anchor_match for c in changes if c.verdict == "rebuilt")
+    if rebuilt_rates:
+        print(f"  rebuilt only ({len(rebuilt_rates)}): min {rebuilt_rates[0]:.0%}  "
+              f"p10 {_quantile(rebuilt_rates, 0.1):.0%}  p50 {_quantile(rebuilt_rates, 0.5):.0%}")
+    refused_rates = sorted(c.anchor_match for c in changes
+                           if c.verdict == "unverified" and c.reason.startswith("anchor match "))
+    if refused_rates:
+        print(f"  refused for anchor match ({len(refused_rates)}): "
+              f"min {refused_rates[0]:.0%}  p50 {_quantile(refused_rates, 0.5):.0%}  "
+              f"max {refused_rates[-1]:.0%}")
+
+    rebuilt = [c for c in changes if c.verdict == "rebuilt"]
+    # A rebuild that reproduces the stored text exactly is still WRITTEN by
+    # the apply path (spec D4 rewrites four columns unconditionally), so this
+    # share is what Task 11 needs to decide whether to skip them.
+    noop = [c for c in rebuilt if c.new_text == c.old_text]
+    print(f"\nRebuilds byte-identical to the stored text: {len(noop)} of {len(rebuilt)} "
+          f"({(len(noop) / max(len(rebuilt), 1)):.1%})")
+
+    # The figure-less-terminus fallback (spec §3.1) extends the region past
+    # MinerU's last row; when the page prints prose under the table it can
+    # walk into it. A rebuild several rows longer than MinerU's is the shape
+    # to read before an apply.
+    grew = sorted((c for c in rebuilt if c.rows_after - c.rows_before > 3),
+                  key=lambda c: c.rows_before - c.rows_after)
+    print(f"Rebuilds that gained more than 3 rows: {len(grew)}")
+    for c in grew[:10]:
+        print(f"    {c.chunk_id}  {c.rows_before} -> {c.rows_after} rows")
+    prose = sorted(((c, _prose_bare_labels(c.new_text or "", c.old_text)) for c in rebuilt),
+                   key=lambda p: -len(p[1]))
+    prose = [p for p in prose if p[1]]
+    print(f"Rebuilds that pulled PROSE in as a table row (spec §3.1 step 5): {len(prose)}")
+    for c, labels in prose[:10]:
+        print(f"    {c.chunk_id}  {len(labels)}: {labels[0][:90]!r}")
+
+    rng = random.Random(0)
+    print(f"\nDigit disagreements (MinerU vs text layer, after the gate): "
+          f"{summary.digit_disagreements}")
+    examples = [c for c in changes if c.digit_disagreements]
+    print(f"  on {len(examples)} of {len(rebuilt)} rebuilt tables")
+    for c in rng.sample(examples, min(20, len(examples))):
+        print(f"  {c.chunk_id}: {', '.join(c.digit_disagreements[:6])}")
+
+    # BOTH numbers, always. G-OT2 covers the ground truth that is IN SCOPE,
+    # and a bare list of passing rows reads like far more assurance than one
+    # chunk out of fifty-one is worth.
+    print(f"\nEval intersection (G-OT2): {len(summary.eval_intersection)} of "
+          f"{summary.eval_ground_truth_total} ground-truth chunk ids in eval/queries.yaml "
+          f"are in scope for this pass")
+    for e in summary.eval_intersection:
+        print(f"  {e['query']:>10} {e['chunk_id']:40s} {e['verdict']:10s} "
+              f"anchor_found={e['anchor_found']}")
+
+    if pairs:
+        print(f"\n{pairs} before/after pairs for reading:")
+        for c in rng.sample(rebuilt, min(pairs, len(rebuilt))):
+            print(f"\n===== {c.chunk_id}  ({c.source}, {c.merged_cells_removed} merged cells, "
+                  f"{len(c.digit_disagreements)} digit disagreements, "
+                  f"anchor {c.anchor_match:.0%})")
+            print("--- before\n" + c.old_text[:1500])
+            print("--- after\n" + (c.new_text or "")[:1500])
+
+
+def _load_embedder() -> EmbedderLike:
+    """The one embedder the ingest worker uses.
+
+    `retrieval.pipeline._get_embedder` is the process-wide singleton
+    `ingest/worker.py` builds `ctx.embedder` from, so a re-embed here
+    produces vectors from the same weights the corpus was written with --
+    constructing a second `LocalEmbedder` by hand would load the ONNX model
+    twice and silently invite a different `model_name` default. Imported
+    inside the function so no dry run, and no test, ever loads the weights.
+    """
+    from retrieval.pipeline import _get_embedder
+    return _get_embedder()
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--table", default="budget_chunks", choices=("budget_chunks",))
-    parser.add_argument("--calibrate", action="store_true", help="spec §4.1: gate the stored clean tables, write nothing")
+    parser.add_argument("--calibrate", action="store_true",
+                        help="spec §4.1: gate the stored clean tables, write nothing")
+    parser.add_argument("--apply", action="store_true",
+                        help="write under the ingest lock after a verified snapshot "
+                             "(without this the pass is a dry run and writes nothing)")
+    parser.add_argument("--doc", "--only", action="append", dest="doc", default=None,
+                        metavar="DOC_ID",
+                        help="restrict the plan to these doc_ids (repeatable; not with --apply)")
+    parser.add_argument("--report", type=Path, default=None, help="write the full plan as JSON here")
+    parser.add_argument("--pairs", type=int, default=20, help="before/after pairs to print")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     args = parser.parse_args(argv)
+    if args.apply and args.doc:
+        # An apply rewrites the table it is given, takes the ingest lock and
+        # snapshots the whole corpus. A half-corpus apply would leave a
+        # restore point and a reversal record that describe a run nobody can
+        # reason about later, for no gain -- the dry run is where a document
+        # filter belongs.
+        parser.error("--apply rewrites the whole table; drop --doc")
+
     from store.chunk_store import ChunkStore
+    from store.config import data_dir
     store = ChunkStore(create=False)
+    root = data_dir()
     if args.calibrate:
         _print_calibration(calibrate(store, args.table))
         return 0
-    parser.error("only --calibrate exists yet; the dry run arrives with Task 8")
-    return 2
+
+    result = repair_tables(
+        store=store,
+        # Nothing embeds on a dry run, and building the embedder anyway would
+        # load ~67 MB of ONNX weights to plan a run that writes nothing.
+        embedder=_load_embedder() if args.apply else None,
+        root=root, table=args.table, dry_run=not args.apply,
+        only=set(args.doc) if args.doc else None, batch_size=args.batch_size,
+    )
+    _print_summary(result.summary, result.changes, args.pairs)
+    if args.report:
+        atomic_write_json(args.report, {
+            "table": args.table, "dry_run": not args.apply, "written": result.written,
+            "skipped_moved": result.skipped_moved, "snapshot": result.snapshot_name,
+            "reversal": str(result.reversal_path) if result.reversal_path else None,
+            "per_year": result.summary.per_year, "reasons": dict(result.summary.reasons),
+            "notes": dict(result.summary.notes), "sources": dict(result.summary.sources),
+            "eval_intersection": result.summary.eval_intersection,
+            "eval_ground_truth_total": result.summary.eval_ground_truth_total,
+            "rows": [c.__dict__ for c in result.changes],
+        })
+        print(f"\nreport: {args.report}")
+    if args.apply:
+        print(f"\nwrote {result.written} rows; skipped {len(result.skipped_moved)} (text moved); "
+              f"snapshot {result.snapshot_name}; reversal {result.reversal_path}")
+    return 0
 
 
 if __name__ == "__main__":
