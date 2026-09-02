@@ -36,6 +36,23 @@ tab-joined row and a detectable header row, so calling it unconditionally
 on every chunk's text is the correct proxy for "is this a table chunk" and
 needs no such flag.
 
+⚠ `--labelled-pool` is NOT guaranteed digit-preserving. `render_labelled`
+peels a footnote marker fused onto a figure's digits
+(`chunking/table_text.py::peel_markers`, spec §5's fused-shape rule —
+`974.63/` means the value `974.6` with marker `3/` glued on) apart into a
+separate bracketed marker. `citation/matching.py::_CANDIDATE_RE`'s
+bare-decimal branch reads the fused raw text as ONE value (`974.63`) and
+the split labelled text as a DIFFERENT one (`974.6`) — a real, measured
+difference (2 of 77 relabelled chunks in one committed run, 9 of 78 in
+another). A false-link-rate measurement with `--labelled-pool` can only
+report "unchanged on the samples measured" for this reason, never
+"unchanged by construction" — re-run it if a comparison against a larger
+transcript population is ever needed. This has NO effect on production:
+the citation linker and the PDF viewer read a chunk's `text` field, never
+`text_labelled` (`harness/tools.py::_chunk_entry` sends `text_labelled` as
+an ADDITIONAL field) — `--labelled-pool` measures the different,
+deliberately hypothetical case of the MODEL quoting a labelled value back.
+
 Reads the gitignored `*-r1.jsonl` transcripts and costs nothing.
 """
 from __future__ import annotations

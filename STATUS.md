@@ -60,7 +60,7 @@ source. When something ships, update only this file.
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
-| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — see the table below). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B (text-layer rebuild) not started. See the section below |
+| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B (text-layer rebuild) not started. See the section below |
 
 ## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
 
@@ -322,6 +322,19 @@ detectable header row, or over 20,000 characters (spec §5 rule 7 — the
 four 1.8 MB tab-padded AFR chunks would grow further into a payload that
 is already the problem).
 
+**Open item, not a defect: the fused-marker peel is a deliberate reading,
+unaudited beyond 206 pages.** `chunking/table_text.py::peel_markers`
+splits a footnote marker fused onto a figure's digits (spec §5's fused
+shape rule, calibrated on 206 real pages — a one-decimal FTE like
+`974.63/` prints as the value `974.6` with marker `3/` glued on with no
+space). That is the deliberate, spec-approved reading. But it means the
+model now sees `4,611.8` in `text_labelled` where the raw `text` prints
+`4,611.81` (real corpus example, `jlbc-approps-fy2025-des-0000`) — and
+whether the fused-marker split is the CORRECT reading for every such cell
+in the corpus, not just the 206 pages the spec's rule was calibrated
+against, has not been audited. See the false-link section below for the
+measured consequence.
+
 **One rendered example**, a real corpus chunk
 (`jlbc-approps-fy2025-aam-0000`, doc_type `approps-per-agency`):
 
@@ -392,16 +405,50 @@ seed, default vs `--labelled-pool`:
 | `2026-08-18T1041Z-b373e18` (45q) | 99 | labelled | 0.28% | 0.56% | 0.00% | 45 |
 
 **Zero movement on every profile, both run dirs, both seeds — not "under
-1 point of noise", identical to the decimal.** The verdict distribution
-over the recorded answers' own figures (memo §9, the untagged-fallback
-coverage number) is also byte-identical run to run (2026-08-02: 209
-linked / 47 derived / 212 unverified of 468; 2026-08-18: 99 linked / 9
-derived / 80 unverified of 188). Confirmed this is not because
-`render_labelled` never fires: it actually changes the pool text for 77 of
-509 chunks in the 2026-08-02 run and 78 of 438 in the 2026-08-18 run —
-render_labelled reformats a value's surrounding context (adds the column
-label) without altering or dropping any digit sequence, so the figures the
-matcher extracts are the same set either way. `eval/false_link_check.py`
+1 point of noise", identical to the decimal, ON THE SAMPLES MEASURED.**
+The verdict distribution over the recorded answers' own figures (memo §9,
+the untagged-fallback coverage number) is also byte-identical run to run
+(2026-08-02: 209 linked / 47 derived / 212 unverified of 468; 2026-08-18:
+99 linked / 9 derived / 80 unverified of 188).
+
+**🔧 CORRECTED (review caught this) — `render_labelled` is NOT digit-safe,
+and the zero movement above is not a structural guarantee.** The first
+version of this section claimed the rendering "does not alter or drop any
+digit sequence." That is false. `chunking/table_text.py::peel_markers`
+deliberately SPLITS a figure from a footnote marker fused onto it in the
+raw text (spec §5's fused-shape rule, e.g. a one-decimal FTE printed as
+`974.63/` meaning the value `974.6` with marker `3/` glued on) — and
+`citation/matching.py::_CANDIDATE_RE`'s bare-decimal branch
+(`\d+\.\d+`) greedily consumes the fused marker digit on the RAW text,
+so the raw and labelled renderings of the same cell can yield DIFFERENT
+candidate values for a citation matcher. Confirmed directly (not just
+taken on report): out of the chunks `render_labelled` actually changes
+(77 of 509 pool chunks in the 2026-08-02 run, 78 of 438 in 2026-08-18),
+the set of matcher-extractable figures differs in **2 of 77** and
+**9 of 78** — e.g. `jlbc-approps-fy2025-des-0000` prints `4,611.81` (a
+figure whose marker `1/` is fused onto its digits), which a raw-text
+matcher reads as the value `4611.81`; the labelled rendering correctly
+separates it to `4,611.8` with `[1/]` as a distinct marker, so a matcher
+reading the labelled text extracts `4611.8` instead — a genuinely
+different candidate. The false-link rate held at 0.00% movement anyway
+because none of the 40 random figures invented per profile per pool, at
+either seed, happened to collide with one of this handful of affected
+values across thousands of trials — that is a property of these
+particular samples, not a proof that no invented figure ever could.
+**Re-measure `--labelled-pool` if it is ever run against a larger
+transcript population**, and do not cite "digit-preserving by
+construction" as the reason the rate is unchanged.
+
+**The load-bearing mitigation, independent of the above:** in production
+today, the citation linker (`citation/matching.py`) and the PDF viewer
+both read a chunk's `text` field — never `text_labelled`
+(`harness/tools.py::_chunk_entry` sends `text_labelled` as an ADDITIONAL
+field, spec §5). So neither consumer's real input changes at all because
+of this branch, regardless of the finding above. `--labelled-pool` is a
+deliberate WHAT-IF measurement for the different case where the MODEL
+reads `text_labelled`, then quotes a labelled value back into its answer
+— the only path by which a labelled-rendering digit difference could ever
+reach the linker. `eval/false_link_check.py`
 writes `false-link-report.json` (default) and `false-link-report-labelled.json`
 (labelled) into each run dir — gitignored transcripts, not committed.
 
