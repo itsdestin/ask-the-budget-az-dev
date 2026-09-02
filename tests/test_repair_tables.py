@@ -889,6 +889,31 @@ def test_an_untouched_sample_that_comes_back_empty_refuses_before_writing(corpus
     assert _reversal_files(root) == []
 
 
+def test_the_untouched_sample_spreads_across_the_id_range(corpus):
+    """The sample used to be `sorted(all_ids)[:200]` -- the alphabetically
+    first 200 untouched rows, which on the live corpus is 200 consecutive
+    `agao-afr-*` chunks: one document type this pass never touches, nowhere
+    near a written row. The check exists to notice a write splashing onto its
+    NEIGHBOURS, so it has to sample across the whole id range."""
+    from chunking.repair_section_paths import UNCHANGED_SAMPLE_SIZE
+    from chunking.repair_tables import _untouched_baseline
+
+    root, _ = corpus
+    rows = [{"chunk_id": f"{doc}-{i:04d}", "doc_id": doc, "text": "x",
+             "table_html": None, "token_count": 1, "vector": [0.0]}
+            for doc in ("aaa-doc", "zzz-doc") for i in range(400)]
+    store = _FakeStore(rows)
+    all_ids = sorted(str(r["chunk_id"]) for r in rows)
+
+    baseline = _untouched_baseline(store, "budget_chunks", all_ids, set(), 500, lambda m: None)
+
+    sampled = sorted(baseline)
+    assert len(sampled) == UNCHANGED_SAMPLE_SIZE
+    # Both ends of the id range are represented, which a head slice cannot do.
+    assert sampled[0].startswith("aaa-doc") and sampled[-1].startswith("zzz-doc")
+    assert len({cid.rsplit("-", 1)[0] for cid in sampled}) == 2
+
+
 def test_a_row_that_vanished_under_the_plan_refuses_rather_than_writing_the_rest(corpus):
     """A chunk_id the store no longer returns is not a benign event -- the
     plan is stale. Told apart from a row whose TEXT moved, which is skipped
@@ -1169,6 +1194,43 @@ def test_a_missing_pdf_is_printed_with_the_repo_root_that_could_not_find_it(cli,
     assert "no source pdf: 2" in out
     assert str(REPO_ROOT) in out
     assert "data/cached-pdfs/" in out
+
+
+def test_an_apply_that_cannot_reach_a_pdf_refuses_before_the_lock(corpus):
+    """The refusal used to live in `main()`, AFTER `repair_tables` had taken
+    the lock, spent a ~670 MB snapshot and rewritten every row it could -- so
+    its banner ("would be refused ... if this were an apply") was false on an
+    apply, and the corpus was left half-repaired around the unreachable
+    documents. It now raises before the lock: nothing written, no snapshot."""
+    root, store = corpus
+    _defective(root, store)
+    (root / "pdfs" / "adc.pdf").unlink()
+    lock = _FakeLock()
+    snapshots: list[str] = []
+
+    with pytest.raises(RuntimeError) as exc:
+        _apply(root, store, lock=lock,
+               snapshot_and_verify=lambda: snapshots.append("x") or "x")
+
+    assert str(exc.value).startswith("REFUSING TO APPLY:")
+    assert "no snapshot was taken" in str(exc.value)
+    assert store.written == [] and store.fts_built == [] and store.optimized == []
+    assert snapshots == [] and lock.entered == 0 and _reversal_files(root) == []
+
+
+def test_the_cli_reports_the_apply_refusal_as_a_banner_and_exits_non_zero(cli, capsys, monkeypatch):
+    """The operator sees the refusal, not a traceback -- and nothing moved."""
+    import chunking.repair_tables as mod
+
+    root, store = cli
+    _defective(root, store)
+    (root / "pdfs" / "adc.pdf").unlink()
+    monkeypatch.setattr(mod, "_load_embedder", lambda: _FakeEmbedder(), raising=True)
+
+    assert main(["--apply", "--pairs", "0"]) == 1
+    out = capsys.readouterr().out
+    assert "REFUSING TO APPLY:" in out
+    assert store.written == [] and store.fts_built == []
 
 
 def test_a_full_run_that_cannot_reach_a_pdf_exits_non_zero(cli, capsys):

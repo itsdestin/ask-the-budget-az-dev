@@ -55,6 +55,45 @@ def test_normalise_label_strips_markers_case_and_dashes():
     assert normalise_label("  ") == ""
 
 
+@pytest.mark.parametrize("label, expected", [
+    # Marker runs, in every shape the books print them.
+    ("MEDICAID SERVICES 5/6/7/", "MEDICAID SERVICES"),
+    ("8/-13/", ""),
+    ("12/13/", ""),
+    ("1/2/", ""),
+    ("X 3/", "X"),
+    ("A 1/ 2/ 3/", "A"),
+    # Controls: nothing here is a trailing marker run, so nothing is stripped.
+    ("TOTAL - ALL SOURCES", "TOTAL - ALL SOURCES"),
+    ("TRAVEL - IN STATE", "TRAVEL - IN STATE"),
+    ("PROPOSITION 204 PROTECTION", "PROPOSITION 204 PROTECTION"),
+])
+def test_normalise_label_marker_shapes_and_controls(label, expected):
+    """These are the shapes the flat marker-stripping pattern was checked
+    against when it replaced the exponentially-backtracking nested one; they
+    pin that the rewrite did not change any real answer."""
+    assert normalise_label(label) == expected
+
+
+def test_a_long_marker_run_does_not_hang_the_ingest_worker():
+    """The old nested pattern backtracked exponentially: 24 repeats took ~3 s
+    and 28 took ~48 s on this machine. `normalise_label` runs on MinerU cell
+    text and raw text-layer lines on the ingest path with no timeout above it,
+    so a pathological label hung the worker instead of raising. 40 repeats is
+    well past where the old pattern became unusable and must return at once."""
+    import time
+
+    pathological = "AGENCY TOTAL " + "1/" * 40 + "!"
+    start = time.monotonic()
+    result = normalise_label(pathological)
+    elapsed = time.monotonic() - start
+    # The trailing `!` means there is no marker run at the END, which is the
+    # worst case for the old pattern -- it has to fail after exploring every
+    # split of the run.
+    assert result == "AGENCY TOTAL " + "1/" * 40 + "!"
+    assert elapsed < 0.5, f"normalise_label took {elapsed:.3f}s on a 40-marker label"
+
+
 def test_has_ladder_marker():
     assert has_ladder_marker("x\nOPERATING SUBTOTAL\t1\t2")
     assert has_ladder_marker("TOTAL - ALL SOURCES\t1")

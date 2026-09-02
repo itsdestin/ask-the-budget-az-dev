@@ -800,7 +800,17 @@ def _untouched_baseline(
     would otherwise fail the post-write comparison and tell the operator to
     restore a snapshot over a write that was entirely correct.
     """
-    sample = [cid for cid in all_ids if cid not in changed_ids][:UNCHANGED_SAMPLE_SIZE]
+    # WHY a stride and not the first N: `all_ids` is sorted, so a head slice
+    # of the untouched rows is the alphabetically-first documents and nothing
+    # else -- on the live corpus that is 200 consecutive `agao-afr-*` chunks,
+    # a table type this pass never touches, in a document nowhere near a
+    # written row. The check is meant to prove the write did not disturb its
+    # NEIGHBOURS, and a sample that never comes near one cannot. The stride
+    # spreads the same 200 rows across the whole id range, is deterministic
+    # (no seed, no shuffle) and costs nothing.
+    candidates = [cid for cid in all_ids if cid not in changed_ids]
+    stride = max(1, len(candidates) // UNCHANGED_SAMPLE_SIZE)
+    sample = candidates[::stride][:UNCHANGED_SAMPLE_SIZE]
     if not sample:
         # Legitimate only when the pass is rewriting every row there is,
         # which happens on a small test corpus and never on the live one.
@@ -969,6 +979,31 @@ def repair_tables(
         progress(f"DRY RUN: {len(rebuilt)} of {len(changes)} tables would be rewritten; "
                  "nothing written")
         return result
+
+    # 🔴 THE UNREACHABLE-PDF REFUSAL BELONGS HERE, BEFORE THE LOCK AND THE
+    # SNAPSHOT. It used to live in `main()`, AFTER this function had taken the
+    # ingest lock, spent a ~670 MB snapshot and rewritten every row it could --
+    # so on an apply the banner's "would be refused ... if this were an apply"
+    # was simply false: they HAD been refused, and 4,000-odd rows were already
+    # written around them. Raised here, nothing is written and no snapshot is
+    # spent. Measured 2026-09-02: 329 documents (342 in-scope tables) record a
+    # repo-relative `data/cached-pdfs/<shard>/<sha>.pdf` that resolves ONLY
+    # through `app.routes.pdf.REPO_ROOT / <relative>`, and a git worktree does
+    # not carry that gitignored download cache -- so this is a checkout fact
+    # every time, never a corpus fact, and a half-repaired corpus is not what
+    # anybody wants out of it.
+    unreachable = summary.reasons.get("no source pdf", 0)
+    if unreachable:
+        from app.routes.pdf import REPO_ROOT
+        raise RuntimeError(
+            f"REFUSING TO APPLY: {unreachable} of {len(changes)} tables could not reach "
+            "their source PDF. That is this checkout, not the corpus -- many documents "
+            "record a repo-relative data/cached-pdfs/<shard>/<sha>.pdf that resolves "
+            f"only under REPO_ROOT = {REPO_ROOT}, and a git worktree does not carry that "
+            "gitignored cache. Nothing has been written and no snapshot was taken. Run "
+            "from a checkout where data/cached-pdfs/ resolves under that root (hard-link "
+            "it in with `cp -al`; a symlink is resolved away and rejected)."
+        )
     if not rebuilt:
         # BEFORE the lock and BEFORE the snapshot: a snapshot zips the whole
         # corpus under the lock and takes minutes, and spending that on a
@@ -1402,14 +1437,27 @@ def main(argv: list[str] | None = None) -> int:
         _print_calibration(calibrate(store, args.table))
         return 0
 
-    result = repair_tables(
-        store=store,
-        # Nothing embeds on a dry run, and building the embedder anyway would
-        # load ~67 MB of ONNX weights to plan a run that writes nothing.
-        embedder=_load_embedder() if args.apply else None,
-        root=root, table=args.table, dry_run=not args.apply,
-        only=set(args.doc) if args.doc else None, batch_size=args.batch_size,
-    )
+    try:
+        result = repair_tables(
+            store=store,
+            # Nothing embeds on a dry run, and building the embedder anyway would
+            # load ~67 MB of ONNX weights to plan a run that writes nothing.
+            embedder=_load_embedder() if args.apply else None,
+            root=root, table=args.table, dry_run=not args.apply,
+            only=set(args.doc) if args.doc else None, batch_size=args.batch_size,
+        )
+    except RuntimeError as exc:
+        # The pre-lock unreachable-PDF refusal is an operator message, not a
+        # crash: it is prefixed so it can be told apart from every other
+        # RuntimeError this module raises (all of which are mid-write states
+        # carrying a restore hint and MUST keep their traceback).
+        if not str(exc).startswith("REFUSING TO APPLY:"):
+            raise
+        print("\n" + "!" * 74)
+        for line in str(exc).split(". "):
+            print(f"!! {line.strip()}")
+        print("!" * 74)
+        return 1
     _print_summary(result.summary, result.changes, args.pairs)
     missing = result.summary.reasons.get("no source pdf", 0)
     if args.report:
@@ -1443,8 +1491,10 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(result.changes)} tables")
         print("!! could not reach their source PDF. That is this checkout, not the "
               "corpus.")
-        print(f"!! {missing} tables would be refused as `no source pdf` if this were "
-              "an apply.")
+        # Tense matters: on an apply those tables WERE refused (by the guard
+        # inside `repair_tables`, before the lock), on a dry run they WOULD be.
+        print(f"!! {missing} tables {'were' if args.apply else 'would be'} refused as "
+              "`no source pdf`.")
         print("!! Run from a checkout where data/cached-pdfs/ resolves under")
         print(f"!!   {REPO_ROOT}")
         print("!! (hard-link it in with `cp -al`; a symlink is resolved away and "

@@ -1330,7 +1330,15 @@ def test_tools_module_reaches_only_the_read_side_of_chunking():
     than passing the root allowlist test while quietly importing a module
     that rewrites the corpus. Mirrors
     `test_tools_module_reaches_only_the_read_side_of_identity` and
-    `..._of_funds`."""
+    `..._of_funds`.
+
+    Scope, so nobody reads more into a green run than it says: this guard
+    parses `harness/tools.py` only, so it pins DIRECT `chunking` imports.
+    An indirect reach through an already-admitted root is invisible to it —
+    `harness/tools.py` imports `retrieval.table_view`, which imports
+    `chunking.table_text` (pure regexes, no filesystem, no store, no
+    side effects at import), and this test does not see that and is not
+    meant to."""
     read_side = {"chunking.agency_catalog"}
     tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
     reached: set[str] = set()

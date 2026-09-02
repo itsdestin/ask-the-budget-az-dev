@@ -49,7 +49,25 @@ def normalise_label(s: str) -> str:
     MinerU label and to classify rows in the gate."""
     s = " ".join(s.translate(_DASHES).split()).upper()
     # Strip any run of markers at the end (`MEDICAID SERVICES 5/6/7/`).
-    s = re.sub(r"(\s*\d{1,2}/(?:-?\d{1,2}/)*)+$", "", s)
+    # WHY the flat `(?:\s*-?\d{1,2}/)+$` and not a nested group: the earlier
+    # `(\s*\d{1,2}/(?:-?\d{1,2}/)*)+$` was two nested quantifiers over the
+    # same text, so a label ending in a long marker run backtracked
+    # exponentially -- measured on this machine, 20 repeats took 0.20 s, 24
+    # took 3.0 s and 28 took 48 s. This function runs on MinerU cell text and
+    # on raw text-layer lines on the INGEST path, with no timeout above it, so
+    # one pathological label would hang the ingest worker rather than raise.
+    # The flat form is linear (200 repeats in under a millisecond) and was
+    # checked to give byte-identical output on every real shape --
+    # `MEDICAID SERVICES 5/6/7/`, `8/-13/`, `12/13/`, `1/2/`, `X 3/`,
+    # `A 1/ 2/ 3/` -- and on the non-matching controls `TOTAL - ALL SOURCES`,
+    # `TRAVEL - IN STATE`, `PROPOSITION 204 PROTECTION`. The ONE divergence is
+    # a run that STARTS with a dash (`742,805,500-11/`): the old pattern left
+    # the dangling `742,805,500-`, this one strips it. That is the better
+    # answer, and it was checked against the corpus rather than assumed --
+    # 23 cells in 5 documents differ, and re-planning all five through
+    # `plan_corpus` gives byte-identical verdicts and reasons on both
+    # patterns (rebuilt / arithmetic x3 / two-figures).
+    s = re.sub(r"(?:\s*-?\d{1,2}/)+$", "", s)
     return s.rstrip(":").strip()
 
 
