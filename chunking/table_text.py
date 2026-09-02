@@ -61,12 +61,21 @@ def normalise_label(s: str) -> str:
     # `MEDICAID SERVICES 5/6/7/`, `8/-13/`, `12/13/`, `1/2/`, `X 3/`,
     # `A 1/ 2/ 3/` -- and on the non-matching controls `TOTAL - ALL SOURCES`,
     # `TRAVEL - IN STATE`, `PROPOSITION 204 PROTECTION`. The ONE divergence is
-    # a run that STARTS with a dash (`742,805,500-11/`): the old pattern left
-    # the dangling `742,805,500-`, this one strips it. That is the better
-    # answer, and it was checked against the corpus rather than assumed --
-    # 23 cells in 5 documents differ, and re-planning all five through
-    # `plan_corpus` gives byte-identical verdicts and reasons on both
-    # patterns (rebuilt / arithmetic x3 / two-figures).
+    # a run whose first element carries a leading dash. Checked against the
+    # live corpus rather than assumed: **23 cells across 22 documents** differ,
+    # and re-planning all 22 through the real `plan_corpus` under both patterns
+    # gives **0 differing fields on all 22 chunks** -- `new_text` and
+    # `new_html`, the bytes that would actually be written, included, not just
+    # the verdict. That is safe by construction, not luck: `normalise_label`
+    # feeds only comparison and row classification, and a written label comes
+    # from `_Draft.label`, which is the text layer's own words.
+    #
+    # Honestly, only 6 of the 23 are the `742,805,500-11/` shape where this
+    # pattern is cleanly better (it drops a dangling `-` the old one left).
+    # The other 17 are JLBC's real range spelling with a space in front of it
+    # (`12,865,000 11-13/`), which NEITHER pattern handles -- the old leaves
+    # `11-`, this one leaves `11`. That is a wash, applied identically to both
+    # sides of every comparison. See the `MARKER_RE` follow-up in STATUS.
     s = re.sub(r"(?:\s*-?\d{1,2}/)+$", "", s)
     return s.rstrip(":").strip()
 

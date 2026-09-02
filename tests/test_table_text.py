@@ -76,22 +76,28 @@ def test_normalise_label_marker_shapes_and_controls(label, expected):
 
 
 def test_a_long_marker_run_does_not_hang_the_ingest_worker():
-    """The old nested pattern backtracked exponentially: 24 repeats took ~3 s
-    and 28 took ~48 s on this machine. `normalise_label` runs on MinerU cell
-    text and raw text-layer lines on the ingest path with no timeout above it,
-    so a pathological label hung the worker instead of raising. 40 repeats is
-    well past where the old pattern became unusable and must return at once."""
+    """The old nested pattern backtracked exponentially: 20 repeats took
+    ~0.20 s, 24 took ~3.0 s and 28 took ~48 s on this machine.
+    `normalise_label` runs on MinerU cell text and raw text-layer lines on the
+    ingest path with no timeout above it, so a pathological label hung the
+    worker instead of raising.
+
+    24 repeats, deliberately, and not more: the cost doubles per repeat, so a
+    revert to the nested pattern must FAIL this test rather than HANG the
+    suite. At 24 the old pattern takes about three seconds and blows the 0.5 s
+    bound cleanly (verified by reverting the pattern in place); at 40 it is
+    2^40 and the run would never come back."""
     import time
 
-    pathological = "AGENCY TOTAL " + "1/" * 40 + "!"
+    pathological = "AGENCY TOTAL " + "1/" * 24 + "!"
     start = time.monotonic()
     result = normalise_label(pathological)
     elapsed = time.monotonic() - start
     # The trailing `!` means there is no marker run at the END, which is the
     # worst case for the old pattern -- it has to fail after exploring every
     # split of the run.
-    assert result == "AGENCY TOTAL " + "1/" * 40 + "!"
-    assert elapsed < 0.5, f"normalise_label took {elapsed:.3f}s on a 40-marker label"
+    assert result == "AGENCY TOTAL " + "1/" * 24 + "!"
+    assert elapsed < 0.5, f"normalise_label took {elapsed:.3f}s on a 24-marker label"
 
 
 def test_has_ladder_marker():
