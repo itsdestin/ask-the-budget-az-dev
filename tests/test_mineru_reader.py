@@ -233,3 +233,96 @@ def test_mineru_reader_handles_table_with_no_explicit_thead(tmp_path):
     table = doc.tables[0]
     assert len(table.rows) == 2
     assert [c.text for c in table.rows[0].cells] == ["Fund", "FY2026"]
+
+
+def test_reader_refines_operating_tables_when_given_the_pdf(tmp_path):
+    """Spec D5: the refinement is inside the reader, so ingest and repair share it."""
+    import fitz
+    from tests.test_text_layer_table import CLEAN_HTML, PageBuilder, _clean_page
+
+    pdf = fitz.open()
+    _clean_page(PageBuilder(pdf))
+    pdf_path = tmp_path / "axs.pdf"
+    pdf.save(str(pdf_path))
+    page_json = tmp_path / "page-1.json"
+    page_json.write_text(json.dumps({
+        "extractor": "mineru-3.1.6", "page": 1,
+        "blocks": [{"type": "table", "table_body": CLEAN_HTML, "bbox": [78, 85, 918, 907]}],
+    }), encoding="utf-8")
+
+    plain = MinerUReader().read(page_json).tables[0]
+    refined = MinerUReader(source_pdf=pdf_path).read(page_json).tables[0]
+    assert [c.text for c in plain.rows[0].cells] == ["", "FY 2024 ACTUAL", "FY 2025 ESTIMATE", "FY 2026 APPROVED"]
+    assert [c.text for c in refined.rows[3].cells] == ["Personal Services", "100", "200", "300"]
+    assert refined.page == plain.page and refined.bbox == plain.bbox
+
+
+def test_refine_falls_back_to_mineru_when_the_pdf_cannot_be_opened(tmp_path):
+    """Spec D3 + the shared-rung finding: both in-scope doc types run
+    [mineru, mineru-ocr] (ingest/ladder.py), every rung the SAME
+    source_pdf -- so a PDF MinerU extracted fine but PyMuPDF refuses must
+    not raise out of read(), or it exhausts the ladder and the whole
+    document is held out of search where it used to reach `live`."""
+    from tests.test_text_layer_table import CLEAN_HTML
+
+    bad_pdf = tmp_path / "corrupt.pdf"
+    bad_pdf.write_bytes(b"%PDF-1.4\nnot a real pdf\n")
+    page_json = tmp_path / "page-1.json"
+    page_json.write_text(json.dumps({
+        "extractor": "mineru-3.1.6", "page": 1,
+        "blocks": [{"type": "table", "table_body": CLEAN_HTML, "bbox": [78, 85, 918, 907]}],
+    }), encoding="utf-8")
+
+    doc = MinerUReader(source_pdf=bad_pdf).read(page_json)  # must not raise
+    table = doc.tables[0]
+    assert [c.text for c in table.rows[0].cells] == ["", "FY 2024 ACTUAL", "FY 2025 ESTIMATE", "FY 2026 APPROVED"]
+
+
+def test_refine_falls_back_to_mineru_when_refine_operating_table_raises(tmp_path, monkeypatch):
+    """One bad table must not cost its siblings: a table that raises inside
+    the refinement keeps its MinerU text; a qualifying table on another
+    page still refines normally."""
+    import fitz
+
+    from chunking.readers import mineru_reader as mod
+    from tests.test_text_layer_table import CLEAN_HTML, PageBuilder, _clean_page
+
+    pdf = fitz.open()
+    _clean_page(PageBuilder(pdf))  # page 1 — will raise
+    _clean_page(PageBuilder(pdf))  # page 2 — refines normally
+    pdf_path = tmp_path / "axs.pdf"
+    pdf.save(str(pdf_path))
+
+    block = {"type": "table", "table_body": CLEAN_HTML, "bbox": [78, 85, 918, 907]}
+    # WHY a heading sits between the two tables: both in-scope doc types'
+    # tables share an identical column header, and _reassemble_multi_page_tables
+    # (which runs BEFORE refinement) merges two same-header tables on
+    # consecutive pages with no intervening heading into ONE logical
+    # table -- which would leave only one qualifying block to test
+    # against, not two. A heading breaks that chain (as it does for a
+    # real agency-to-agency page boundary), keeping them distinct.
+    heading = {"type": "text", "text_level": 1, "text": "Next Agency"}
+    (tmp_path / "page-1.json").write_text(json.dumps(
+        {"extractor": "mineru-3.1.6", "page": 1, "blocks": [block]}), encoding="utf-8")
+    (tmp_path / "page-2.json").write_text(json.dumps(
+        {"extractor": "mineru-3.1.6", "page": 2, "blocks": [heading, block]}), encoding="utf-8")
+
+    real_refine = mod.refine_operating_table
+    calls = {"n": 0}
+
+    def flaky(table, pdf_doc):
+        calls["n"] += 1
+        if table.page == 1:
+            raise RuntimeError("boom")
+        return real_refine(table, pdf_doc)
+
+    monkeypatch.setattr(mod, "refine_operating_table", flaky)
+
+    doc = MinerUReader(source_pdf=pdf_path).read(tmp_path)  # must not raise
+    page1_table = next(t for t in doc.tables if t.page == 1)
+    page2_table = next(t for t in doc.tables if t.page == 2)
+    # page 1 kept MinerU's plain header row (never refined)
+    assert [c.text for c in page1_table.rows[0].cells] == ["", "FY 2024 ACTUAL", "FY 2025 ESTIMATE", "FY 2026 APPROVED"]
+    # page 2 refined normally despite page 1's failure
+    assert [c.text for c in page2_table.rows[3].cells] == ["Personal Services", "100", "200", "300"]
+    assert calls["n"] == 2

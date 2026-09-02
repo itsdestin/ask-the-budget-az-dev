@@ -26,11 +26,13 @@ section, so even matching column-headers belong to a separate logical table.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 
+from chunking.readers.text_layer_table import refine_operating_table
 from chunking.readers.types import (
     Bbox,
     Block,
@@ -44,12 +46,22 @@ from chunking.readers.types import (
     Row,
     Table,
 )
+from chunking.table_text import has_ladder_marker
 
 _PAGE_FILE_RE = re.compile(r"^page-(\d+)\.json$", re.IGNORECASE)
+
+log = logging.getLogger(__name__)
 
 
 class MinerUReader:
     """Reads MinerU per-page output → ExtractedDocument."""
+
+    def __init__(self, *, source_pdf: Path | None = None) -> None:
+        # WHY: spec D5 — the text-layer rebuild of operating tables lives
+        # INSIDE the reader so ingest and the one-time repair are one
+        # producer. Without the PDF the reader behaves exactly as before
+        # (every existing caller constructs `MinerUReader()` with no args).
+        self._source_pdf = Path(source_pdf) if source_pdf is not None else None
 
     def read(self, path: Path | str) -> ExtractedDocument:
         path = Path(path)
@@ -64,6 +76,9 @@ class MinerUReader:
 
         # Multi-page table reassembly happens after all pages are loaded.
         pages = self._reassemble_multi_page_tables(pages)
+
+        if self._source_pdf is not None:
+            pages = self._refine_operating_tables(pages)
 
         outline = self._build_outline(pages)
 
@@ -219,6 +234,81 @@ class MinerUReader:
                 new_blocks.append(block)
             page.blocks = new_blocks
 
+        return pages
+
+    # --- operating-table refinement (spec §3.1/§3.2) --------------------------
+
+    def _refine_operating_tables(self, pages: list[Page]) -> list[Page]:
+        """Rebuild every table carrying a ladder marker from the PDF text
+        layer; a rebuild that does not reconcile is dropped and MinerU's
+        table stays (spec D3).
+
+        WHY the qualifying-block scan runs BEFORE `fitz.open`: opening the
+        PDF is not guarded here, and a corrupt or placeholder source_pdf
+        raises `pymupdf.FileDataError` immediately — confirmed with a
+        9-byte `%PDF-1.4\n` placeholder, the exact fixture
+        `tests/test_ingest_worker.py`'s FakeExtractor writes for its
+        `baseline-per-agency` job. That fixture's table carries no ladder
+        marker, so without this pre-scan every `run_job` test using it
+        would fail on a PDF the refinement was never going to touch.
+        Scanning first means a document with no in-scope table never pays
+        for, or risks, opening its source file at all.
+
+        WHY every failure below is CAUGHT rather than propagated: spec D3
+        says an unrefinable TABLE keeps its current (MinerU) text — the
+        refinement can only improve a chunk, never remove one. But both
+        in-scope doc types (`data/document-types.yaml`) prefer `mineru`,
+        so `ingest/ladder.py`'s fallback ladder for them is
+        `[mineru, mineru-ocr]` — every rung is this same reader with the
+        same `source_pdf`. Before this guard, a `source_pdf` MinerU
+        extracted fine but `fitz.open()` refuses (or any exception inside
+        `refine_operating_table` itself) raised out of THIS method,
+        which is called from `read()`, which every rung calls — so the
+        exception would exhaust the whole ladder and the document would
+        be HELD OUT OF SEARCH, where before this task it reached `live`
+        with MinerU's own tables untouched. That is a strictly worse
+        outcome than D3 ever intends for one bad table: it turns a
+        table-level "keep the old text" into a document-level "keep
+        nothing at all". Caught at two points — the whole-document open,
+        and each table's refinement — so one bad table never costs its
+        siblings, and a source_pdf the ladder produced (real, extracted
+        successfully) but that PyMuPDF still can't read never costs the
+        document.
+        """
+        qualifying: list[tuple[Page, int, Table]] = [
+            (page, i, block)
+            for page in pages
+            for i, block in enumerate(page.blocks)
+            if isinstance(block, Table)
+            and has_ladder_marker(" ".join(c.text for r in block.rows for c in r.cells))
+        ]
+        if not qualifying:
+            return pages
+
+        import fitz  # lazy: the reader is imported by code paths that never open a PDF
+
+        try:
+            pdf = fitz.open(str(self._source_pdf))
+        except Exception:
+            log.warning(
+                "operating-table refinement: could not open %s; keeping MinerU's tables",
+                self._source_pdf, exc_info=True,
+            )
+            return pages
+
+        with pdf:
+            for page, i, block in qualifying:
+                try:
+                    outcome = refine_operating_table(block, pdf)
+                except Exception:
+                    log.warning(
+                        "operating-table refinement: table on page %s of %s raised; "
+                        "keeping MinerU's table",
+                        page.page_number, self._source_pdf, exc_info=True,
+                    )
+                    continue
+                if outcome.table is not None:
+                    page.blocks[i] = outcome.table
         return pages
 
     # --- outline tree --------------------------------------------------------

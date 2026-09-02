@@ -1142,6 +1142,15 @@ def _chunk(job: JobRecord, ctx: WorkerContext, *, extractor: str) -> list[Chunk]
             source_url=job.source_url,
         ),
         stamper=ctx.stamper,
+        # WHY: spec §3.2 — the worker is the only place that holds the
+        # source file on disk; `chunk_doc` needs it to rebuild agency
+        # operating tables from the PDF text layer (spec D5, one producer
+        # shared with the repair pass). `job.source_path` is empty for a
+        # job that has not downloaded its file yet (book-catalog jobs
+        # queue by URL only, per `_ensure_source`'s own docstring) — by
+        # the time `_chunk` runs, extraction has already required a local
+        # file, so this guard is defensive, not load-bearing.
+        source_pdf=_source_path(job) if job.source_path else None,
     )
     _progress(job, "chunking", pct=100, detail=f"{len(chunks)} passages")
     return chunks

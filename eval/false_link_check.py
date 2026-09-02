@@ -22,6 +22,36 @@ run with tagging enabled.
 
 Usage:
     uv run python -m eval.false_link_check <run_dir> [--seed 7] [--n 40]
+    uv run python -m eval.false_link_check <run_dir> --labelled-pool
+
+`--labelled-pool` is the phase A (spec section 5) gate: it renders every
+pool chunk through `render_labelled` before inventing figures against it,
+so the check measures the false-link rate against what the model ACTUALLY
+reads today, not the pre-phase-A raw text. Every recorded transcript
+predates phase A, so its chunk dicts carry no `is_table` flag to gate on
+(and even a chunk built by the current `_chunk_entry` does not serialize
+one — it is an internal attribute, only used to decide whether to ATTEMPT
+labelling). `render_labelled` itself returns `None` for anything without a
+tab-joined row and a detectable header row, so calling it unconditionally
+on every chunk's text is the correct proxy for "is this a table chunk" and
+needs no such flag.
+
+⚠ `--labelled-pool` is NOT guaranteed digit-preserving. `render_labelled`
+peels a footnote marker fused onto a figure's digits
+(`chunking/table_text.py::peel_markers`, spec §5's fused-shape rule —
+`974.63/` means the value `974.6` with marker `3/` glued on) apart into a
+separate bracketed marker. `citation/matching.py::_CANDIDATE_RE`'s
+bare-decimal branch reads the fused raw text as ONE value (`974.63`) and
+the split labelled text as a DIFFERENT one (`974.6`) — a real, measured
+difference (2 of 77 relabelled chunks in one committed run, 9 of 78 in
+another). A false-link-rate measurement with `--labelled-pool` can only
+report "unchanged on the samples measured" for this reason, never
+"unchanged by construction" — re-run it if a comparison against a larger
+transcript population is ever needed. This has NO effect on production:
+the citation linker and the PDF viewer read a chunk's `text` field, never
+`text_labelled` (`harness/tools.py::_chunk_entry` sends `text_labelled` as
+an ADDITIONAL field) — `--labelled-pool` measures the different,
+deliberately hypothetical case of the MODEL quoting a labelled value back.
 
 Reads the gitignored `*-r1.jsonl` transcripts and costs nothing.
 """
@@ -36,6 +66,7 @@ from typing import Any, Iterator
 from citation.annotate import annotate_answer
 from citation.figures import Figure
 from eval.agent_transcript import final_answer, read_transcript, retrieve_calls
+from retrieval.table_view import render_labelled
 
 # (significant digits to invent, scale, decimals to render).
 # The three profiles are the memo's: rounded billions and rounded millions
@@ -97,14 +128,22 @@ def false_link_rate(figs: list[Figure], chunks: dict[str, str],
     return linked / len(figs) if figs else 0.0
 
 
-def pools(run_dir: Path) -> Iterator[tuple[str, dict[str, str],
-                                           dict[str, dict[str, Any]], str]]:
+def pools(run_dir: Path, *, labelled: bool = False
+          ) -> Iterator[tuple[str, dict[str, str],
+                              dict[str, dict[str, Any]], str]]:
     """(stem, chunks, meta, final answer) per recorded transcript.
 
     Uses eval.agent_transcript's accessors rather than re-parsing the
     JSONL: the retrieve results live on the TERMINAL frame's `toolCalls`,
     not on the per-event lines, and a second hand-rolled reader would be a
     second dialect to keep in sync.
+
+    `labelled=True` is the G-OT gate for phase A (spec section 5): every
+    chunk's text is run through `render_labelled` first, and only its
+    `None` (not-a-table, or over the size cap) falls back to the raw text
+    — the same choice `harness/tools.py::_chunk_entry` makes at request
+    time. This is a POOL-TEXT substitution only; it changes what the
+    invented figures are matched against, not which chunks exist.
     """
     for path in sorted(run_dir.glob("*-r1.jsonl")):
         t = read_transcript(path)
@@ -115,17 +154,20 @@ def pools(run_dir: Path) -> Iterator[tuple[str, dict[str, str],
                 chunk_id = c.get("chunk_id")
                 if not chunk_id:
                     continue
-                chunks[chunk_id] = c.get("text") or ""
+                text = c.get("text") or ""
+                if labelled:
+                    text = render_labelled(text) or text
+                chunks[chunk_id] = text
                 meta[chunk_id] = {k: c.get(k) for k in _META_FIELDS}
         if chunks:
             yield path.stem, chunks, meta, final_answer(t)
 
 
-def verdict_counts(run_dir: Path) -> dict[str, int]:
+def verdict_counts(run_dir: Path, *, labelled: bool = False) -> dict[str, int]:
     """Verdict distribution over the recorded answers (memo §9) — each
     answer annotated against its OWN retrieved pool."""
     counts = {"linked": 0, "derived": 0, "unverified": 0, "total": 0}
-    for _stem, chunks, meta, answer in pools(run_dir):
+    for _stem, chunks, meta, answer in pools(run_dir, labelled=labelled):
         ann = annotate_answer(answer, chunks, meta, tags=[], alias_map={})
         for entry in ann["figures"]:
             counts["total"] += 1
@@ -141,14 +183,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--n", type=int, default=40,
                     help="invented figures per pool per profile")
+    ap.add_argument("--labelled-pool", action="store_true",
+                    help="use render_labelled(text) as the pool text for "
+                         "table chunks (phase A gate, spec section 5)")
     args = ap.parse_args(argv)
 
-    all_pools = list(pools(args.run_dir))
+    all_pools = list(pools(args.run_dir, labelled=args.labelled_pool))
     if not all_pools:
         print(f"no transcripts with retrieved chunks in {args.run_dir}")
         return 1
 
     report: dict[str, Any] = {"run_dir": str(args.run_dir), "seed": args.seed,
+                              "labelled_pool": args.labelled_pool,
                               "pools": len(all_pools), "profiles": {}}
     print(f"{len(all_pools)} pools, {args.n} invented figures each\n")
     print(f"{'profile':16s} {'trials':>7s} {'false links':>12s} {'rate':>8s}")
@@ -168,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
                                        "rate": rate}
         print(f"{profile:16s} {trials:7d} {linked:12d} {rate:8.2%}")
 
-    counts = verdict_counts(args.run_dir)
+    counts = verdict_counts(args.run_dir, labelled=args.labelled_pool)
     total = counts["total"]
     coverage = ((counts["linked"] + counts["derived"]) / total) if total else None
     report["verdicts"] = counts
@@ -181,7 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     if coverage is not None:
         print(f"{'coverage':16s} {'':7s} {coverage:8.1%}  (linked + derived)")
 
-    out = args.run_dir / "false-link-report.json"
+    suffix = "-labelled" if args.labelled_pool else ""
+    out = args.run_dir / f"false-link-report{suffix}.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"\nwrote {out}")
     return 0

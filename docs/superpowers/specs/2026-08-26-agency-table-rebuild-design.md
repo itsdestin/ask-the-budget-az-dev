@@ -1,9 +1,15 @@
 # Agency operating tables: rebuild from the page's own text, and show the model labelled cells
 
-**Status:** approved 2026-08-26 (Destin). Scope and approach are his calls
-and are not to be re-litigated: JLBC agency-page operating tables only,
-approach B (rebuild from the PDF text layer, verified arithmetically) in
-two phases, the labelled-cell rendering shipping first on its own.
+**Status:** approved 2026-08-26 (Destin); phase A shipped 2026-09-01; **phase B
+BUILT and rehearsed 2026-09-02 — the corpus repair has NOT been applied**, and
+Task 12 (the live apply) is waiting on Destin's yes at the checkpoint in
+`docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`.
+Its precondition, the section-path repair, is on master and was applied to the
+live corpus on 2026-09-01. Scope and approach are his
+calls and are not to be re-litigated: JLBC agency-page operating tables
+only, approach B (rebuild from the PDF text layer, verified
+arithmetically) in two phases, the labelled-cell rendering shipping first
+on its own.
 
 Companion review: `docs/superpowers/investigations/2026-08-26-agent-capability-review.md`
 — the assessment that put this first among the improvements.
@@ -73,9 +79,17 @@ SUBTOTAL`, `FUND SOURCES`, `AGENCY TOTAL`, `TOTAL - ALL SOURCES`):
 
 | defect | tables | example (live chunk `jlbc-approps-fy2026-axs-0000`) |
 |---|---|---|
-| **two printed rows merged into one cell** | **2,336 (48%)** | `<td>SUBTOTAL - Other Appropriated Funds SUBTOTAL - Appropriated Funds</td><td>377,583,700 2,778,602,700</td>…` |
-| **footnote marker fused onto the figure** | 1,405 (29%) | `99,294,5003/` for 99,294,500 with footnote 3; `212.312/` for 212.3 FTE with footnote 12 |
+| **two printed rows merged into one cell** | **2,627 (53.9%)** | `<td>SUBTOTAL - Other Appropriated Funds SUBTOTAL - Appropriated Funds</td><td>377,583,700 2,778,602,700</td>…` |
+| **footnote marker fused onto the figure** | 1,400 (28.7%) | `99,294,5003/` for 99,294,500 with footnote 3; `212.312/` for 212.3 FTE with footnote 12 |
 | **no year header row** | 146 (3%); 131 are page-2 continuations | `FUND SOURCES / General Fund 7,699,669,300 7,882,875,800 <blank> 8,287,685,600` — five columns, no labels |
+
+**Method for the two counts above, re-measured 2026-09-02** (the first two rows
+were 2,336 / 1,405 before): `ChunkStore(create=False)` scanned `is_table = true`
+read-only, kept the 4,875 rows `chunking.repair_tables.in_scope` accepts, split
+each stored `text` with `table_rows` and counted
+`chunking.table_gate.has_merged_cell` / `has_fused_marker` — the same two
+predicates the calibration uses, so the number and the gate cannot disagree.
+
 
 Only 3.2% of all numeric cells in these tables sit in a merged cell —
 but they are the **subtotal and total rows**, which is what an analyst

@@ -24,13 +24,24 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Protocol
+from typing import Any, Callable, Iterable, Mapping
 
 from chunking.builders._tokens import count_tokens
 from chunking.builders.table_chunk import _build_text
 from chunking.readers.mineru_reader import MinerUReader
 from chunking.readers.odl_reader import ODLReader
 from ingest.extract_dirs import resolve_extract_dir
+
+# WHY: the operating-table repair (chunking/repair_tables.py) needs the same
+# helpers; one copy each, imported by both passes.
+from chunking.repair_common import (
+    ChunkStoreLike,
+    EmbedderLike,
+    all_columns as _all_columns,
+    atomic_write_json as _atomic_write_json,
+    in_list as _in_list,
+    reversal_stamp as _reversal_stamp,
+)
 
 # Planning reads these columns only. The `vector` column is 768 float32s on
 # every one of 83,016 rows -- projecting it for a scan that only needs to
@@ -76,18 +87,6 @@ def _missing_tolerance(sample_size: int) -> float:
     is still tolerated and 21 still refuses.
     """
     return max(1.0, UNCHANGED_SAMPLE_MISSING_LIMIT * sample_size)
-
-
-class ChunkStoreLike(Protocol):
-    def scan(self, name: str, columns: list[str], *, where: str | None = ...,
-             limit: int | None = ...) -> list[dict[str, Any]]: ...
-    def upsert_chunks(self, name: str, rows: Iterable[dict[str, Any]]) -> None: ...
-    def build_fts_index(self, name: str) -> None: ...
-    def optimize(self, name: str, *, retention: Any = ...) -> None: ...
-
-
-class EmbedderLike(Protocol):
-    def embed_batch(self, texts: list[str], *, input_type: str = ...) -> list[list[float]]: ...
 
 
 @dataclass(frozen=True)
@@ -139,11 +138,6 @@ def _read_sidecar(root: Path) -> dict[str, Any]:
 
 def _default_progress(message: str) -> None:
     print(message, flush=True)
-
-
-def _reversal_stamp() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%MZ")
 
 
 def _body(text: str, section_path: list[str]) -> str:
@@ -307,35 +301,10 @@ def _plan_corpus(
     return changes, result, before_by_id
 
 
-_ALL_COLUMNS_CACHE: list[str] | None = None
-
-
-def _all_columns() -> list[str]:
-    """Every column, read from the schema rather than typed out -- a
-    hand-maintained list silently drops a column added later, and a dropped
-    column is written as null on every row this pass touches."""
-    global _ALL_COLUMNS_CACHE
-    if _ALL_COLUMNS_CACHE is None:
-        from store.schema import chunk_schema
-        _ALL_COLUMNS_CACHE = [f.name for f in chunk_schema(dim=1)]
-    return _ALL_COLUMNS_CACHE
-
-
 def _norm(value: Any) -> Any:
     """Lance hands list columns back as lists or arrays depending on the
     path; compare by value, not by container type."""
     return list(value) if isinstance(value, (list, tuple)) or hasattr(value, "tolist") else value
-
-
-def _in_list(chunk_ids: Iterable[str]) -> str:
-    """`chunk_id IN ('a', 'b', ...)`, every literal through `sql_str`.
-
-    Never build this predicate by hand: LanceDB filters are SQL STRINGS with
-    no parameter binding, so an id carrying an apostrophe would either break
-    the parse or rewrite the predicate (`store/chunk_store.py::sql_str`).
-    """
-    from store.chunk_store import sql_str
-    return "chunk_id IN (" + ", ".join(sql_str(c) for c in chunk_ids) + ")"
 
 
 @dataclass
@@ -860,25 +829,6 @@ def _verify_nothing_was_lost(
                     "during the write"
                 )
     progress(f"verified {seen} changed rows in full, {len(sampled)} untouched rows sampled")
-
-
-def _atomic_write_json(path: Path, payload: Any) -> None:
-    """tmp + replace, through the share's retry (`store/fs.py`).
-
-    `Path.replace` is an unconditional POSIX rename. This record is written
-    to the shared drive, where another PC's open handle turns a rename into a
-    sharing violation and `replace_with_retry` -- the one implementation the
-    job files, documents.json and the ingest lock all go through -- waits it
-    out and cleans up the `.tmp` if it never clears. `ensure_ascii=False`
-    keeps a section heading's real characters readable to whoever may have to
-    replay this file by hand.
-    """
-    from store.fs import replace_with_retry
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    replace_with_retry(tmp, path)
 
 
 def repair_section_paths(

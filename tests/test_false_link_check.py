@@ -22,6 +22,7 @@ from eval.false_link_check import (
     pools,
     verdict_counts,
 )
+from retrieval.table_view import render_labelled
 
 
 def test_invented_figures_are_deterministic_and_in_profile():
@@ -138,6 +139,49 @@ def test_pools_ignores_repeats_other_than_r1(tmp_path):
     _write_transcript(tmp_path / "q1-r2.jsonl", [
         {"chunk_id": "c2", "doc_id": "d1", "text": "x"}], "a")
     assert [s for s, _c, _m, _a in pools(tmp_path)] == ["q1-r1"]
+
+
+# ---- the phase A gate: --labelled-pool / pools(labelled=True) ---------
+# G-OT4 (spec section 5): recorded transcripts predate phase A and carry
+# no `is_table` flag on their chunk dicts (nor does a chunk built by
+# today's `_chunk_entry` serialize one), so `pools(labelled=True)` cannot
+# gate on that field — it must run every chunk through `render_labelled`
+# and trust the function's own detection (a tab-joined row plus a
+# detectable header) to tell a table chunk from prose.
+
+_TABLE_TEXT = "\n".join([
+    "FY 2026 Budget",
+    "\tFY 2024 ACTUAL\tFY 2025 ESTIMATE\tFY 2026 APPROVED",
+    "OPERATING SUBTOTAL\t155,570,300\t156,637,800\t197,263,200",
+])
+
+
+def test_pools_labelled_renders_table_chunks_and_leaves_prose_alone(tmp_path):
+    _write_transcript(
+        tmp_path / "q1-r1.jsonl",
+        [{"chunk_id": "c1", "doc_id": "d1", "text": _TABLE_TEXT},
+         {"chunk_id": "c2", "doc_id": "d1", "text": "Agency description prose."}],
+        "answer")
+    _stem, chunks, _meta, _answer = next(iter(pools(tmp_path, labelled=True)))
+    # A table chunk is rendered — verified against the SAME function
+    # production calls, not a re-derived expectation.
+    assert chunks["c1"] == render_labelled(_TABLE_TEXT)
+    assert "OPERATING SUBTOTAL | FY 2024 ACTUAL: 155,570,300" in chunks["c1"]
+    # Prose has no tab-joined row, so render_labelled returns None and the
+    # raw text passes through unchanged — the fallback the docstring names.
+    assert chunks["c2"] == "Agency description prose."
+
+
+def test_pools_default_leaves_table_text_as_stored(tmp_path):
+    # The property the flag exists to isolate: with labelled=False (the
+    # default), a table chunk's pool text is untouched — proving any rate
+    # difference between the two runs comes from the rendering, not from
+    # pools() always relabelling regardless of the flag.
+    _write_transcript(
+        tmp_path / "q1-r1.jsonl",
+        [{"chunk_id": "c1", "doc_id": "d1", "text": _TABLE_TEXT}], "a")
+    _stem, chunks, _meta, _answer = next(iter(pools(tmp_path)))
+    assert chunks["c1"] == _TABLE_TEXT
 
 
 def test_verdict_counts_measures_the_untagged_fallback(tmp_path):

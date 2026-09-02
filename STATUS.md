@@ -60,6 +60,8 @@ source. When something ships, update only this file.
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
+| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B is BUILT and rehearsed — see the row directly below. See the section below |
+| Operating tables — **phase B** (rebuild every agency table from the PDF) | 🟡 **BUILT and rehearsed 2026-09-02; the corpus repair is NOT applied** | Branch `agency-tables`. Every JLBC agency operating table can now be re-read from the PDF's own text layer and accepted only if its subtotals add up: **4,656 of 4,875 (95.5%) pass**, worst year 2009 at 83.7%. **The ingest path already uses it, so every NEW agency-page upload is rebuilt from today** — until the one-time repair runs the corpus is mixed. A rehearsal on a full copy wrote 4,656 rows / 0 skipped, a second pass was 100% byte-identical, drift 0, and the Layer 1 eval is per-query identical. **Task 12, the live apply, is waiting on Destin's yes** at the checkpoint in the dry-run record. See the section below |
 | **Table section paths — the corpus write** | ✅ **APPLIED TO THE LIVE CORPUS 2026-09-01**, all gates passed, eval per-query identical | Branch `table-section-path`. A table passage's heading breadcrumb used to be found by searching the whole document for matching text, so a table on page 400 could carry a heading from page 3 — measured at a **median 266 pages away** in the FY2026 Governor's Budget. It is now the heading the table physically sits under. **8,168 budget rows + 397 fiscal-note rows rewritten** (four columns; agency and fund labels byte-identical corpus-wide, `drift 0`). 1,079 Governor tables labelled *Table of Contents* → **5** (an extractor gap, not this work). Snapshots + reversal records for both tables. Layer 1 eval: **zero queries changed status**. **399 migration-era documents could not be repaired and are still wrong** — see the section below |
 
 ## Table section paths — the corpus repair, APPLIED to the live corpus (2026-09-01)
@@ -528,6 +530,336 @@ Java child with no `CREATE_NO_WINDOW`; per-upload snapshot over SMB) and
 Tier 4 (annoyances: case-sensitive admin username, `.txt.txt`, raw proxy
 errors, the Python-snake icon, unrotated logs, memos saved twice) are
 listed in full there with the "verified clean, do not re-audit" list.
+
+---
+
+## Operating tables — phase A shipped (2026-09-01)
+
+Spec: `docs/superpowers/specs/2026-08-26-agency-table-rebuild-design.md`
+(§3.1, §5). Plan: `docs/superpowers/plans/2026-09-01-agency-table-rebuild.md`
+(12 tasks, phase A = tasks 1–4, all done; phase B = tasks 5–12, **built and
+rehearsed, the corpus repair NOT applied** — see the phase B section directly
+below). Branch `agency-tables`.
+
+**The problem.** JLBC's per-agency operating tables print a value in one
+column and its year in a SEPARATE header row above it — "General Fund
+1,385,450,900" means nothing without knowing that column is "FY 2025
+APPROVED". The model reads the raw tab-joined text today, the same way a
+person would if the header scrolled off the top of their screen: it has to
+count columns and remember which year is which, and it gets that wrong on
+tables with merged cells, footnote markers fused onto figures, or more
+columns than the ones near the top of the passage.
+
+**What shipped.** A shared table vocabulary (`chunking/table_text.py` —
+what a year header, a figure and a footnote marker look like, used by both
+phases so they can't disagree) and a pure renderer
+(`retrieval/table_view.py::render_labelled`) that turns a table chunk's
+`text` into `label | column: value` lines — no HTML, no store access. Every
+retrieved table chunk now carries a SECOND field, `text_labelled`, beside
+the original `text` (`harness/tools.py::_chunk_entry`) — `text` is
+untouched, because the citation linker and the PDF viewer hold offsets
+into it. One paragraph in the system prompt tells the model to read the
+label. `render_labelled` returns `None` (no `text_labelled` sent, model
+sees exactly what it sees today) for a chunk with no tab-joined rows, no
+detectable header row, or over 20,000 characters (spec §5 rule 7 — the
+four 1.8 MB tab-padded AFR chunks would grow further into a payload that
+is already the problem).
+
+**Open item, not a defect: the fused-marker peel is a deliberate reading,
+unaudited beyond 206 pages.** `chunking/table_text.py::peel_markers`
+splits a footnote marker fused onto a figure's digits (spec §5's fused
+shape rule, calibrated on 206 real pages — a one-decimal FTE like
+`974.63/` prints as the value `974.6` with marker `3/` glued on with no
+space). That is the deliberate, spec-approved reading. But it means the
+model now sees `4,611.8` in `text_labelled` where the raw `text` prints
+`4,611.81` (real corpus example, `jlbc-approps-fy2025-des-0000`) — and
+whether the fused-marker split is the CORRECT reading for every such cell
+in the corpus, not just the 206 pages the spec's rule was calibrated
+against, has not been audited. See the false-link section below for the
+measured consequence.
+
+**One rendered example**, a real corpus chunk
+(`jlbc-approps-fy2025-aam-0000`, doc_type `approps-per-agency`):
+
+Raw `text` (what shipped before this branch, and what still ships when
+`render_labelled` returns `None`):
+```
+Operating Budget
+	FY 2023 ACTUAL	FY 2024 ESTIMATE	FY 2025 APPROVED
+OPERATING BUDGET			
+Full Time Equivalent Positions	3.0	0.0	0.0
+Personal Services	92,000	0	0
+```
+
+`text_labelled` (what the model reads today for this chunk):
+```
+Operating Budget
+OPERATING BUDGET
+Full Time Equivalent Positions | FY 2023 ACTUAL: 3.0 | FY 2024 ESTIMATE: 0.0 | FY 2025 APPROVED: 0.0
+Personal Services | FY 2023 ACTUAL: 92,000 | FY 2024 ESTIMATE: 0 | FY 2025 APPROVED: 0
+```
+
+**Rule 5 (continuation-header borrow) was measured and DROPPED — cost/benefit,
+not "no cases exist."** Full write-up:
+`docs/superpowers/investigations/2026-09-01-headerless-tables-count.md`.
+7,411 of 22,889 table chunks corpus-wide have no year header and sit
+outside phase A's scope; an adjacency + column-width probe estimates
+**~150–220 of those (~2–3%) are true continuations** whose header sits in
+the chunk before them, concentrated in the Governor's-budget
+`BY APPROPRIATED FUND` / SLI tables. Rule 5 is dropped anyway because (1)
+the population is under 0.3% of all budget chunks, so the live-database
+read a borrow mechanism would cost is rarely paid — but so is the benefit;
+(2) the discrimination method good enough to trust a borrow does not exist
+yet — the best simple heuristic tried here (adjacency + width match) is
+wrong 40–55% of the time on hand-reading, and a WRONG header is worse than
+NO header (Invariant 1: an unlabelled figure is safer than a mislabelled
+one); (3) the value recovered is legislative line-item detail, not the
+agency-level totals phase A already renders. The concentrated pattern and
+six confirmed true-continuation chunk-id pairs are recorded in the memo for
+whoever revisits this.
+
+### G-OT4 — false-link rate, unchanged, not launched
+
+**The gate that matters: does showing the model relabelled table text move
+the FALSE-LINK rate?** Per this repo's measurement rule (gate on the error
+rate, not the production rate), coverage was never the question — whether a
+citation now points at the WRONG figure is. `eval/false_link_check.py`
+gained a `--labelled-pool` flag: it renders every pool chunk through
+`render_labelled` before inventing figures against it (falling back to the
+raw text when `render_labelled` returns `None`), so the check measures
+against what the model reads TODAY rather than the pre-phase-A text. There
+is no `is_table` field to gate on — it is never serialized into a retrieve
+result, only used internally to decide whether to attempt labelling — so
+the flag calls `render_labelled` unconditionally on every chunk and trusts
+its own header detection, the same thing production does.
+
+Run on both committed transcript sets, both the default seed and a second
+seed, default vs `--labelled-pool`:
+
+| run dir | seed | mode | 4sig-billions | 4sig-millions | exact-grouped | pools |
+|---|---|---|---|---|---|---|
+| `2026-08-02T0900Z-0b08221` (31q) | 7 | default | 0.28% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 7 | labelled | 0.28% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 99 | default | 0.19% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 99 | labelled | 0.19% | 0.19% | 0.00% | 27 |
+| `2026-08-18T1041Z-b373e18` (45q) | 7 | default | 0.39% | 0.17% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 7 | labelled | 0.39% | 0.17% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 99 | default | 0.28% | 0.56% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 99 | labelled | 0.28% | 0.56% | 0.00% | 45 |
+
+**Zero movement on every profile, both run dirs, both seeds — not "under
+1 point of noise", identical to the decimal, ON THE SAMPLES MEASURED.**
+The verdict distribution over the recorded answers' own figures (memo §9,
+the untagged-fallback coverage number) is also byte-identical run to run
+(2026-08-02: 209 linked / 47 derived / 212 unverified of 468; 2026-08-18:
+99 linked / 9 derived / 80 unverified of 188).
+
+**🔧 CORRECTED (review caught this) — `render_labelled` is NOT digit-safe,
+and the zero movement above is not a structural guarantee.** The first
+version of this section claimed the rendering "does not alter or drop any
+digit sequence." That is false. `chunking/table_text.py::peel_markers`
+deliberately SPLITS a figure from a footnote marker fused onto it in the
+raw text (spec §5's fused-shape rule, e.g. a one-decimal FTE printed as
+`974.63/` meaning the value `974.6` with marker `3/` glued on) — and
+`citation/matching.py::_CANDIDATE_RE`'s bare-decimal branch
+(`\d+\.\d+`) greedily consumes the fused marker digit on the RAW text,
+so the raw and labelled renderings of the same cell can yield DIFFERENT
+candidate values for a citation matcher. Confirmed directly (not just
+taken on report): out of the chunks `render_labelled` actually changes
+(77 of 509 pool chunks in the 2026-08-02 run, 78 of 438 in 2026-08-18),
+the set of matcher-extractable figures differs in **2 of 77** and
+**9 of 78** — e.g. `jlbc-approps-fy2025-des-0000` prints `4,611.81` (a
+figure whose marker `1/` is fused onto its digits), which a raw-text
+matcher reads as the value `4611.81`; the labelled rendering correctly
+separates it to `4,611.8` with `[1/]` as a distinct marker, so a matcher
+reading the labelled text extracts `4611.8` instead — a genuinely
+different candidate. The false-link rate held at 0.00% movement anyway
+because none of the 40 random figures invented per profile per pool, at
+either seed, happened to collide with one of this handful of affected
+values across thousands of trials — that is a property of these
+particular samples, not a proof that no invented figure ever could.
+**Re-measure `--labelled-pool` if it is ever run against a larger
+transcript population**, and do not cite "digit-preserving by
+construction" as the reason the rate is unchanged.
+
+**The load-bearing mitigation, independent of the above:** in production
+today, the citation linker (`citation/matching.py`) and the PDF viewer
+both read a chunk's `text` field — never `text_labelled`
+(`harness/tools.py::_chunk_entry` sends `text_labelled` as an ADDITIONAL
+field, spec §5). So neither consumer's real input changes at all because
+of this branch, regardless of the finding above. `--labelled-pool` is a
+deliberate WHAT-IF measurement for the different case where the MODEL
+reads `text_labelled`, then quotes a labelled value back into its answer
+— the only path by which a labelled-rendering digit difference could ever
+reach the linker. `eval/false_link_check.py`
+writes `false-link-report.json` (default) and `false-link-report-labelled.json`
+(labelled) into each run dir — gitignored transcripts, not committed.
+
+**G-OT4, the live Layer 2 spend, is OFFERED and NOT run** (paid work needs
+Destin's go-ahead per CLAUDE.md):
+
+```
+uv run python -m eval.run_agent_eval --queries lk-asu-operating-fy2026 lk-dps-operating-fy2026 lk-adc-total-fy2026 lk-tou-tourism-fy2026 lk-min-operating-fy2025 cm-supplementals-fy2026 cm-university-funding-dr --note "G-OT4 after phase A"
+```
+
+Estimated **~$0.10**, plus a same-day control run of the identical command
+on the commit before Task 2 (`c20f8c4`, the commit before `text_labelled`
+started reaching the model) so the two runs are separated only by the
+labelling change. Run only if Destin says yes; record both run directories
+here once it happens.
+
+**Layer 1 eval — run because `harness/system-prompt.md` changed (Task 2),
+though it cannot observe the prompt.** `eval/run_eval.py` calls
+`retrieve()` directly and never reads the system prompt or `text_labelled`,
+so this is evidence, not a real gate for this change — run anyway per the
+CLAUDE.md rule. **recall@5 85.71% / recall@15 97.62% / recall@20 100.00% /
+refusal precision 60.00%** — identical to the 2026-08-26 baseline.
+p95 latency read 2158ms against a recorded ~1390ms baseline; per this
+file's own recorded pattern (see "Windows beta fixes"), that is a
+control-conditions artefact (the eval ran alongside other work on this
+machine) — recall and refusal numbers, the actual gate, did not move.
+Results: `eval/results/2026-09-02T0247Z-5787a00.{json,md}`.
+
+**Both clauses that used to sit here were false and are corrected below.**
+Phase B is BUILT (not "not started"), and its precondition — the section-path
+repair — IS on master and was applied to the live corpus on 2026-09-01 (this
+file's own "Table section paths" row says so). What is genuinely outstanding
+is the corpus repair itself. See the next section.
+
+---
+
+## Operating tables — phase B built, rehearsed, NOT applied (2026-09-02)
+
+Spec: `docs/superpowers/specs/2026-08-26-agency-table-rebuild-design.md`.
+Plan: `docs/superpowers/plans/2026-09-01-agency-table-rebuild.md` (tasks
+5–11 done; **task 12, the live apply, has not run**). The checkpoint, the
+per-year numbers, the before/after pairs and the one question for Destin are
+all in
+`docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`.
+Branch `agency-tables`.
+
+**In plain English.** Every JLBC per-agency page prints one operating table —
+staff positions, spending lines, then the fund ladder down to
+*TOTAL - ALL SOURCES*. MinerU, which reads our PDFs, gets that table wrong in
+two ways that matter: it **glues two printed rows into one cell**
+(2,627 of the 4,875 tables, 53.9%) and it **glues a footnote marker onto the
+number beside it** (1,400 tables, 28.7%) — so `147.5` staff positions with
+footnote `1/` is stored as **147.51**. Phase B re-reads each of those tables
+from the PDF's own text layer, and **only keeps the new reading if the table's
+own subtotals add up**. A table that does not add up keeps exactly what it has
+today; nothing is guessed.
+
+### What is built
+
+The reader (`chunking/readers/text_layer_table.py`), the arithmetic gate
+(`chunking/table_gate.py`), the shared repair helpers
+(`chunking/repair_common.py`) and the one-time corpus repair with its CLI
+(`chunking/repair_tables.py`). **It is wired into ingest**
+(`MinerUReader(source_pdf=…)` → `chunk_doc(source_pdf=…)` → `ingest/worker.py`),
+which has a consequence worth stating out loud: **every JLBC agency-page
+document uploaded from now on is already rebuilt this way.** Until the
+one-time repair runs, the corpus is therefore **mixed** — new uploads carry
+rebuilt tables, the 4,656 tables already stored stay garbled.
+
+### The gates, with their numbers
+
+* **G-OT0 (the gate calibrated on tables MinerU already read cleanly): 81.6%
+  of 1,725 clean tables pass.** ⚠ **This is a DEVIATION from spec §4.1**,
+  which said to tune the rule *"until the clean tables pass"*. It was accepted
+  rather than chased: reading the failures shows them to be MinerU's own row
+  and label fusion in the stored text — the rule is adding the right column of
+  the wrong table — and the same rule scores **95.5%** on the rebuilt text it
+  exists to judge. A rule loosened until 100% of MinerU's readings passed
+  would be a rule that had stopped catching a wrong figure.
+* **G-OT1 (how many rebuild and verify): 4,656 of 4,875 = 95.5%**, against a
+  90% floor; worst fiscal year **2009 at 83.7%**, against a 70% per-year
+  floor. The 219 refusals were read, not just counted: 143 are pages whose
+  printed column genuinely does not foot (MinerU's own reading fails the same
+  gate on 141 of them), 47 are anchor-match misses, and the rest are small
+  shape classes.
+* **The rehearsal on a full copy: 4,656 rows written, 0 skipped**, no warning.
+  Running it a **second** time on the result rewrites all 4,656 rows
+  **byte-identical**, with no verdict changing.
+* **G-OT3 (does the repair agree with a from-scratch re-ingest): drift 0**
+  over a 40-document fixed-seed sample, 119 table chunks compared.
+* **G-OT2 (Layer 1 eval, control vs after): per-query identical** — same
+  recall@5/@15/@20 (85.71 / 97.62 / 100.00), same refusal precision (60%),
+  `STATUS FLIPPED: []`, 0 rank changes, 0 score changes. **The one and only
+  difference in the two files is `q-017`'s top-5 list**, where
+  `agao-afr-fy2024-0438` drops out, `agao-afr-fy2025-0034` enters and the
+  three survivors each move up a slot; the query still passes at rank 1 with
+  the same score. Files:
+  `eval/results/2026-09-02T1339Z-1d04ace.{json,md}` (live control) and
+  `eval/results/rehearsal/2026-09-02T1340Z-1d04ace-rehearsal-copy.{json,md}`.
+  Read that "identical" narrowly — only **1 of the 51** eval ground-truth
+  passages is one of these tables.
+
+### 🔴 The finding that is worth more than the repair
+
+**MinerU reads a footnote marker as part of the number beside it whenever
+there is no space between them, and on dollar figures that is an
+order-of-magnitude error.** A cell printed `$1,372,200` with footnote `3/` is
+stored as **1,372,2003** — a thousand times too large. Measured read-only over
+the 4,875 in-scope tables on 2026-09-02: **2,724 cells on 1,372 tables** carry
+that shape.
+
+The staff-position (FTE) version of the same fusion is much rarer — **130
+cells on 127 tables** — and the number itself barely moves: `147.5` read as
+`147.51` is out by 0.007%. What makes those cases serious is **misplacement**,
+not magnitude: in `jlbc-approps-fy2008-judcoa-0000` MinerU put the figure on
+the `OPERATING BUDGET` heading row and left the
+`Full Time Equivalent Positions` row's own column empty, so the page reports
+no staff at all.
+
+Across the corpus the two readings disagree about **1,141 figures on 613
+tables**; 28 were checked by eye against the printed page and **the text layer
+is right in all 28**. Those wrong numbers are in the corpus today and are
+citable.
+
+### 🔴 A trap that made the same corpus score 88.7% or 95.5% depending on the machine
+
+329 documents (342 tables) record their PDF as a repo-relative
+`data/cached-pdfs/…` path that only resolves inside a checkout carrying that
+gitignored download cache. Run from a bare worktree, the identical pass over
+the identical corpus reports **88.7% overall with FY2025–27 near 48% — a
+G-OT1 failure on a corpus that is completely fine.** The CLI now refuses to
+report such a run as a measurement (banner, non-zero exit), and an `--apply`
+in that state **refuses before it takes the lock or spends a snapshot**.
+
+### Residuals and follow-ups, none of them blocking
+
+* **A systematic reader defect would silently un-repair a document.** The
+  reader runs at ingest, so re-ingesting a repaired document rebuilds its
+  tables again from the PDF. If the reader ever regresses, the only sign is a
+  line in the worker log — nothing on screen, and no test can see it.
+* **Those same 329 documents probably cannot open their source PDF in the
+  app either** — `_resolve_blob` is the resolver the PDF viewer uses. A
+  corpus-identity defect affecting analysts today, independent of this work.
+* **The anchor-match denominator counts MinerU's own header rows**, which
+  would let 40 of the 52 first-run anchor refusals clear the threshold. Left
+  alone deliberately: it touches the file all 4,875 tables go through, so it
+  needs its own dry run.
+* **111 table chunks outside phase B's scope carry a ladder marker**
+  (98 `detailed-list-pdf`, 13 `topic-pdf`) — measured 2026-09-02. They are not
+  agency operating tables and are not touched.
+* **The fused-marker peel is audited on 206 pages, not corpus-wide** (carried
+  over from phase A).
+* **`MARKER_RE` does not recognise JLBC's real range spelling `NN-MM/`.** The
+  spec assumed a range prints as `8/-13/`; the books also print
+  `12,865,000 11-13/`, which no version of the trailing-marker strip handles,
+  so a label ending in a range keeps a dangling digit in its normalised form.
+  Pre-existing, costs nothing today — the residue is applied identically to
+  both sides of every comparison the normaliser feeds — and never reaches the
+  written text. A follow-up, not a defect this branch introduced.
+
+### ⏸ Task 12 — the live apply — is waiting on Destin
+
+One command, roughly 7–15 minutes, with a CRC-verified snapshot and a full
+reversal record as the way back. It must run from a checkout carrying
+`data/cached-pdfs/` (this worktree, or the main checkout), with a fresh
+control eval immediately before it. **A second apply is a content no-op** and
+still costs a 670 MB snapshot and ten minutes, so run it once.
+
 
 ---
 
