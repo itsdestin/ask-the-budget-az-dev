@@ -3,6 +3,19 @@
 **Status:** approved 2026-08-26 (Destin). Decisions D1–D3 below are his and
 are not to be re-litigated.
 
+> ## ⛔ APPLIED — DO NOT RE-RUN THE CORPUS WRITE
+>
+> **The corpus write described here was applied to the live corpus on
+> 2026-09-01** — 8,168 `budget_chunks` rows and 397 `fiscal_note_chunks`
+> rows, with snapshots and reversal records. All gates passed (G-T3 `drift
+> 0`, G-T4 as amended, G-T5 exact, G-T6 0 mismatches, G-T2 no query changed
+> status). **This document is design intent now, not work.** A second
+> `--apply` is a no-op by construction — the plan is re-derived from the
+> stored rows and would find nothing to change — but it takes the ingest
+> lock and snapshots the whole corpus, so do not run it. What actually
+> shipped, the measured before/after and the open items are in `STATUS.md`
+> → *Table section paths — the corpus repair*.
+
 Every chunk carries a `section_path` — the breadcrumb of headings it sits
 under. It is load-bearing in four places:
 

@@ -1,0 +1,1540 @@
+{
+  "extractor": "opendataloader-2.4.1",
+  "source_pdf": "/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data/pdfs/59/596df6b3ebd6e51b203556afa936abcbd008ccf9e484f60993ca7ff0c0a0611f.pdf",
+  "page": 2,
+  "blocks": [
+    {
+      "type": "header",
+      "id": 661,
+      "page number": 2,
+      "bounding box": [
+        34.487,
+        740.236,
+        186.299,
+        759.82
+      ],
+      "kids": [
+        {
+          "type": "text chunk",
+          "page number": 2,
+          "bounding box": [
+            34.487,
+            740.236,
+            186.299,
+            759.82
+          ],
+          "content": "Table of Contents"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        695.404,
+        81.604,
+        707.372
+      ],
+      "font": "Archivo",
+      "font size": 11.0,
+      "text color": "[0.0, 0.314, 0.235]",
+      "content": "Overview"
+    },
+    {
+      "type": "heading",
+      "page number": 2,
+      "bounding box": [
+        158.121,
+        718.294,
+        174.832,
+        720.47
+      ],
+      "heading level": 1,
+      "font": "Archivo,Bold",
+      "font size": 2.0,
+      "text color": "[1.0]",
+      "content": "Table of Contents"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        673.281,
+        296.237,
+        684.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Executive Budget In-A-Flash - - - - - - - - - - - - - - - - - - - - -4"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        647.404,
+        192.957,
+        659.372
+      ],
+      "font": "Archivo",
+      "font size": 11.0,
+      "text color": "[0.0, 0.314, 0.235]",
+      "content": "Agency Operating Budget Detail"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        625.281,
+        296.237,
+        636.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Accountancy, Board of  - - - - - - - - - - - - - - - - - - - - - - - - -7"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        613.281,
+        296.207,
+        624.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Acupuncture Examiners, Board of - - - - - - - - - - - - - - - -10"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        601.281,
+        296.207,
+        612.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Administration, Department of - - - - - - - - - - - - - - - - - - -13"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        589.281,
+        296.207,
+        600.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Administrative Hearings, Office of  - - - - - - - - - - - - - - - -25"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        577.281,
+        296.207,
+        588.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Agriculture, Department of- - - - - - - - - - - - - - - - - - - - - -28"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        565.281,
+        296.197,
+        576.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Arizona Health Care Cost Containment System  - - - - - -34"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        553.281,
+        296.207,
+        564.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Arts, Commission on the - - - - - - - - - - - - - - - - - - - - - - -46"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        541.281,
+        296.207,
+        552.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Athletic Training, Board of - - - - - - - - - - - - - - - - - - - - - -51"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        529.281,
+        296.207,
+        540.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Attorney General  - - - - - - - - - - - - - - - - - - - - - - - - - - - -54"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        517.281,
+        296.207,
+        528.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Barbering and Cosmetology, Board of  - - - - - - - - - - - - -61"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        505.281,
+        296.197,
+        516.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Behavioral Health Examiners, Board of  - - - - - - - - - - - -64"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        493.281,
+        296.197,
+        504.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Charter Schools, Board for  - - - - - - - - - - - - - - - - - - - - -68"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        481.281,
+        296.197,
+        492.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Child Safety, Department of- - - - - - - - - - - - - - - - - - - - -72"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        469.281,
+        296.207,
+        480.161
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Chiropractic Examiners, Board of- - - - - - - - - - - - - - - - -82"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        457.281,
+        296.207,
+        468.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Citizens' Clean Elections Commission - - - - - - - - - - - - -85"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        445.282,
+        296.207,
+        456.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Commerce Authority - - - - - - - - - - - - - - - - - - - - - - - - - -87"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        433.282,
+        296.207,
+        444.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Community Colleges- - - - - - - - - - - - - - - - - - - - - - - - - -91"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        421.282,
+        296.207,
+        432.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Constable Ethics Standards & Training Board - - - - - - - -96"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        409.282,
+        296.207,
+        420.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Contractors, Registrar of - - - - - - - - - - - - - - - - - - - - - - -98"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        397.282,
+        296.167,
+        408.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Corporation Commission- - - - - - - - - - - - - - - - - - - - - -101"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        385.282,
+        296.167,
+        396.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Corrections, Department of - - - - - - - - - - - - - - - - - - - -105"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        373.282,
+        296.167,
+        384.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Criminal Justice Commission, Arizona  - - - - - - - - - - - -116"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        361.282,
+        296.167,
+        372.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Deaf and the Blind, State Schools for the - - - - - - - - - -120"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        337.282,
+        296.166,
+        360.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Deaf and the Hard of Hearing, Commission for  the  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -125"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        325.282,
+        296.167,
+        336.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Dental Examiners, Board of- - - - - - - - - - - - - - - - - - - -128"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        313.282,
+        296.167,
+        324.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Early Childhood Development and Health Board- - - - -131"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        301.282,
+        296.167,
+        312.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Economic Opportunity, Office of- - - - - - - - - - - - - - - - -133"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        289.282,
+        296.167,
+        300.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Economic Security, Department of - - - - - - - - - - - - - - -137"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        277.282,
+        296.167,
+        288.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Education, Board of  - - - - - - - - - - - - - - - - - - - - - - - - -152"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        265.282,
+        296.167,
+        276.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Education, Department of - - - - - - - - - - - - - - - - - - - - -155"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        253.282,
+        296.167,
+        264.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Emergency and Military Affairs, Department of - - - - - -167"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        241.282,
+        296.167,
+        252.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Environmental Quality, Department of  - - - - - - - - - - - -173"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        229.282,
+        296.167,
+        240.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Equal Opportunity, Governor's Office for- - - - - - - - - - -180"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        217.282,
+        296.167,
+        228.162
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Equalization, Board of- - - - - - - - - - - - - - - - - - - - - - - -182"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        205.282,
+        296.167,
+        216.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Executive Clemency, Board of - - - - - - - - - - - - - - - - - -185"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        193.283,
+        296.167,
+        204.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Exposition and State Fair, Arizona - - - - - - - - - - - - - - -189"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        181.283,
+        296.167,
+        192.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Fingerprinting, Board of- - - - - - - - - - - - - - - - - - - - - - -192"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        169.283,
+        296.167,
+        180.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Forestry and Fire Management, Department of - - - - - -196"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        157.283,
+        296.167,
+        168.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Game and Fish Department  - - - - - - - - - - - - - - - - - - -201"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        145.283,
+        296.167,
+        156.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Gaming, Department of- - - - - - - - - - - - - - - - - - - - - - -207"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        121.283,
+        296.166,
+        144.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Governor's Office of Strategic Planning and  Budgeting  - - - - - - - - - - - - - - - - - - - - - - - - - - - - -212"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        109.283,
+        296.167,
+        120.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Governor, Office of the - - - - - - - - - - - - - - - - - - - - - - -214"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        97.283,
+        296.167,
+        108.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Health Services, Department of - - - - - - - - - - - - - - - - -217"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        85.283,
+        296.167,
+        96.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Highway Safety, Governor's Office of - - - - - - - - - - - - -228"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        73.283,
+        296.167,
+        84.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Historical Society, Arizona - - - - - - - - - - - - - - - - - - - - -231"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        61.283,
+        296.167,
+        72.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Historical Society, Prescott  - - - - - - - - - - - - - - - - - - - -235"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        49.283,
+        296.167,
+        60.163
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Homeland Security, Department of- - - - - - - - - - - - - - -238"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        711.25,
+        575.406,
+        722.133
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Homeopathic Medical Examiners, Board of - - - - - - - -  243"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        699.25,
+        575.406,
+        710.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Housing, Department of- - - - - - - - - - - - - - - - - - - - - -  246"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        687.25,
+        575.406,
+        698.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Independent Redistricting Commission - - - - - - - - - - -  250"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        675.25,
+        575.406,
+        686.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Industrial Commission of Arizona - - - - - - - - - - - - - - -  251"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        663.25,
+        575.406,
+        674.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Insurance and Financial Institutions, Department of - -  256"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        651.25,
+        575.406,
+        662.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Judicial Branch - - - - - - - - - - - - - - - - - - - - - - - - - - - -  261"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        639.25,
+        575.397,
+        650.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Court of Appeals - - - - - - - - - - - - - - - - - - - - - - - -  261"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        627.25,
+        575.407,
+        638.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Superior Courts- - - - - - - - - - - - - - - - - - - - - - - - -  263"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        615.25,
+        575.407,
+        626.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Supreme Court - - - - - - - - - - - - - - - - - - - - - - - - -  266"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        603.25,
+        575.406,
+        614.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Juvenile Corrections, Department of - - - - - - - - - - - - -  270"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        591.25,
+        575.406,
+        602.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Land Department, State- - - - - - - - - - - - - - - - - - - - - -  275"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        579.25,
+        575.406,
+        590.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Legislative Branch- - - - - - - - - - - - - - - - - - - - - - - - - -  279"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        567.25,
+        575.407,
+        578.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Auditor General- - - - - - - - - - - - - - - - - - - - - - - - -  279"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        555.25,
+        575.407,
+        566.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "House of Representatives - - - - - - - - - - - - - - - - -  282"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        543.25,
+        575.407,
+        554.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Joint Legislative Budget Committee  - - - - - - - - - -  284"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        531.25,
+        575.407,
+        542.13
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Legislative Council  - - - - - - - - - - - - - - - - - - - - - -  286"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        519.25,
+        575.407,
+        530.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Ombudsman-Citizens' Aide  - - - - - - - - - - - - - - - -  288"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        332.987,
+        507.251,
+        575.407,
+        518.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Senate- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  290"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        495.251,
+        575.406,
+        506.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Liquor Licenses and Control, Department of  - - - - - - -  292"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        483.251,
+        575.406,
+        494.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Local Government- - - - - - - - - - - - - - - - - - - - - - - - - -  296"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        471.251,
+        575.406,
+        482.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Lottery Commission, State- - - - - - - - - - - - - - - - - - - -  298"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        459.251,
+        575.406,
+        470.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Massage Therapy, Board of - - - - - - - - - - - - - - - - - - -  303"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        447.251,
+        575.406,
+        458.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Medical Board  - - - - - - - - - - - - - - - - - - - - - - - - - - - -  306"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        435.251,
+        575.396,
+        446.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Mine Inspector, State- - - - - - - - - - - - - - - - - - - - - - - -  310"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        423.251,
+        575.406,
+        434.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Natural Resource Conservation Board  - - - - - - - - - - -  314"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        399.251,
+        575.407,
+        422.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Naturopathic Physicians Board of Medical  Examiners  - - - - - - - - - - - - - - - - - - - - - - - - - - - -  316"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        387.251,
+        575.406,
+        398.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Navigable Stream Adjudication Commission - - - - - - -  319"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        375.251,
+        575.406,
+        386.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Nursing Care Institution Administration Examiners - - -  322"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        363.251,
+        575.406,
+        374.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Nursing, Board of - - - - - - - - - - - - - - - - - - - - - - - - - -  326"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        351.251,
+        575.406,
+        362.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Occupational Therapy Examiners, Board of- - - - - - - -  330"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        339.251,
+        575.406,
+        350.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Opticians, Board of Dispensing  - - - - - - - - - - - - - - - -  333"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        327.251,
+        575.406,
+        338.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Optometry, Board of  - - - - - - - - - - - - - - - - - - - - - - - -  336"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        315.251,
+        575.406,
+        326.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Osteopathic Examiners, Board of - - - - - - - - - - - - - - -  339"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        303.251,
+        575.406,
+        314.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Parks, Arizona State - - - - - - - - - - - - - - - - - - - - - - - -  342"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        291.251,
+        575.396,
+        302.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Personnel Board- - - - - - - - - - - - - - - - - - - - - - - - - - -  348"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        279.251,
+        575.406,
+        290.131
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Pharmacy, Board of- - - - - - - - - - - - - - - - - - - - - - - - -  352"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        267.251,
+        575.406,
+        278.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Physical Therapy Examiners, Board of - - - - - - - - - - -  356"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        255.252,
+        575.406,
+        266.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Pioneers' Home, Arizona - - - - - - - - - - - - - - - - - - - - -  359"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        243.252,
+        575.406,
+        254.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Podiatry Examiners, Board of- - - - - - - - - - - - - - - - - -  362"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        231.252,
+        575.406,
+        242.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Power Authority  - - - - - - - - - - - - - - - - - - - - - - - - - - -  365"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        219.252,
+        575.406,
+        230.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Private Postsecondary Education, Board for - - - - - - -  367"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        207.252,
+        575.406,
+        218.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Psychologist Examiners, Board of  - - - - - - - - - - - - - -  370"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        195.252,
+        575.406,
+        206.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Public Safety Personnel Retirement System - - - - - - -  373"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        183.252,
+        575.406,
+        194.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Public Safety, Department of - - - - - - - - - - - - - - - - - -  376"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        171.252,
+        575.406,
+        182.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Real Estate, Department of - - - - - - - - - - - - - - - - - - -  385"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        159.252,
+        575.406,
+        170.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Residential Utility Consumer Office- - - - - - - - - - - - - -  388"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        147.252,
+        575.406,
+        158.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Respiratory Care Examiners, Board of  - - - - - - - - - - -  391"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        135.252,
+        575.406,
+        146.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Retirement System, Arizona State  - - - - - - - - - - - - - -  395"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        123.252,
+        575.406,
+        134.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Revenue, Department of - - - - - - - - - - - - - - - - - - - - -  398"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        111.252,
+        575.406,
+        122.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Secretary of State - Department of State- - - - - - - - - -  403"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        99.252,
+        575.406,
+        110.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Tax Appeals, Board of - - - - - - - - - - - - - - - - - - - - - - -  408"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        87.252,
+        575.406,
+        98.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Technical Registration, Board of - - - - - - - - - - - - - - - -  411"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        75.252,
+        575.406,
+        86.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Tourism, Office of - - - - - - - - - - - - - - - - - - - - - - - - - -  414"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        63.252,
+        575.406,
+        74.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Transportation, Department of - - - - - - - - - - - - - - - - -  417"
+    },
+    {
+      "type": "paragraph",
+      "page number": 2,
+      "bounding box": [
+        314.987,
+        51.252,
+        575.406,
+        62.132
+      ],
+      "font": "Archivo",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Treasurer, State  - - - - - - - - - - - - - - - - - - - - - - - - - - -  430"
+    },
+    {
+      "type": "footer",
+      "id": 1,
+      "page number": 2,
+      "bounding box": [
+        35.987,
+        17.633,
+        309.087,
+        28.338
+      ],
+      "kids": [
+        {
+          "type": "text chunk",
+          "page number": 2,
+          "bounding box": [
+            35.987,
+            17.633,
+            309.087,
+            28.338
+          ],
+          "content": "FY 2026 Executive Budget 2"
+        }
+      ]
+    }
+  ]
+}

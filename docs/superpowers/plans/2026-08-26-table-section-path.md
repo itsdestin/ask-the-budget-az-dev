@@ -1,5 +1,18 @@
 # Table Section Paths Implementation Plan
 
+> ## ⛔ EXECUTED AND APPLIED — DO NOT RE-RUN
+>
+> All eight tasks ran, and **Task 8's `--apply` wrote the live corpus on
+> 2026-09-01** (8,168 `budget_chunks` rows, 397 `fiscal_note_chunks` rows;
+> snapshots `lancedb-20260902T023505Z.zip` and `lancedb-20260902T024612Z.zip`,
+> reversal records beside them in the data dir). **Task 8's `--apply` must
+> never be executed again against this corpus.** A second apply is a no-op
+> by design — the plan is recomputed from the stored rows — but it still
+> takes the ingest lock and zips the whole corpus for nothing. This plan is
+> the record of design intent; `STATUS.md` → *Table section paths — the
+> corpus repair* is what actually happened, including the numbers that
+> differ from this document's estimates and the items left open.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A table chunk's `section_path` becomes the heading it physically sits under, instead of the first heading anywhere in the document containing one of its cell strings — and the ~10,200 corpus rows already carrying the wrong answer are repaired in place.
@@ -270,7 +283,7 @@ map by identity instead of searching it by text."
 
 Run: `grep -rn "outline_path" --include='*.py' . | grep -v __pycache__`
 
-Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), three comments (`narrative_chunk.py:27`, `mineru_reader.py`, `odl_reader.py`), and **four tests** — one in `tests/test_mineru_reader.py` (line ~86) and three in `tests/test_odl_reader.py` (lines ~92, ~108, ~115; verified 2026-08-26). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
+Expected: hits in `chunking/builders/table_chunk.py` (the caller), `chunking/readers/types.py` (the definition), **five comment mentions** (`narrative_chunk.py:27` and `:145`, `mineru_reader.py:234`, `odl_reader.py:220` and `:248` — verified on the branch 2026-08-26; the two at `:145` / `:248` are passing references and need no edit beyond reading them), and **four tests** — one in `tests/test_mineru_reader.py` (line ~86) and three in `tests/test_odl_reader.py` (lines ~92, ~108, ~115; verified 2026-08-26). **If a production caller outside `table_chunk.py` appears, stop and report it** — the spec's D1 rests on there being none.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -1907,7 +1920,7 @@ uv run python -m chunking.repair_section_paths \
 | doc | tables | changed | note |
 |---|---|---|---|
 | `governor-governors-budget-fy2026` | 1,246 | ≈1,197 (spec: 1,196 differ + orphans) | relabelled ≫ to_blank; at least one printed line reads `'Table of Contents' -> '<an agency name>'` |
-| `agao-afr-fy2024` | 422 | ≈261 (61.9%) | **planned, not skipped** — it must be read from `mineru/`, the sidecar's method; a `body mismatch` skip here means Task 3's lookup regressed |
+| `agao-afr-fy2024` | 422 | no per-document figure — the spec's 61.9% is the four-AFR *type* average (§3.5), not this file's; the first dry run measured **96 (22.7%)** against FY2021's 96%, so it is recorded, not gated. The per-document gate for this file is G-T4's units-claiming **51** in Task 7 | **planned, not skipped** — it must be read from `mineru/`, the sidecar's method; a `body mismatch` skip here means Task 3's lookup regressed |
 | `agao-afr-fy2021` | — | — | the page-3 statements go `to_blank` (spec §1.3) |
 | `jlbc-approps-fy2027-deq` | small | a few | the JLBC per-agency to-blank shape for G-T6 |
 
@@ -2385,8 +2398,11 @@ uv run pytest -q 2>&1 | tail -3
 cd webapp && npx tsc -b && npm run build && npx vitest run 2>&1 | tail -3
 ```
 
-Expected: no new failures. The webapp is untouched by this plan, so its
-counts must be unchanged. Delete `$SCRATCH/rehearsal-data/` — it holds a
+The worktree has no `webapp/node_modules` (the venv is symlinked, npm
+packages are not) — run the three webapp commands from the MAIN repo after
+the merge below, or `npm ci` in the worktree first. Expected: no new
+failures. The webapp is untouched by this plan, so its counts must be
+unchanged. Delete `$SCRATCH/rehearsal-data/` — it holds a
 second copy of the corpus plus its snapshot, ~2 GB, and nothing points at
 it once the live write is done.
 

@@ -227,17 +227,23 @@ class MinerUReader:
         """Stack-based outline construction. Same algorithm as ODL reader —
         but MinerU heading levels start at 1 and are used directly.
         
-        THIS DOES NOT DECIDE A CHUNK'S `section_path`, and assuming it does
-        cost a day on 2026-08-16. Table chunks -- nearly all of an AFR or a
-        Governor's budget -- get their path from
-        `chunking/builders/table_chunk.py::_resolve_section_path`, which
-        searches the outline by TEXT (`outline_path`) over the table's own
-        cell strings and otherwise walks its own separate
-        nearest-preceding-heading stack. A bounded version of the walk below
-        was built, calibrated and shipped to fix mislabelled headings; it
-        changed ZERO chunks across 40 documents and was reverted (`1292030`).
-        Whatever you are about to change here, run `chunk_doc` end-to-end
-        over cached extractor output and diff the section paths first.
+        THIS IS WHERE A CHUNK'S `section_path` COMES FROM. Both builders
+        read the `body_blocks` this method fills:
+        `narrative_chunk.visit` walks the tree for paragraphs, and
+        `table_chunk.build_table_chunk` asks
+        `ExtractedDocument.owner_path(table)`.
+
+        Until 2026-08-26 the table side instead SEARCHED the outline by
+        text and this docstring warned that the walk below was not
+        load-bearing. It is now. A bounded version of the walk was built,
+        calibrated and shipped against the old design on 2026-08-16, was
+        measured to change ZERO chunks, and was reverted (`1292030`) —
+        because it bounded a mechanism nothing read. That no longer
+        applies, which cuts both ways: **whatever you change here now
+        DOES move production chunks.** Run `chunk_doc` end-to-end over
+        cached extractor output and diff the section paths first
+        (`uv run python -m chunking.repair_section_paths --doc <doc_id>`
+        is a dry run that prints old vs new per table).
         """
         roots: list[OutlineNode] = []
         stack: list[OutlineNode] = []

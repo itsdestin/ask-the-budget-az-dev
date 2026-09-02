@@ -1,0 +1,638 @@
+{
+  "extractor": "opendataloader-2.4.1",
+  "source_pdf": "/home/destin/YouCoded/Projects/ask-the-budget-az-dev/data/insight-data/pdfs/59/596df6b3ebd6e51b203556afa936abcbd008ccf9e484f60993ca7ff0c0a0611f.pdf",
+  "page": 10,
+  "blocks": [
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        735.5,
+        321.739,
+        755.084
+      ],
+      "font": "Archivo,Bold",
+      "font size": 18.0,
+      "text color": "[0.0, 0.314, 0.235]",
+      "content": "Acupuncture Board of Examiners"
+    },
+    {
+      "type": "heading",
+      "page number": 10,
+      "bounding box": [
+        543.664,
+        751.527,
+        576.009,
+        753.703
+      ],
+      "heading level": 1,
+      "font": "Archivo,Bold",
+      "font size": 2.0,
+      "text color": "[1.0]",
+      "content": "Acupuncture Examiners, Board of"
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        671.398,
+        576.071,
+        725.182
+      ],
+      "font": "Archivo",
+      "font size": 9.0,
+      "text color": "[0.0]",
+      "content": "The Acupuncture Board of Examiners licenses and regulates acupuncturists, certifies auricular (ear) acupuncturists, and registers  acupuncture assistants. The Board also oversees the licensing and certification of acupuncture training, continuing education programs,  and visiting professors. The Board evaluates professional competency, investigates complaints, and enforces the standards of practice  for the acupuncture profession. The Board regulates the educational, clinical, and clean needle technique programs approved to teach  the practice of acupuncture in the State."
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        647.514,
+        314.606,
+        658.394
+      ],
+      "font": "Archivo,Bold",
+      "font size": 10.0,
+      "text color": "[0.0]",
+      "content": "Link to the AGENCY\u2019S WEBSITE:    https://acupuncture.az.gov/"
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.989,
+        619.409,
+        163.747,
+        630.833
+      ],
+      "font": "Archivo,Bold",
+      "font size": 10.5,
+      "text color": "[0.0, 0.314, 0.235]",
+      "content": "Agency Budget Summary"
+    },
+    {
+      "type": "table",
+      "id": 5,
+      "page number": 10,
+      "bounding box": [
+        38.989,
+        545.224,
+        573.021,
+        609.016
+      ],
+      "number of rows": 3,
+      "number of columns": 5,
+      "rows": [
+        {
+          "type": "table row",
+          "row number": 1,
+          "cells": [
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                38.989,
+                577.224,
+                76.032,
+                587.016
+              ],
+              "row number": 1,
+              "column number": 1,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    38.989,
+                    577.224,
+                    76.032,
+                    587.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "Program"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                281.882,
+                577.226,
+                315.689,
+                598.016
+              ],
+              "row number": 1,
+              "column number": 2,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    281.882,
+                    577.226,
+                    315.689,
+                    598.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "FY 2024 Actual"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                341.389,
+                577.226,
+                414.572,
+                598.016
+              ],
+              "row number": 1,
+              "column number": 3,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    341.389,
+                    577.226,
+                    414.572,
+                    598.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "FY 2025 Expenditure Plan"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                432.216,
+                577.226,
+                482.099,
+                598.016
+              ],
+              "row number": 1,
+              "column number": 4,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    432.216,
+                    577.226,
+                    482.099,
+                    598.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "FY 2026 Net Change"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                515.402,
+                577.228,
+                559.907,
+                609.016
+              ],
+              "row number": 1,
+              "column number": 5,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    515.402,
+                    577.228,
+                    559.907,
+                    609.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "FY 2026 Executive  Budget"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table row",
+          "row number": 2,
+          "cells": [
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                38.989,
+                561.224,
+                142.368,
+                571.016
+              ],
+              "row number": 2,
+              "column number": 1,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    38.989,
+                    561.224,
+                    142.368,
+                    571.016
+                  ],
+                  "font": "Archivo",
+                  "font size": 9.0,
+                  "text color": "[0.0]",
+                  "content": "Other Appropriated Funds"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                312.901,
+                561.224,
+                335.184,
+                571.016
+              ],
+              "row number": 2,
+              "column number": 2,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    312.901,
+                    561.224,
+                    335.184,
+                    571.016
+                  ],
+                  "font": "Archivo",
+                  "font size": 9.0,
+                  "text color": "[0.0]",
+                  "content": "192.7"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                392.1,
+                561.224,
+                414.383,
+                571.016
+              ],
+              "row number": 2,
+              "column number": 3,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    392.1,
+                    561.224,
+                    414.383,
+                    571.016
+                  ],
+                  "font": "Archivo",
+                  "font size": 9.0,
+                  "text color": "[0.0]",
+                  "content": "199.7"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                481.293,
+                561.224,
+                493.976,
+                571.016
+              ],
+              "row number": 2,
+              "column number": 4,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    481.293,
+                    561.224,
+                    493.976,
+                    571.016
+                  ],
+                  "font": "Archivo",
+                  "font size": 9.0,
+                  "text color": "[0.0]",
+                  "content": "0.0"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                550.498,
+                561.224,
+                573.021,
+                571.016
+              ],
+              "row number": 2,
+              "column number": 5,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    550.498,
+                    561.224,
+                    573.021,
+                    571.016
+                  ],
+                  "font": "Archivo",
+                  "font size": 9.0,
+                  "text color": "[0.0]",
+                  "content": "199.7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table row",
+          "row number": 3,
+          "cells": [
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                38.989,
+                545.224,
+                59.97,
+                555.016
+              ],
+              "row number": 3,
+              "column number": 1,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    38.989,
+                    545.224,
+                    59.97,
+                    555.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "Total"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                312.901,
+                545.224,
+                335.184,
+                555.016
+              ],
+              "row number": 3,
+              "column number": 2,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    312.901,
+                    545.224,
+                    335.184,
+                    555.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "192.7"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                392.1,
+                545.224,
+                414.383,
+                555.016
+              ],
+              "row number": 3,
+              "column number": 3,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    392.1,
+                    545.224,
+                    414.383,
+                    555.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "199.7"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                481.293,
+                545.224,
+                493.976,
+                555.016
+              ],
+              "row number": 3,
+              "column number": 4,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    481.293,
+                    545.224,
+                    493.976,
+                    555.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "0.0"
+                }
+              ]
+            },
+            {
+              "type": "table cell",
+              "page number": 10,
+              "bounding box": [
+                550.498,
+                545.224,
+                573.021,
+                555.016
+              ],
+              "row number": 3,
+              "column number": 5,
+              "row span": 1,
+              "column span": 1,
+              "kids": [
+                {
+                  "type": "paragraph",
+                  "page number": 10,
+                  "bounding box": [
+                    550.498,
+                    545.224,
+                    573.021,
+                    555.016
+                  ],
+                  "font": "Archivo,Bold",
+                  "font size": 9.0,
+                  "text color": "[0.0, 0.314, 0.235]",
+                  "content": "199.7"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        518.226,
+        562.395,
+        539.016
+      ],
+      "font": "Archivo,Italic",
+      "font size": 9.0,
+      "text color": "[0.0]",
+      "content": "In addition to the funding amounts for this agency shown in this section, the Executive Budget also includes funding changes for this  agency in the Statewide Adjustments section."
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        503.223,
+        482.962,
+        513.015
+      ],
+      "font": "Archivo,Italic",
+      "font size": 9.0,
+      "text color": "[0.0]",
+      "content": "Funding for this agency may be included in the Capital or the Statewide and Large Automation Projects sections."
+    },
+    {
+      "type": "paragraph",
+      "page number": 10,
+      "bounding box": [
+        35.987,
+        477.222,
+        573.53,
+        498.012
+      ],
+      "font": "Archivo,Italic",
+      "font size": 9.0,
+      "text color": "[0.0]",
+      "content": "As part of the Executive Budget, for some agencies, there are changes to Arizona Revised Statutes and General Appropriation Act footnotes in the Executive Budget Legislative Changes and Major Budget Footnote Changes sections."
+    },
+    {
+      "type": "footer",
+      "id": 9,
+      "page number": 10,
+      "bounding box": [
+        35.237,
+        18.925,
+        576.059,
+        41.436
+      ],
+      "kids": [
+        {
+          "type": "text chunk",
+          "page number": 10,
+          "bounding box": [
+            35.987,
+            29.468,
+            576.059,
+            41.436
+          ],
+          "content": "FY 2026 Executive Budget 10 Acupuncture Board of Examiners"
+        },
+        {
+          "type": "text chunk",
+          "page number": 10,
+          "bounding box": [
+            35.237,
+            18.925,
+            201.375,
+            27.629
+          ],
+          "content": "All dollar amounts are expressed in thousands."
+        }
+      ]
+    }
+  ]
+}
