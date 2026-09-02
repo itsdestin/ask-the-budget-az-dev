@@ -433,6 +433,31 @@ def test_apply_writes_a_reversal_record_carrying_the_old_text(root: Path, tmp_pa
     )
 
 
+def test_apply_writes_a_reversal_record_carrying_a_generated_at_stamp(
+    root: Path, tmp_path: Path
+):
+    """M-6 (final review): the record used to carry its timestamp only in
+    the filename, so a copy or a rename dropped the one fact a manual replay
+    is judged against. Mirrors `identity/relabel.py` and `funds/unstamp.py`,
+    which both stamp their own reversal records with `datetime.now(timezone.
+    utc).isoformat()` -- this is a write-side-only change; the two records
+    already on the share from the 2026-09-01 apply predate it and need no
+    migration, since nothing reads this key."""
+    from datetime import datetime, timezone
+
+    before = datetime.now(timezone.utc)
+    store = _FakeStore(_full_rows())
+    repair_section_paths(
+        store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
+        lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
+    )
+    files = list(tmp_path.glob("section-path-reversal-*.json"))
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    stamp = datetime.fromisoformat(payload["generated_at"])
+    assert stamp.tzinfo is not None
+    assert stamp >= before
+
+
 def test_apply_refuses_when_the_snapshot_fails(root: Path, tmp_path: Path):
     def _no_snapshot():
         raise RuntimeError("share unreachable")
@@ -1156,6 +1181,35 @@ def test_the_cli_defaults_to_a_dry_run(monkeypatch, root: Path):
     assert seen["dry_run"] is True
     assert mod.main(["--apply"]) == 0
     assert seen["dry_run"] is False
+
+
+def test_apply_and_doc_together_are_refused_before_anything_opens(
+    monkeypatch, capsys
+):
+    """I-1 (final review): `--apply --doc X` used to run the FULL write path
+    with `only={X}` -- ingest lock, whole-corpus snapshot, reversal record,
+    partial write -- and print `rows changed 3`, from which an operator could
+    reasonably conclude the corpus was repaired when the other ~10,200 rows
+    were not. The module's own `--doc` help text calls it "a dry-run aid
+    only", so this guard is the enforcement of that claim.
+
+    Mutating `if args.apply and args.doc:` to `if False:` left every other
+    spec in this file green -- this is the one guard on the destructive CLI
+    path that had no test. Asserted here as an argparse usage error (exit
+    code 2) raised BEFORE the live store is ever opened, so a typo'd flag
+    combination can never touch the share."""
+    from chunking import repair_section_paths as mod
+
+    def _must_not_open():
+        raise AssertionError(
+            "the live store was opened despite the --apply/--doc guard"
+        )
+
+    monkeypatch.setattr(mod, "_load_live_store_and_embedder", _must_not_open)
+    with pytest.raises(SystemExit) as caught:
+        mod.main(["--apply", "--doc", "some-doc-id"])
+    assert caught.value.code == 2
+    assert "dry-run aid only" in capsys.readouterr().err
 
 
 def test_the_live_opener_refuses_to_invent_a_corpus(monkeypatch, tmp_path: Path):

@@ -103,6 +103,15 @@ class RowChange:
 @dataclass
 class RepairResult:
     changed: int = 0
+    # M-5, final review: ALWAYS the whole table, even under `--doc` / `only=`.
+    # `_plan_corpus` scans `store.scan(table, PLAN_COLUMNS)` with no `where`
+    # and only filters `by_doc` to `only` AFTER the scan returns -- so a
+    # `--doc X` run prints `scanned 83197` beside `documents planned 1`.
+    # Documented rather than restructured: filtering the scan itself would
+    # need a `where=_in_list(only)` clause and its own test coverage for a
+    # field that is otherwise informational; the CLI print (`main()`) adds
+    # a note whenever `--doc` narrowed what was PLANNED, which is the
+    # smaller fix for the misleading report line M-5 names.
     scanned: int = 0
     documents_planned: int = 0
     documents_skipped: dict[str, str] = field(default_factory=dict)
@@ -400,15 +409,6 @@ class _WriteState:
             return f"the snapshot at {self.snapshot}"
         return "no snapshot was taken (the corpus was empty when this pass started)"
 
-    def _restore_offered(self) -> bool:
-        """Is the message being composed going to point at a restore point?
-
-        True only once a write has been ATTEMPTED and the rows have NOT been
-        verified -- which is exactly the set of paths on which `remedy()` names
-        a snapshot or the reversal record as the next step.
-        """
-        return bool(self.batches_attempted) and not self.verified
-
     def _index_phrase(self) -> str:
         if self.index_rebuilt:
             phrase = "WAS rebuilt over them"
@@ -421,15 +421,16 @@ class _WriteState:
                     f"; optimize failed: {self.optimize_error} -- old versions were "
                     "not pruned, search is correct"
                 )
-                # WHY the "re-run optimize" clause is dropped whenever a
-                # restore is being offered: the operator would be handed two
-                # remedies in one breath -- put the corpus back, and also run a
-                # maintenance command on it -- and beside a possible restore
-                # the version prune is noise. Pruning old versions is only ever
-                # the next step once the rows are known good, which is the one
-                # case `_restore_offered()` is false.
-                if not self._restore_offered():
-                    phrase += "; re-run optimize by hand"
+                # WHY no "re-run optimize" instruction is added HERE (M-2,
+                # final review): the one call site that reaches this branch
+                # with a restore not being offered -- the clean-write optimize
+                # raise below, `state.optimize_error is not None` -- already
+                # appends its own instruction naming the table and the reason
+                # ("re-run optimize on {table} by hand to prune the old table
+                # versions"). Adding a second, shorter copy here put the same
+                # instruction in one sentence twice; this phrase now states
+                # only the FACT that pruning failed, and the one caller that
+                # needs an instruction supplies it itself.
             return phrase
         phrase = "was NOT rebuilt"
         if self.rebuild_error is not None:
@@ -464,11 +465,16 @@ class _WriteState:
     def remedy(self) -> str:
         """What to DO about the state `state_sentence()` describes.
 
-        Every terminating message in this module is now `state_sentence()`
-        (which carries the index phrase) plus this. Split out because the three
-        raise sites each hand-wrote their own artefact-naming prose and had
-        already drifted -- two spellings of the empty-snapshot fallback, and
-        two different orders for naming the snapshot and the reversal record.
+        Every message raised AFTER THE FIRST WRITE IS ATTEMPTED is now
+        `state_sentence()` (which carries the index phrase) plus this -- the
+        three raises in `_untouched_baseline` (below `_WriteState` in this
+        file) fire inside the lock but before any `upsert_chunks` call and so
+        before a `_WriteState` even exists; their own "nothing has been
+        written, re-run the dry run" is accurate without it. Split out because
+        the write-path raise sites each hand-wrote their own artefact-naming
+        prose and had already drifted -- two spellings of the empty-snapshot
+        fallback, and two different orders for naming the snapshot and the
+        reversal record.
 
         🔴 The branch that matters is the half-committed batch, and it is the
         one `hint()` used to get WRONG. `upsert_chunks` deletes the batch's
@@ -526,10 +532,20 @@ class _WriteState:
                 "row that the failed batch removed."
             )
         # Every attempted batch RETURNED, so nothing was deleted without a
-        # replacement and the two artefacts really are alternatives: the
-        # reversal record puts the four columns back row by row, the snapshot
-        # puts the whole table back.
-        return f"Restore from {self._snapshot_phrase()} or replay {self.reversal_path}."
+        # replacement -- but WHY the snapshot restore is named first and the
+        # replay is not offered as an equal alternative: the reversal record
+        # carries only section_path and text (see the docstring above), so
+        # replaying it puts those two back and leaves `token_count` and
+        # `vector` derived from the REPAIRED text -- a chunk whose stored
+        # text is the old caption while its embedding still encodes the new
+        # one, unless those rows are then re-embedded. The snapshot restore
+        # is the complete undo; the reversal record is not.
+        return (
+            f"Restore from {self._snapshot_phrase()} for a complete undo. The "
+            f"reversal record at {self.reversal_path} carries only section_path "
+            "and text, so replaying it puts those back but leaves token_count "
+            "and vector derived from the new text unless you re-embed those rows."
+        )
 
     def hint(self) -> str:
         if not self.batches_attempted:
@@ -910,8 +926,17 @@ def repair_section_paths(
         from identity.relabel import _default_snapshot_and_verify
         snapshot_and_verify = _default_snapshot_and_verify
     if reversal_dir is None:
-        from store.config import data_dir
-        reversal_dir = data_dir()
+        # WHY `root` and not `store.config.data_dir()` (M-3, final review):
+        # `data_dir()` mkdirs as a side effect, and `root` is ALREADY the
+        # resolved, non-creating data dir this call was opened against --
+        # `_load_live_store_and_embedder` builds it from `resolve_data_dir()`
+        # for exactly the reason named in that function's own docstring ("a
+        # check that manufactures the folder it is checking for can only
+        # report 'fine'"). By the time this line runs the store is already
+        # open and the snapshot has not yet run, so the practical exposure
+        # was narrow -- but there is no reason for this function to open a
+        # SECOND, possibly-different path to the same corpus.
+        reversal_dir = root
 
     # BEFORE the lock and BEFORE the snapshot: a snapshot zips the whole
     # corpus under the lock and takes minutes; spending that on a no-op is
@@ -945,9 +970,25 @@ def repair_section_paths(
         # an operator reading scrollback could not tell a promised record from a
         # real one -- on exactly the artefact a row-level undo depends on.
         progress(f"writing reversal record to {reversal_path}")
+        # M-6, final review: `generated_at` mirrors `identity/relabel.py` and
+        # `funds/unstamp.py`, which both stamp their reversal records the same
+        # way -- this one previously had the timestamp ONLY in the filename,
+        # so a record copied or renamed away from its original path lost the
+        # only thing saying when it was made, which is exactly the record a
+        # manual replay is judged against. WRITE side only: the two live
+        # records already on the share (from the 2026-09-01 apply) predate
+        # this and need no migration -- they are read by chunk_id and
+        # section_path/text, never by this field.
+        from datetime import datetime, timezone
+
         _atomic_write_json(
             reversal_path,
-            {"table": table, "snapshot": snapshot, "rows": result.reversal},
+            {
+                "table": table,
+                "snapshot": snapshot,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "rows": result.reversal,
+            },
         )
         progress(f"reversal record written: {reversal_path}")
 
@@ -1150,7 +1191,15 @@ def main(argv: list[str] | None = None) -> int:
         only=set(args.doc) or None,
     )
     print(f"table              {args.table}")
-    print(f"scanned            {result.scanned}")
+    # M-5: `result.scanned` is the whole table, never narrowed by --doc (see
+    # the field's own comment in RepairResult) -- the note below is what
+    # keeps "scanned 83197" beside "documents planned 1" from reading as a
+    # contradiction rather than the pre-filter scan it is.
+    scanned_note = (
+        " (whole table -- --doc narrows which documents are PLANNED below, "
+        "not this scan)" if args.doc else ""
+    )
+    print(f"scanned            {result.scanned}{scanned_note}")
     print(f"documents planned  {result.documents_planned}")
     print(f"documents skipped  {len(result.documents_skipped)}")
     print(f"rows changed       {result.changed}")

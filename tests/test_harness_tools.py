@@ -1310,6 +1310,41 @@ def test_tools_module_reaches_only_the_read_side_of_funds():
     )
 
 
+def test_tools_module_reaches_only_the_read_side_of_chunking():
+    """`chunking` is allowed as a root package (see the allowlist test
+    above); only ONE module in it is safe to reach. `chunking.agency_catalog`
+    is a pure read/derive helper (`id_to_name`); the `table-section-path`
+    branch (2026-09-01) added `chunking/repair_section_paths.py`, which
+    imports `ingest.extract_dirs`, `ingest.lock`, `store.chunk_store`,
+    `store.fs` and `identity.relabel`, takes the ingest lock, snapshots the
+    corpus and writes files to the share — exactly the `ingest`-shaped reach
+    the allowlist test above exists to keep out of this module. Admitting
+    the `chunking` package outright would admit that by the back door, the
+    same argument `identity.repair` and `funds.catalog` were fenced off for.
+    Nothing today reaches it (see `harness/tools.py:180`, which only
+    reaches `chunking.agency_catalog`) — this guard pins the MODULE now, so
+    a future edit that adds a second `chunking` import fails HERE rather
+    than passing the root allowlist test while quietly importing a module
+    that rewrites the corpus. Mirrors
+    `test_tools_module_reaches_only_the_read_side_of_identity` and
+    `..._of_funds`."""
+    read_side = {"chunking.agency_catalog"}
+    tree = ast.parse(TOOLS_SOURCE_PATH.read_text(encoding="utf-8"))
+    reached: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(
+                a.name for a in node.names if a.name.split(".")[0] == "chunking"
+            )
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module.split(".")[0] == "chunking":
+                reached.add(node.module)
+    assert reached <= read_side, (
+        f"harness/tools.py reaches a write-capable chunking module: "
+        f"{sorted(reached - read_side)}"
+    )
+
+
 def test_tools_module_never_calls_a_write_method():
     """Backstop to the import guard beside this one, which is the robust
     check. This one catches the realistic mistake — someone reaching for

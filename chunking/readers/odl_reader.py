@@ -251,8 +251,11 @@ class ODLReader:
                     # Body blocks before the first heading are dropped from
                     # the outline tree (they have no parent section). They
                     # still live on the Page; just not addressable via
-                    # outline_path. Acceptable for AZ budget docs which all
-                    # start with a Doctitle.
+                    # owner_path (M-4, final review: this comment named the
+                    # deleted `outline_path` text search -- addressing here
+                    # is now the `is`-matched `owner_path` walk, and a block
+                    # with no parent node is unreachable by either). Acceptable
+                    # for AZ budget docs which all start with a Doctitle.
         return roots
 
 
