@@ -1,9 +1,11 @@
 # Agency operating tables: rebuild from the page's own text, and show the model labelled cells
 
-**Status:** approved 2026-08-26 (Destin). Scope and approach are his calls
-and are not to be re-litigated: JLBC agency-page operating tables only,
-approach B (rebuild from the PDF text layer, verified arithmetically) in
-two phases, the labelled-cell rendering shipping first on its own.
+**Status:** approved 2026-08-26 (Destin); phase A shipped 2026-09-01; phase B
+not started, pending the section-path repair. Scope and approach are his
+calls and are not to be re-litigated: JLBC agency-page operating tables
+only, approach B (rebuild from the PDF text layer, verified
+arithmetically) in two phases, the labelled-cell rendering shipping first
+on its own.
 
 Companion review: `docs/superpowers/investigations/2026-08-26-agent-capability-review.md`
 — the assessment that put this first among the improvements.

@@ -60,6 +60,7 @@ source. When something ships, update only this file.
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
+| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — see the table below). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B (text-layer rebuild) not started. See the section below |
 
 ## Windows beta fixes — the bundle can launch, the repair screen exists (2026-08-25)
 
@@ -287,6 +288,150 @@ Java child with no `CREATE_NO_WINDOW`; per-upload snapshot over SMB) and
 Tier 4 (annoyances: case-sensitive admin username, `.txt.txt`, raw proxy
 errors, the Python-snake icon, unrotated logs, memos saved twice) are
 listed in full there with the "verified clean, do not re-audit" list.
+
+---
+
+## Operating tables — phase A shipped (2026-09-01)
+
+Spec: `docs/superpowers/specs/2026-08-26-agency-table-rebuild-design.md`
+(§3.1, §5). Plan: `docs/superpowers/plans/2026-09-01-agency-table-rebuild.md`
+(12 tasks, phase A = tasks 1–4, all done; phase B = the text-layer rebuild,
+not started). Branch `agency-tables`.
+
+**The problem.** JLBC's per-agency operating tables print a value in one
+column and its year in a SEPARATE header row above it — "General Fund
+1,385,450,900" means nothing without knowing that column is "FY 2025
+APPROVED". The model reads the raw tab-joined text today, the same way a
+person would if the header scrolled off the top of their screen: it has to
+count columns and remember which year is which, and it gets that wrong on
+tables with merged cells, footnote markers fused onto figures, or more
+columns than the ones near the top of the passage.
+
+**What shipped.** A shared table vocabulary (`chunking/table_text.py` —
+what a year header, a figure and a footnote marker look like, used by both
+phases so they can't disagree) and a pure renderer
+(`retrieval/table_view.py::render_labelled`) that turns a table chunk's
+`text` into `label | column: value` lines — no HTML, no store access. Every
+retrieved table chunk now carries a SECOND field, `text_labelled`, beside
+the original `text` (`harness/tools.py::_chunk_entry`) — `text` is
+untouched, because the citation linker and the PDF viewer hold offsets
+into it. One paragraph in the system prompt tells the model to read the
+label. `render_labelled` returns `None` (no `text_labelled` sent, model
+sees exactly what it sees today) for a chunk with no tab-joined rows, no
+detectable header row, or over 20,000 characters (spec §5 rule 7 — the
+four 1.8 MB tab-padded AFR chunks would grow further into a payload that
+is already the problem).
+
+**One rendered example**, a real corpus chunk
+(`jlbc-approps-fy2025-aam-0000`, doc_type `approps-per-agency`):
+
+Raw `text` (what shipped before this branch, and what still ships when
+`render_labelled` returns `None`):
+```
+Operating Budget
+	FY 2023 ACTUAL	FY 2024 ESTIMATE	FY 2025 APPROVED
+OPERATING BUDGET			
+Full Time Equivalent Positions	3.0	0.0	0.0
+Personal Services	92,000	0	0
+```
+
+`text_labelled` (what the model reads today for this chunk):
+```
+Operating Budget
+OPERATING BUDGET
+Full Time Equivalent Positions | FY 2023 ACTUAL: 3.0 | FY 2024 ESTIMATE: 0.0 | FY 2025 APPROVED: 0.0
+Personal Services | FY 2023 ACTUAL: 92,000 | FY 2024 ESTIMATE: 0 | FY 2025 APPROVED: 0
+```
+
+**Rule 5 (continuation-header borrow) was measured and DROPPED — cost/benefit,
+not "no cases exist."** Full write-up:
+`docs/superpowers/investigations/2026-09-01-headerless-tables-count.md`.
+7,411 of 22,889 table chunks corpus-wide have no year header and sit
+outside phase A's scope; an adjacency + column-width probe estimates
+**~150–220 of those (~2–3%) are true continuations** whose header sits in
+the chunk before them, concentrated in the Governor's-budget
+`BY APPROPRIATED FUND` / SLI tables. Rule 5 is dropped anyway because (1)
+the population is under 0.3% of all budget chunks, so the live-database
+read a borrow mechanism would cost is rarely paid — but so is the benefit;
+(2) the discrimination method good enough to trust a borrow does not exist
+yet — the best simple heuristic tried here (adjacency + width match) is
+wrong 40–55% of the time on hand-reading, and a WRONG header is worse than
+NO header (Invariant 1: an unlabelled figure is safer than a mislabelled
+one); (3) the value recovered is legislative line-item detail, not the
+agency-level totals phase A already renders. The concentrated pattern and
+six confirmed true-continuation chunk-id pairs are recorded in the memo for
+whoever revisits this.
+
+### G-OT4 — false-link rate, unchanged, not launched
+
+**The gate that matters: does showing the model relabelled table text move
+the FALSE-LINK rate?** Per this repo's measurement rule (gate on the error
+rate, not the production rate), coverage was never the question — whether a
+citation now points at the WRONG figure is. `eval/false_link_check.py`
+gained a `--labelled-pool` flag: it renders every pool chunk through
+`render_labelled` before inventing figures against it (falling back to the
+raw text when `render_labelled` returns `None`), so the check measures
+against what the model reads TODAY rather than the pre-phase-A text. There
+is no `is_table` field to gate on — it is never serialized into a retrieve
+result, only used internally to decide whether to attempt labelling — so
+the flag calls `render_labelled` unconditionally on every chunk and trusts
+its own header detection, the same thing production does.
+
+Run on both committed transcript sets, both the default seed and a second
+seed, default vs `--labelled-pool`:
+
+| run dir | seed | mode | 4sig-billions | 4sig-millions | exact-grouped | pools |
+|---|---|---|---|---|---|---|
+| `2026-08-02T0900Z-0b08221` (31q) | 7 | default | 0.28% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 7 | labelled | 0.28% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 99 | default | 0.19% | 0.19% | 0.00% | 27 |
+| `2026-08-02T0900Z-0b08221` (31q) | 99 | labelled | 0.19% | 0.19% | 0.00% | 27 |
+| `2026-08-18T1041Z-b373e18` (45q) | 7 | default | 0.39% | 0.17% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 7 | labelled | 0.39% | 0.17% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 99 | default | 0.28% | 0.56% | 0.00% | 45 |
+| `2026-08-18T1041Z-b373e18` (45q) | 99 | labelled | 0.28% | 0.56% | 0.00% | 45 |
+
+**Zero movement on every profile, both run dirs, both seeds — not "under
+1 point of noise", identical to the decimal.** The verdict distribution
+over the recorded answers' own figures (memo §9, the untagged-fallback
+coverage number) is also byte-identical run to run (2026-08-02: 209
+linked / 47 derived / 212 unverified of 468; 2026-08-18: 99 linked / 9
+derived / 80 unverified of 188). Confirmed this is not because
+`render_labelled` never fires: it actually changes the pool text for 77 of
+509 chunks in the 2026-08-02 run and 78 of 438 in the 2026-08-18 run —
+render_labelled reformats a value's surrounding context (adds the column
+label) without altering or dropping any digit sequence, so the figures the
+matcher extracts are the same set either way. `eval/false_link_check.py`
+writes `false-link-report.json` (default) and `false-link-report-labelled.json`
+(labelled) into each run dir — gitignored transcripts, not committed.
+
+**G-OT4, the live Layer 2 spend, is OFFERED and NOT run** (paid work needs
+Destin's go-ahead per CLAUDE.md):
+
+```
+uv run python -m eval.run_agent_eval --queries lk-asu-operating-fy2026 lk-dps-operating-fy2026 lk-adc-total-fy2026 lk-tou-tourism-fy2026 lk-min-operating-fy2025 cm-supplementals-fy2026 cm-university-funding-dr --note "G-OT4 after phase A"
+```
+
+Estimated **~$0.10**, plus a same-day control run of the identical command
+on the commit before Task 2 (`c20f8c4`, the commit before `text_labelled`
+started reaching the model) so the two runs are separated only by the
+labelling change. Run only if Destin says yes; record both run directories
+here once it happens.
+
+**Layer 1 eval — run because `harness/system-prompt.md` changed (Task 2),
+though it cannot observe the prompt.** `eval/run_eval.py` calls
+`retrieve()` directly and never reads the system prompt or `text_labelled`,
+so this is evidence, not a real gate for this change — run anyway per the
+CLAUDE.md rule. **recall@5 85.71% / recall@15 97.62% / recall@20 100.00% /
+refusal precision 60.00%** — identical to the 2026-08-26 baseline.
+p95 latency read 2158ms against a recorded ~1390ms baseline; per this
+file's own recorded pattern (see "Windows beta fixes"), that is a
+control-conditions artefact (the eval ran alongside other work on this
+machine) — recall and refusal numbers, the actual gate, did not move.
+Results: `eval/results/2026-09-02T0247Z-5787a00.{json,md}`.
+
+**Phase B (the text-layer rebuild) is not started**, and its precondition
+— the section-path repair — has not landed on master.
 
 ---
 
