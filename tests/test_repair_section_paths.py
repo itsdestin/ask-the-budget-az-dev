@@ -385,11 +385,22 @@ def test_apply_refuses_when_the_store_dropped_a_pass_through_column(root: Path, 
     """The verifier used to re-read every column and check only three of
     them, so a write that dropped `agency_canonical_ids` passed in silence."""
     store = _DroppingStore(_full_rows())
-    with pytest.raises(RuntimeError, match="agency_canonical_ids"):
+    with pytest.raises(RuntimeError, match="agency_canonical_ids") as info:
         repair_section_paths(
             store=store, embedder=_FakeEmbedder(), root=root, dry_run=False,
             lock=_FakeLock(), snapshot_and_verify=lambda: "snap.zip", reversal_dir=tmp_path,
         )
+    # WHY the remedy wording is pinned here: every batch RETURNED on this
+    # path, so the remedy is the "complete undo" branch. It used to read
+    # "Restore from X or replay Y", offering the reversal record as an equal
+    # alternative -- but the record carries only section_path and text, so a
+    # replay leaves `vector`/`token_count` derived from the repaired text. The
+    # final review found the corrected wording unpinned; reverting it left
+    # every spec green.
+    message = str(info.value)
+    assert "complete undo" in message
+    assert "carries only section_path" in message
+    assert "or replay" not in message
 
 
 def test_apply_recomputes_the_vector_and_the_token_count(root: Path, tmp_path: Path):
