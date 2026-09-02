@@ -906,6 +906,11 @@ rule was not decorative.
 > it was built and shipped and changed zero chunks. The real site is
 > `chunking/builders/table_chunk.py::_resolve_section_path`. Kept below as the
 > record of what was believed at approval time.
+>
+> ✅ **And that site was FIXED on 2026-09-01:** `_resolve_section_path` is
+> gone, replaced by `ExtractedDocument.owner_path` (the heading a table
+> physically sits under), and the corpus was repaired in place — spec
+> `2026-08-26-table-section-path-design.md`, record in `STATUS.md`.
 
 8 wrong passages in 80,854, across 2 documents, live for months. X4 adds the
 same shape to one more. Fix it as a follow-up in

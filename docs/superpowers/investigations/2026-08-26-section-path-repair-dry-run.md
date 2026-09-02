@@ -1,5 +1,14 @@
 # Section-path repair — dry-run record (2026-08-26)
 
+> ⛔ **SUPERSEDED — the write this rehearsed was APPLIED to the live corpus on
+> 2026-09-01** (merge `83d683a`; the outcome and gates are in `STATUS.md` →
+> *"Table section paths — the corpus repair"*). Keep reading this as the
+> record of the dry run, not as pending work. **One correction found after
+> the write:** THREE of the eight bad-heading-run documents were skipped for
+> "no cached extractor output", not two — `jlbc-baseline-fy2027-s58` as well
+> as the two named below. The spec's list was taken on trust here instead of
+> being checked against the skip list.
+
 Task 6 of `docs/superpowers/plans/2026-08-26-table-section-path.md`. This is
 a **dry run only** — nothing was written to the corpus. It reads every table
 chunk in both LanceDB tables (`budget_chunks`, `fiscal_note_chunks`), figures
@@ -97,7 +106,9 @@ confirmed in the skip list**, both for "no cached extractor output" (neither
 has an `extractor-output/` folder on this machine). Naming them here so
 nobody reads "83% of tables repaired" as "all eight bad-heading-run
 documents fixed" — these two are not, and stay wrong until a future re-ingest
-regenerates their extractor output.
+regenerates their extractor output. *(Correction, 2026-09-01: a third of the
+eight, `jlbc-baseline-fy2027-s58`, is in the same skip list for the same
+reason — see the banner at the top.)*
 
 `398` documents skipped for "no cached extractor output" is close to the
 spec's estimate of ≈399 (398 + the 1 docx = 399 total, matching exactly).
