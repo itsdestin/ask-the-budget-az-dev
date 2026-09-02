@@ -449,9 +449,17 @@ the text layer. MinerU is wrong in every one.**
 | `jlbc-approps-fy2021-uniumain-0000` | `-6,021.31` | **Text layer.** Not printed — same fusion |
 | `jlbc-approps-fy2016-azh-0000` | `-51.91` | **Text layer.** Not printed — same fusion |
 
-The recurring `NN.N1` shape is the single most valuable thing this run
-surfaced: MinerU silently multiplies an FTE count by roughly ten whenever a
-footnote marker follows it without a space, and those figures are in the
+**The order-of-magnitude damage is in the DOLLAR shape, not the FTE one, and
+the earlier wording here had it the wrong way round.** When a footnote marker
+follows a comma-grouped dollar figure with no space, MinerU reads the two as
+one number: `$1,372,200` with footnote `3/` is stored as **1,372,2003** — a
+figure a thousand times too large. Measured read-only over the 4,875 in-scope
+tables 2026-09-02: **2,724 cells on 1,372 tables** carry that shape. The
+one-decimal FTE shape (`147.51/`) is **130 cells on 127 tables**, and reading
+`147.5` as `147.51` is an error of 0.007% — what makes the FTE cases serious
+is MISPLACEMENT, not magnitude: in `jlbc-approps-fy2008-judcoa-0000` MinerU
+put the number on the `OPERATING BUDGET` heading row and left the
+`Full Time Equivalent Positions` row's own column empty. All of it is in the
 corpus today, citable.
 
 ---
@@ -1236,8 +1244,13 @@ single one.** Examples:
 | `jlbc-approps-fy2025-uniasu-0000` | `8,285.71`, and the accounting negative `(10,995,800)` **lost entirely** | `8,285.7` + footnote; `(10,995,800)` is printed |
 | `jlbc-approps-fy2007-dhspub-0000` | six figures **missing** | `2,300,000`, `248.1`, `4,260,900`, `518,000`, `7,100,000`, `768,000`, all printed |
 
-An FTE count roughly multiplied by ten, sitting in the corpus, citable.
-In total the two readings disagree about **1,141 figures on 613 tables**.
+Two distinct defects, and they are worth telling apart. The FTE rows above
+are a MISPLACEMENT problem — `147.5` read as `147.51` is off by 0.007%, but it
+lands on the wrong row and empties the right one (130 cells on 127 tables).
+The order-of-magnitude problem is the DOLLAR shape: `$1,372,200` with footnote
+`3/` stored as `1,372,2003`, **2,724 cells on 1,372 tables** (both counts
+measured read-only 2026-09-02). In total the two readings disagree about
+**1,141 figures on 613 tables**.
 
 ## What else changes
 

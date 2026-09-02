@@ -796,10 +796,21 @@ rebuilt tables, the 4,656 tables already stored stay garbled.
 
 ### 🔴 The finding that is worth more than the repair
 
-**MinerU silently multiplies a staff-position count by about ten whenever a
-footnote marker follows it with no space.** `147.5` FTE with footnote `1/`
-prints as `147.51/` and is stored as **147.51** — on the wrong row, at that,
-leaving the real FTE row's column empty (`jlbc-approps-fy2008-judcoa-0000`).
+**MinerU reads a footnote marker as part of the number beside it whenever
+there is no space between them, and on dollar figures that is an
+order-of-magnitude error.** A cell printed `$1,372,200` with footnote `3/` is
+stored as **1,372,2003** — a thousand times too large. Measured read-only over
+the 4,875 in-scope tables on 2026-09-02: **2,724 cells on 1,372 tables** carry
+that shape.
+
+The staff-position (FTE) version of the same fusion is much rarer — **130
+cells on 127 tables** — and the number itself barely moves: `147.5` read as
+`147.51` is out by 0.007%. What makes those cases serious is **misplacement**,
+not magnitude: in `jlbc-approps-fy2008-judcoa-0000` MinerU put the figure on
+the `OPERATING BUDGET` heading row and left the
+`Full Time Equivalent Positions` row's own column empty, so the page reports
+no staff at all.
+
 Across the corpus the two readings disagree about **1,141 figures on 613
 tables**; 28 were checked by eye against the printed page and **the text layer
 is right in all 28**. Those wrong numbers are in the corpus today and are
@@ -833,6 +844,13 @@ in that state **refuses before it takes the lock or spends a snapshot**.
   agency operating tables and are not touched.
 * **The fused-marker peel is audited on 206 pages, not corpus-wide** (carried
   over from phase A).
+* **`MARKER_RE` does not recognise JLBC's real range spelling `NN-MM/`.** The
+  spec assumed a range prints as `8/-13/`; the books also print
+  `12,865,000 11-13/`, which no version of the trailing-marker strip handles,
+  so a label ending in a range keeps a dangling digit in its normalised form.
+  Pre-existing, costs nothing today — the residue is applied identically to
+  both sides of every comparison the normaliser feeds — and never reaches the
+  written text. A follow-up, not a defect this branch introduced.
 
 ### ⏸ Task 12 — the live apply — is waiting on Destin
 
