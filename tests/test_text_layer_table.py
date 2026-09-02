@@ -783,3 +783,52 @@ def test_a_repeated_minerU_label_is_counted_once_in_the_match_rate():
     out = refine_operating_table(_minerU(html), doc)
     assert out.table is not None, out.reason
     assert out.anchor_match == 0.8, out.anchor_match
+
+
+def test_a_figureless_group_heading_cannot_end_the_region():
+    """`jlbc-baseline-fy2013-axs-0000`, reduced.
+
+    MinerU's last anchor is the fused
+    `SUBTOTAL - APPROPRIATED/EXPENDITURE AUTHORITY FUNDS`. The bare group
+    heading `Expenditure Authority Funds`, printed well ABOVE the real
+    subtotal, is contained in that label and has two words, so it matched —
+    and ended the region ten lines early, dropping the whole
+    expenditure-authority block. On the real page the cross-check caught it
+    (7,024,518,200 against 1,417,666,800) and the table was refused, costing
+    a repair; a truncation that removed the cross-check's own rows would
+    have passed in silence.
+
+    A real last row is a subtotal or a total and always prints figures. The
+    terminus here is also the wrap shape — `SUBTOTAL - Appropriated/
+    Expenditure` carries the figures and `Authority Funds` continues the
+    label on the next line with none — so the CONTIGUOUS extension must
+    still accept a figure-less line.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("General Fund", "100", "200", "300")
+    b.row("SUBTOTAL - Appropriated Funds", "100", "200", "300", x0=61)
+    b.row("Expenditure Authority Funds")            # the false terminus
+    b.row("County Funds", "10", "20", "30")
+    b.row("Federal Medicaid Authority", "5", "10", "15")
+    b.row("SUBTOTAL - Expenditure Authority Funds", "15", "30", "45", x0=61)
+    b.row("SUBTOTAL - Appropriated/Expenditure", "115", "230", "345", x0=61)
+    b.row("Authority Funds", x0=69)                 # the label's own wrap
+    html = (
+        "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td><td>FY 2026 APPROVED</td></tr>"
+        "<tr><td>General Fund</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated Funds</td><td>100</td><td>200</td><td>300</td></tr>"
+        "<tr><td>Expenditure Authority Funds</td><td></td><td></td><td></td></tr>"
+        "<tr><td>County Funds</td><td>10</td><td>20</td><td>30</td></tr>"
+        "<tr><td>Federal Medicaid Authority</td><td>5</td><td>10</td><td>15</td></tr>"
+        "<tr><td>SUBTOTAL - Expenditure Authority Funds</td><td>15</td><td>30</td><td>45</td></tr>"
+        "<tr><td>SUBTOTAL - Appropriated/Expenditure Authority Funds</td><td>115</td><td>230</td><td>345</td></tr></table>"
+    )
+    out = refine_operating_table(_minerU(html), doc)
+    assert out.table is not None, out.reason
+    cells = _cells(out.table)
+    # The block between the false terminus and the real one must be present.
+    assert ["County Funds", "10", "20", "30"] in cells
+    assert ["Federal Medicaid Authority", "5", "10", "15"] in cells
+    assert cells[-1] == ["SUBTOTAL - Appropriated/Expenditure Authority Funds", "115", "230", "345"]

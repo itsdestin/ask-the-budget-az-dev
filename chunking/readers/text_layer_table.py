@@ -147,6 +147,12 @@ def _is_marker(text: str) -> bool:
     return MARKER_RE.fullmatch(text) is not None
 
 
+def _has_figures(line: _Line) -> bool:
+    """Does this printed line carry any figure? A subtotal or total row
+    always does; a group heading never does."""
+    return any(_is_figure(w.text) for w in line.words)
+
+
 def _label_text(line: _Line) -> str:
     """The printed label: the line with its TRAILING figures, markers and
     dash-zeros removed. Only trailing ones — `Proposition 204 Services`
@@ -321,17 +327,38 @@ def _region(
     if start is None:
         start = matched_lines[0]
 
-    # The FIRST occurrence of MinerU's last row at or after the start, then
-    # extended over any CONTIGUOUS lines that match it too. The extension is
-    # what the whole project is about: MinerU's last cell is often several
-    # printed rows fused into one, and every one of them is contained in it.
-    # `jlbc-approps-fy2009-hla-0000`'s last anchor is
-    # `FEDERAL FUNDS TOTAL - ALL SOURCES`, which the page prints as two
-    # adjacent lines; stopping at the first left the table with no check row
-    # at all. Contiguity is what keeps this from reopening the sibling hole
-    # above -- a second table's `TOTAL - ALL SOURCES` is many non-matching
-    # lines further down, never the very next one.
-    end = next((i for i in matched_lines if i >= start and anchors[-1] in hits[i]), None)
+    # The first occurrence of MinerU's last row at or after the start THAT
+    # CARRIES FIGURES, then extended over any CONTIGUOUS lines matching it.
+    #
+    # The extension is what the whole project is about: MinerU's last cell is
+    # often several printed rows fused into one, and every one of them is
+    # contained in it. `jlbc-approps-fy2009-hla-0000`'s last anchor is
+    # `FEDERAL FUNDS TOTAL - ALL SOURCES`, printed as two adjacent lines;
+    # stopping at the first left the table with no check row at all.
+    # Contiguity is what stops that reopening the sibling hole above -- a
+    # second table's `TOTAL - ALL SOURCES` is many non-matching lines
+    # further down, never the very next one.
+    #
+    # The figure test is why a GROUP HEADING cannot end the region.
+    # `jlbc-baseline-fy2013-axs-0000`'s last anchor is
+    # `SUBTOTAL - APPROPRIATED/EXPENDITURE AUTHORITY FUNDS`, and the bare
+    # heading `Expenditure Authority Funds` printed ten lines above the real
+    # subtotal is CONTAINED in it, so the region ended at line 43 instead of
+    # 52 and the whole expenditure-authority block was dropped. That one was
+    # caught by the cross-check (7,024,518,200 against 1,417,666,800), but a
+    # truncation that removed the cross-check's own rows would pass in
+    # silence. A real last row is a subtotal or a total and always prints
+    # figures; a heading never does. Measured over all 4,875 in-scope chunks:
+    # requiring figures loses no rebuild and recovers this one.
+    #
+    # The EXTENSION deliberately does not require figures -- the very next
+    # line is often the label's own wrap (`SUBTOTAL - Appropriated/Expenditure`
+    # / `Authority Funds`, axs line 53), which `_rows` joins back on.
+    end = next(
+        (i for i in matched_lines
+         if i >= start and anchors[-1] in hits[i] and _has_figures(lines[i])),
+        None,
+    )
     if end is None:
         end = max(i for i in matched_lines if i >= start)
     else:
@@ -354,10 +381,13 @@ def _figure_retention(before: Sequence[Sequence[str]], after: Sequence[Sequence[
     figure tokens, and every other honest rebuild keeps at least 83% (the
     shortfall is recovery work — MinerU's fused `99,294,5003/` becoming
     `99,294,500` + `[3/]`). The only two below that were the substituted
-    tables named above, at 0.097 and 0.114. Any threshold between 0.12 and
-    0.83 gives an identical verdict on that distribution, so the shipped
-    value is the CENTRE of the gap: both edges are bad, since too low misses
-    a substitution and too high refuses a real recovery.
+    tables named above, at 0.097 and 0.114. So the distribution has an EMPTY
+    BAND whose edges are 0.114 and 0.833, and every threshold placed
+    anywhere inside it returns an identical verdict on every one of those
+    4,607 rebuilds. 0.5 is a value in that band, not a centre or an optimum
+    -- there is nothing in the data to optimise against. Both edges of the
+    band are bad in different ways: below it a substitution is missed, above
+    it a real recovery is refused.
 
     With the region rule above in place it now fires ZERO times on the whole
     corpus — the two tables it was calibrated on are caught earlier and
@@ -384,9 +414,13 @@ def _rows(region: Sequence[_Line], cols: _Columns, anchors: Sequence[str]) -> li
     # to. They wait for the row BELOW: JLBC prints markers as superscripts,
     # so a marker's word box sits ABOVE its own row's (measured — see
     # `_lines`), and lines are ordered by `y0`, so a marker that failed to
-    # group arrives BEFORE its row, never after it. This is a safety net
-    # that fired 0 times across 400 real tables; the earlier version
-    # attached to the row above, which is the wrong direction.
+    # group arrives BEFORE its row, never after it.
+    #
+    # This is LOAD-BEARING on real pages, not a theoretical safety net: it
+    # fires on 10 chunks corpus-wide, 8 of which rebuild. On
+    # `jlbc-approps-fy2021-sos-0000` the marker `10/11/` is alone at
+    # y=331.4 and belongs to `Special Election` below it. The earlier
+    # version attached upwards, which put the footnote on the wrong row.
     pending: dict[int, str] = {}
     for line in region:
         if _is_header_line(line):
