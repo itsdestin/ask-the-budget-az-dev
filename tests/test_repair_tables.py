@@ -692,6 +692,72 @@ def test_second_plan_after_apply_finds_nothing_to_rebuild(corpus):
     assert all(c.old_text != before[c.chunk_id] for c in changes)
 
 
+def test_cached_output_that_refines_to_a_DIFFERENT_table_still_falls_back_to_html(corpus):
+    """The guard on the already-repaired branch, and the reason it compares
+    the whole text rather than settling for "it rebuilt".
+
+    Here the cached output is a real, refinable operating table -- it just is
+    not this chunk's: three of the page's eleven rows. Rebuilding from it
+    reconciles perfectly well with itself and comes back `rebuilt`, so a
+    branch that accepted any successful refinement would replace an
+    eleven-row chunk with a three-row one and report it under the extractor
+    path with no note at all. Only the exact-text comparison tells "the
+    corpus already holds this pass's own output" from "the output on disk is
+    not what was ingested".
+    """
+    root, store = corpus
+    (root / "extractor-output" / DOC / "page-1.json").write_text(json.dumps({
+        "extractor": "mineru-3.1.6", "page": 1,
+        "blocks": [{"type": "table", "bbox": [78, 85, 918, 907], "table_body": (
+            "<table><tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td>"
+            "<td>FY 2026 APPROVED</td></tr>"
+            "<tr><td>General Fund</td><td>150</td><td>250</td><td>350</td></tr>"
+            "<tr><td>SUBTOTAL - Appropriated Funds</td><td>150</td><td>250</td><td>350</td></tr>"
+            "<tr><td>TOTAL - ALL SOURCES</td><td>150</td><td>250</td><td>350</td></tr></table>")}],
+    }), encoding="utf-8")
+    changes, summary = plan_corpus(store, root, "budget_chunks")
+    c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
+    assert c.source == "html" and c.note == "extractor output differs from the stored text"
+    # The whole table came back, not the cached output's three rows.
+    assert "Personal Services" in (c.new_text or "") and "Full Time Equivalent Positions" in (c.new_text or "")
+    assert summary.notes[c.note] == 1
+
+
+def test_a_second_plan_reports_an_already_repaired_chunk_on_the_extractor_path(corpus):
+    """A chunk this pass has already repaired must not be re-anchored on its
+    own output.
+
+    The body-equality gate compares the stored text against MinerU's, so an
+    already-repaired chunk fails it BY CONSTRUCTION and used to fall to the
+    html fallback -- which anchors the rebuild on the REPAIRED labels rather
+    than MinerU's, i.e. the plan stops being a function of the corpus alone.
+    Measured on the rehearsal copy 2026-09-02: after one apply, 4,020 of
+    4,656 chunks took that fallback and were reported under
+    `extractor output differs from the stored text`, a note that reads as a
+    finding when it is the expected consequence of the apply.
+    """
+    root, store = corpus
+    _defective(root, store)
+    _apply(root, store)
+
+    # The precondition, asserted rather than assumed: the cached output is
+    # still MinerU's fused table, so the body gate really does fail here.
+    # Without this the test would pass against code that never reaches the
+    # already-repaired branch at all.
+    cached = MinerUReader().read(root / "extractor-output" / DOC / "page-1.json").tables[0]
+    stored = next(r for r in store.rows if r["chunk_id"] == f"{DOC}-0000")
+    assert _build_text(cached, ["FY 2026 Budget"]) != stored["text"]
+
+    changes, summary = plan_corpus(store, root, "budget_chunks")
+    c = next(x for x in changes if x.chunk_id == f"{DOC}-0000")
+    assert c.source == "extractor" and c.note == ""
+    assert c.verdict == "rebuilt" and c.new_text == c.old_text and c.new_html == c.old_html
+    # Nothing in the summary reads as a finding, and the "byte-identical"
+    # count is what says a re-run found nothing to do.
+    assert summary.notes == {}
+    assert summary.sources == {"extractor": 1, "html": 1}
+
+
 def test_nothing_to_rebuild_takes_no_lock_and_no_snapshot(corpus, monkeypatch):
     """A snapshot zips the whole corpus under the lock and takes minutes.
     Spending that on a no-op is what teaches an operator to skip it."""

@@ -234,6 +234,24 @@ def _body(text: str) -> str:
     return "\n".join(text.split("\n")[1:])
 
 
+def _refine_guarded(table, pdf, chunk_id: str) -> tuple[Any, str, float, float]:
+    """`refine_operating_table`, with the containment `plan_document` needs.
+
+    Same argument as `MinerUReader._refine_operating_tables`: one table that
+    raises must cost that table its repair, never its siblings or the rest of
+    a 7,500-document pass. Logged with the traceback so a systematic failure
+    is findable.
+    """
+    if pdf is None:
+        return None, "no source pdf", 0.0, 1.0
+    try:
+        outcome = refine_operating_table(table, pdf)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("refinement raised on %s; counting it unverified", chunk_id, exc_info=True)
+        return None, f"refinement raised: {exc}", 0.0, 1.0
+    return outcome.table, outcome.reason, outcome.anchor_match, outcome.figure_retention
+
+
 def plan_document(
     doc_id: str,
     rows: list[Mapping[str, Any]],
@@ -317,6 +335,10 @@ def plan_document(
             # disk is not what was ingested). Same fallback, three different
             # findings, so three different sentences.
             table, source, note = None, "html", doc_note
+            # The cached extractor table this chunk maps to, when its body no
+            # longer reproduces the stored text. See the already-repaired
+            # branch below for the one case where that is expected.
+            mismatched = None
             if tables is not None:
                 if idx is None:
                     note = "chunk_id carries no positional index"
@@ -329,29 +351,48 @@ def plan_document(
                     # disk now. Recorded rather than trusted; the stored HTML
                     # always is what the corpus holds.
                     note = "extractor output differs from the stored text"
+                    mismatched = tables[idx]
                 else:
                     table, source, note = tables[idx], "extractor", ""
+
+            # A chunk this pass has ALREADY repaired fails the body-equality
+            # gate above by construction -- the stored text is this pass's own
+            # output, so of course it is not MinerU's. Falling to the html
+            # fallback there anchors the rebuild on the REPAIRED labels, which
+            # is a different input, and the plan stops being a function of the
+            # corpus alone. Measured on the rehearsal copy 2026-09-02: after
+            # one apply, 4,020 of 4,656 chunks took that fallback and were
+            # reported under a note that reads as a finding when it is the
+            # expected consequence of the apply.
+            #
+            # So: refine the cached table anyway, and if it reproduces the
+            # stored text EXACTLY, this chunk is already repaired -- report it
+            # on the extractor path with no note, where it belongs. The
+            # summary's "byte-identical rebuilds" line is what says a re-run
+            # found nothing to do; a separate verdict would have to be taught
+            # to every counter and to the apply, which counts `rebuilt`.
+            #
+            # Inert on a corpus this pass has not touched: the live dry run of
+            # 2026-09-02 records `notes: {}`, i.e. ZERO chunks reach here.
+            pre = None
+            if table is None and mismatched is not None:
+                pre = _refine_guarded(mismatched, pdf, str(row["chunk_id"]))
+                if pre[0] is not None and _build_text(pre[0], section_path) == old_text:
+                    table, source, note = mismatched, "extractor", ""
+                else:
+                    pre = None
+
             if table is None:
                 table = MinerUReader._parse_html_table(
                     str(row.get("table_html") or ""), page=int(row.get("page") or 1), bbox=None)
 
-            if pdf is None:
-                outcome_table, reason, match, retention = None, "no source pdf", 0.0, 1.0
-            else:
-                try:
-                    outcome = refine_operating_table(table, pdf)
-                except Exception as exc:  # noqa: BLE001
-                    # Same containment argument as
-                    # `MinerUReader._refine_operating_tables`: one table that
-                    # raises must cost that table its repair, never its
-                    # siblings or the rest of a 7,500-document pass. Logged
-                    # with the traceback so a systematic failure is findable.
-                    log.warning("refinement raised on %s; counting it unverified",
-                                row["chunk_id"], exc_info=True)
-                    outcome_table, reason, match, retention = None, f"refinement raised: {exc}", 0.0, 1.0
-                else:
-                    outcome_table, reason = outcome.table, outcome.reason
-                    match, retention = outcome.anchor_match, outcome.figure_retention
+            # `pre` is a CACHE of the refinement above, never a different
+            # answer -- when it is set, `table` IS the table it refined. So
+            # dropping it here is a mutation no test can catch, and none is
+            # written pretending otherwise; it saves one refinement per
+            # already-repaired chunk (4,656 of them on a re-run).
+            outcome_table, reason, match, retention = (
+                pre if pre is not None else _refine_guarded(table, pdf, str(row["chunk_id"])))
 
             before_cells = [[c.text for c in r.cells] for r in table.rows]
             change = TableChange(

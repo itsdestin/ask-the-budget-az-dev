@@ -917,3 +917,166 @@ def test_a_dash_inside_a_label_is_never_stripped():
     assert _label_text(line("Travel", "-", "In", "State")) == "TRAVEL - IN STATE"
     assert _label_text(line("SUBTOTAL", "-", "Appropriated", "Funds", "150", "—")) \
         == "SUBTOTAL - APPROPRIATED FUNDS"
+
+# --- a label that wraps on the LAST line of a page's region (Task 11b) --------
+
+_HEADER_ROW = ("<tr><td></td><td>FY 2024 ACTUAL</td><td>FY 2025 ESTIMATE</td>"
+               "<td>FY 2026 APPROVED</td></tr>")
+_TAIL_LEAD = (
+    "<tr><td>FUND SOURCES</td><td></td><td></td><td></td></tr>"
+    "<tr><td>General Fund</td><td>100</td><td>200</td><td>300</td></tr>"
+    "<tr><td>Other Appropriated Funds</td><td></td><td></td><td></td></tr>"
+)
+_TAIL_REST = (
+    "<tr><td>SUBTOTAL - Other Appropriated Funds</td><td>60</td><td>70</td><td>80</td></tr>"
+    "<tr><td>SUBTOTAL - Appropriated Funds</td><td>160</td><td>270</td><td>380</td></tr>"
+    "<tr><td>TOTAL - ALL SOURCES</td><td>160</td><td>270</td><td>380</td></tr>"
+)
+# The two ways MinerU reads the SAME two printed lines, both live shapes:
+# `jlbc-approps-fy2018-dcs-0002` splits the fund across two cells
+# (`...NEEDY FAMILIES BLOCK` + `GRANT`), `jlbc-approps-fy2024-axs-0000`
+# already emits it whole (`... - MEDICALLY NEEDY ACCOUNT`).
+_SPLIT_TAIL = (
+    "<tr><td>Tobacco Tax and Health Care Fund - Medically Needy</td>"
+    "<td>60</td><td>70</td><td>80</td></tr>"
+    "<tr><td>Account</td><td></td><td></td><td></td></tr>"
+)
+_WHOLE_TAIL = (
+    "<tr><td>Tobacco Tax and Health Care Fund - Medically Needy Account</td>"
+    "<td>60</td><td>70</td><td>80</td></tr>"
+)
+
+
+def _page_one_ending_on_a_wrap(doc) -> None:
+    """AHCCCS's fund ladder, cut where the printed page cuts it.
+
+    The last line of page 1 is the CONTINUATION of the fund above it —
+    `Tobacco Tax and Health Care Fund - Medically Needy` / `Account`, as
+    `jlbc-approps-fy2024-axs-0000` prints it (measured on the real page: the
+    fund at x0=52.44, `Account` at x0=60.60, 8 pt further right).
+    """
+    b = PageBuilder(doc)
+    b.header()
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("Other Appropriated Funds")
+    b.row("Tobacco Tax and Health Care Fund - Medically Needy", "60", "70", "80")
+    b.row("Account", x0=61)
+
+
+def _page_two_finishing_the_ladder(doc) -> None:
+    b = PageBuilder(doc)
+    b.header()
+    b.row("SUBTOTAL - Other Appropriated Funds", "60", "70", "80", x0=61)
+    b.row("SUBTOTAL - Appropriated Funds", "160", "270", "380", x0=61)
+    b.row("TOTAL - ALL SOURCES", "160", "270", "380")
+
+
+@pytest.mark.parametrize("tail, shape", [(_SPLIT_TAIL, "split"), (_WHOLE_TAIL, "whole")])
+def test_a_label_that_wraps_at_the_end_of_a_page_keeps_its_last_word(tail, shape):
+    """Both anchor forms must produce the SAME rebuilt label.
+
+    The defect this pins — measured on the rehearsal copy 2026-09-02, and the
+    reason the repair was only 99.9% idempotent: a page's region ends at the
+    last line matching one of MinerU's labels, and a one-word continuation
+    (`Account`, `Grant`) can never match one, because `_line_hits` requires
+    two words for a containment match so a lone `TOTAL` cannot pass for
+    `TOTAL - ALL SOURCES`. With the WHOLE anchor the region therefore stopped
+    one printed line short and the fund silently lost its last word; with the
+    SPLIT anchor it survived only because MinerU happened to emit `Account`
+    as a cell of its own. Which of the two MinerU produces is not a property
+    of the page, so the rebuild must not depend on it.
+
+    Four live chunks sat on this: `jlbc-approps-fy2018-dcs-0002` (split
+    today, whole once repaired) and `jlbc-approps-fy{2024,2026,2027}-axs-0000`
+    — FY2024's fund is ALREADY whole in MinerU's own output and keeps its
+    `Account` only because the neighbouring fund's cell happens to be a bare
+    `ACCOUNT`.
+    """
+    doc = fitz.open()
+    _page_one_ending_on_a_wrap(doc)
+    _page_two_finishing_the_ladder(doc)
+    out = refine_operating_table(
+        _minerU(f"<table>{_HEADER_ROW}{_TAIL_LEAD}{tail}{_TAIL_REST}</table>", page=1), doc)
+    assert out.table is not None, out.reason
+    labels = [r[0] for r in _cells(out.table)]
+    assert labels == ["", "FUND SOURCES", "General Fund", "Other Appropriated Funds",
+                      "Tobacco Tax and Health Care Fund - Medically Needy Account",
+                      "SUBTOTAL - Other Appropriated Funds", "SUBTOTAL - Appropriated Funds",
+                      "TOTAL - ALL SOURCES"], shape
+    assert _cells(out.table)[4] == [
+        "Tobacco Tax and Health Care Fund - Medically Needy Account", "60", "70", "80"]
+
+
+def test_a_trailing_line_that_is_not_this_label_is_left_outside_the_region():
+    """The guard on the rule above: the region takes the next line only when
+    the JOIN is contained in one of MinerU's own labels.
+
+    Here page 1 ends with an indented heading belonging to the block below
+    (`Special Line Items`). It is figure-less and indented — positionally
+    indistinguishable from a wrap — so only the anchor evidence tells the two
+    apart, and swallowing it would append a foreign heading to a real fund.
+    """
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("Other Appropriated Funds")
+    b.row("Tobacco Tax and Health Care Fund - Medically Needy Account", "60", "70", "80")
+    b.row("Special Line Items", x0=61)
+    _page_two_finishing_the_ladder(doc)
+    out = refine_operating_table(
+        _minerU(f"<table>{_HEADER_ROW}{_TAIL_LEAD}{_WHOLE_TAIL}{_TAIL_REST}</table>", page=1), doc)
+    assert out.table is not None, out.reason
+    labels = [r[0] for r in _cells(out.table)]
+    assert "Tobacco Tax and Health Care Fund - Medically Needy Account" in labels
+    assert not any("Special Line Items" in lab for lab in labels)
+
+
+def test_the_region_never_takes_a_line_that_rows_would_not_join():
+    """The two other halves of the same rule, and why they are not spare
+    parts: the region may take the next line only where `_rows` will JOIN it
+    onto the row above. Take one it would not, and the line comes back as an
+    extra label row -- a row the page prints as part of something else.
+
+    Both shapes below are figure-less-or-not lines whose JOIN with the last
+    row is contained in one of MinerU's own labels (MinerU fused two printed
+    rows into one cell, which is the defect this whole pass exists for), so
+    the anchor evidence alone does not tell them from a wrap.
+    """
+    # (a) NOT indented -- a group heading printed flush left under the last
+    #     row. `_rows`'s wrap shape requires the indent, so joining is not
+    #     available and absorbing it would add a bare heading row.
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("Other Appropriated Funds")
+    b.row("Tobacco Tax and Health Care Fund - Medically Needy Account", "60", "70", "80")
+    b.row("Reserve")                              # same x0 as the row above
+    _page_two_finishing_the_ladder(doc)
+    fused = ("<tr><td>Tobacco Tax and Health Care Fund - Medically Needy Account "
+             "Reserve</td><td>60</td><td>70</td><td>80</td></tr>")
+    out = refine_operating_table(
+        _minerU(f"<table>{_HEADER_ROW}{_TAIL_LEAD}{fused}{_TAIL_REST}</table>", page=1), doc)
+    assert out.table is not None, out.reason
+    assert "Reserve" not in [r[0] for r in _cells(out.table)]
+
+    # (b) carries FIGURES -- a data row of its own, never a label's tail.
+    doc = fitz.open()
+    b = PageBuilder(doc)
+    b.header()
+    b.row("FUND SOURCES")
+    b.row("General Fund", "100", "200", "300")
+    b.row("Other Appropriated Funds")
+    b.row("Tobacco Tax and Health Care Fund - Medically Needy", "60", "70", "80")
+    b.row("Account", "1", "2", "3", x0=61)
+    _page_two_finishing_the_ladder(doc)
+    out = refine_operating_table(
+        _minerU(f"<table>{_HEADER_ROW}{_TAIL_LEAD}{_WHOLE_TAIL}{_TAIL_REST}</table>", page=1), doc)
+    labels = [r[0] for r in _cells(out.table)] if out.table else []
+    assert out.table is not None, out.reason
+    assert "Tobacco Tax and Health Care Fund - Medically Needy" in labels
+    assert not any(lab.endswith("Medically Needy Account") for lab in labels)

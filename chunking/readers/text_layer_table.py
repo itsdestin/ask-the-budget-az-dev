@@ -383,6 +383,51 @@ def _region(
         while end + 1 < len(lines) and anchors[-1] in hits[end + 1]:
             end += 1
 
+    # The region's LAST row may itself be a label that wrapped onto the next
+    # printed line, and the two rules above can only see a line that matches
+    # an anchor -- so the continuation is cut off and `_rows` never gets the
+    # chance to join it back on.
+    #
+    # WHY this is a reader defect and not only a re-run artefact: whether the
+    # continuation line matches an anchor depends on how MinerU happened to
+    # split that cell, which is not a property of the page. Measured on the
+    # live corpus 2026-09-02:
+    #   * `jlbc-approps-fy2018-dcs-0002` -- MinerU splits the fund into
+    #     `...NEEDY FAMILIES BLOCK` + `GRANT`, so the printed `Grant` line
+    #     matches the `GRANT` anchor and is kept. Feed the SAME page a
+    #     complete `...BLOCK GRANT` label and the region ends one line early
+    #     (`GRANT` is one word, and `_line_hits` requires two for a
+    #     containment match -- deliberately, so a lone `TOTAL` cannot pass
+    #     for `TOTAL - ALL SOURCES`).
+    #   * `jlbc-approps-fy2024-axs-0000` -- MinerU ALREADY emits the complete
+    #     `TOBACCO TAX AND HEALTH CARE FUND - MEDICALLY NEEDY ACCOUNT`, and
+    #     today's rebuild keeps its printed `Account` line only because the
+    #     NEIGHBOURING fund's cell happens to be a bare `ACCOUNT` anchor.
+    #     Remove that coincidence and the fund silently loses its last word.
+    #     `jlbc-approps-fy2026-axs-0000` and `jlbc-approps-fy2027-axs-0000`
+    #     are the same shape.
+    # On the UNREPAIRED corpus this changes nothing, and that is measured, not
+    # assumed: a full dry run of 2026-09-02 with this rule in place is
+    # identical to the run without it on all 4,875 in-scope rows. Every such
+    # continuation happens to match some anchor today. What the rule buys is
+    # that the rebuild stops depending on that coincidence -- which is what
+    # makes the repair idempotent, and what protects the four chunks above
+    # from a future MinerU reading that merges the two cells.
+    #
+    # The join must be CONTAINED in one of MinerU's own labels -- the same
+    # evidence `_rows`'s second wrap shape demands -- so an indented heading
+    # belonging to a following table can never be swallowed.
+    while end + 1 < len(lines):
+        tail = _label_text(lines[end + 1])
+        if not tail or _has_figures(lines[end + 1]):
+            break
+        if lines[end + 1].x0 <= lines[end].x0 + WRAP_INDENT:
+            break
+        joined = normalise_label(f"{_label_text(lines[end])} {tail}")
+        if not any(joined in a for a in anchors):
+            break
+        end += 1
+
     matched: set[str] = set()
     for i in range(start, end + 1):
         matched.update(hits[i])
