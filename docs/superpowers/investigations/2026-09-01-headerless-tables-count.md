@@ -73,6 +73,7 @@ out-of-scope with tab rows and NO header: 7411
   topic-pdf                4
   bd-pdf                   3
   s-pdf                    2
+  bh-pdf                   1
 ```
 
 (`width-matched chunk_ids, for hand-reading:` — 359 ids — is printed after
@@ -124,7 +125,7 @@ happens to be the same width.
 | `jlbc-baseline-fy2027-s80-0001` | s-pdf | **TRUE** | same `PREVIOUSLY ENACTED APPROPRIATIONS FY 2027 and BEYOND` title reprinted verbatim as a running header, list continues straight through to `GENERAL FUND TOTAL` |
 | `jlbc-baseline-fy2015-deq-0009` | baseline-per-agency | **plausible** | predecessor's `SUMMARY OF FUNDS FY2013/FY2014` header names a DIFFERENT fund ("Extension of Underground Storage Tank Tax") than the current chunk's own heading ("WQARF Priority Site Remediation") — likely two funds' identical-format summaries back to back in the same document, so the YEARS are probably still right even though the specific fund heading is not the immediately preceding one |
 | `jlbc-approps-fy2019-469-0009` | detailed-list-pdf | **plausible** | the current chunk reprints the SAME running title (`CROSSWALK OF FY 2019 GENERAL APPROPRIATION ACT...`) as the predecessor and continues its agency rows — looks like one document-wide matrix table split across many chunks, but the "header" both carry is a single-year column-caption row, not a genuine multi-year ladder, so what a borrow would supply is less clearly a "year" |
-| `jlbc-approps-fy2011-bd3-0001` | bd-pdf | **plausible** | predecessor is cut off MID-WORD (`SUBTOTAL APPROPRIATIO…`) — a genuine chunk-boundary truncation — and current continues the same statute-cite/description/FY2011/FY2012 row shape for a new subsection of the same appropriations-bill summary |
+| `jlbc-approps-fy2011-bd3-0001` | bd-pdf | **plausible** | corrected 2026-09-01: predecessor does NOT cut off mid-word — re-read in full, it ends on a COMPLETE row (`SUBTOTAL APPROPRIATIONS - 1st REGULAR SESSION  4,000,000  0  0`), closing out its own subsection cleanly. The real evidence is structural: predecessor is a run of subsections each titled by legislative session (`Forty-Ninth Legislature - Nth [Regular/Special] Session`), each ending in its own `SUBTOTAL APPROPRIATIONS - …` row; current opens a NEW subsection in the identical pattern (`Permanent General Fund Appropriations and Allocations`, statute-cite/description/dollar rows, ending `SUBTOTAL APPROPRIATIONS - PERMANENT` then `TOTAL APPROPRIATIONS`) — plausibly the same continuous document's final section and its grand total, not a coincidentally-shaped unrelated table. Caveat: current's rows carry 3 numeric columns where predecessor's detected header names only 2 years (`FY 2011`/`FY 2012`), so a borrow would not fully describe the third column even if this is a true continuation |
 | `jlbc-baseline-fy2020-axs-0029` | baseline-per-agency | **FALSE — distinct table** | predecessor is a DSH-distribution table; current opens with its OWN heading ("Prescription Drug Rebate Fund", "Table 5") and its own (single-year) subject |
 | `jlbc-approps-fy2008-agr-0003` | approps-per-agency | **FALSE — distinct table** | same agency heading and same fund NAMES as predecessor, but wildly different dollar amounts (change/adjustment figures, not the base totals) — a different sub-table under a repeated agency heading, not a continuation |
 | `jlbc-approps-fy2010-hea-0003` | approps-per-agency | **FALSE — distinct table** | predecessor ("Lump Sum Reduction") ends cleanly on one complete row; current opens with a DIFFERENT heading ("Operating Budget") and different values for the same fund |
@@ -168,7 +169,8 @@ full 359 width-matched population:**
 | topic-pdf | 4 | 0/1 (0%) | ~0 |
 | bd-pdf | 3 | 1/1 plausible, half-credit | ~1–3 |
 | s-pdf | 2 | 1/1 (100%) | ~2 |
-| **total** | **359** | | **~175–205** |
+| bh-pdf | 1 | not sampled (N=1, too small to read meaningfully) | ~0–1 |
+| **total** | **359** | | **~175–206** |
 
 **Estimated true-continuation population: roughly 150–220, point estimate
 ~180 — about 0.2%–0.3% of the 83,197-row budget corpus, or 0.8%–1.0% of
@@ -184,18 +186,20 @@ the corpus.** The N=24 sample (N=6 for the two largest buckets) leaves real
 uncertainty in the exact count; nobody should treat "~180" as more precise
 than "on the order of a few hundred, mostly Governor's-budget fund lists."
 
-**\~~Struck-through, false, kept for the record~~: the first version of
-this memo said "None of the more than 30 chunks read... is a truncated
-fragment of a table whose header lives in a chunk before it." That
-sentence was written from an UNSTRATIFIED, adjacency-blind sample — every
-example in the first pass happened to land on a distinct-table case
-(footnote breakdowns, named `Table N` tables, AFR pie charts). It never
-tested the one shape (the Governor's-budget SLI/fund-list split) that
-turns out to be the dominant true-continuation pattern, because the
-vocabulary probe it used (`Personal Services` / `ERE` / `FTE Positions`)
-is D1's own line-item vocabulary and has nothing to do with how the
-Governor's budget formats its fund lists — structurally blind to the
-shape that mattered, exactly as the review said.**
+**Struck through below, false, kept for the record — not deleted, so
+nobody re-derives it:**
+
+~~The first version of this memo said "None of the more than 30 chunks
+read... is a truncated fragment of a table whose header lives in a chunk
+before it." That sentence was written from an UNSTRATIFIED,
+adjacency-blind sample — every example in the first pass happened to land
+on a distinct-table case (footnote breakdowns, named `Table N` tables, AFR
+pie charts). It never tested the one shape (the Governor's-budget
+SLI/fund-list split) that turns out to be the dominant true-continuation
+pattern, because the vocabulary probe it used (`Personal Services` / `ERE`
+/ `FTE Positions`) is D1's own line-item vocabulary and has nothing to do
+with how the Governor's budget formats its fund lists — structurally
+blind to the shape that mattered, exactly as the review said.~~
 
 **What the doc types are, corrected for `governors-budget`:** the earlier
 descriptions of `approps-per-agency`/`baseline-per-agency` (county
