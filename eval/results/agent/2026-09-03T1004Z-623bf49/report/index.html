@@ -1,0 +1,1405 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>Eval report — latest run metrics</title><style>
+:root { --bg:#f6f8fb; --card:#fff; --ink:#161b26; --muted:#5c6775;
+        --accent:#2563eb; --ok:#0e9f5b; --warn:#d97706; --bad:#dc2626;
+        --line:#e5eaf1; --tool:#f1f5f9; --tool-edge:#93c5fd;
+        --user-bubble:#eaf1ff; --assistant-bubble:#fff; --chip:#eef1f6;
+        /* app design tokens, ported from webapp/src/styles/tokens.css so the
+           transcript renders with the app's own palette */
+        --navy:#2b2f63; --navy-700:#232752; --navy-900:#181b3d; --navy-100:#e7e8f2;
+        --az-gold:#1b6fc4; --az-gold-d:#145aa6; --az-gold-100:#dceaf7;
+        --ink-2:#4a4e6a; --ink-3:#757895; --r-md:16px; --r-sm:12px; --r-pill:999px;
+        --chat-danger:#c0392b; --chat-danger-tint:#fdecea; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; font:15px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg); color:var(--ink); overflow-x:hidden; }
+header { background:linear-gradient(120deg,#17233c 0%,#1d4ed8 60%,#2563eb 100%);
+         color:#fff; padding:28px 44px; box-shadow:0 2px 12px rgba(20,30,60,.25); }
+header h1 { margin:0; font-size:23px; font-weight:700; letter-spacing:.2px; }
+header .sub { opacity:.9; margin-top:5px; font-size:13px; }
+.wrap { max-width:1280px; margin:0 auto; padding:28px 44px 60px; }
+h2 { margin-top:40px; font-size:20px; font-weight:700; color:#0f244f;
+     border-bottom:2px solid var(--line); padding-bottom:8px; }
+h2 .count { color:var(--muted); font-weight:500; font-size:14px; margin-left:8px; }
+h3 { font-size:16px; font-weight:600; margin:22px 0 10px; color:#17305f; }
+table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0;
+        background:var(--card); box-shadow:0 1px 4px rgba(20,30,60,.08);
+        border-radius:10px; overflow:hidden; }
+/* A table must not stretch the page: .table-scroll clips wide tables so the
+   page itself never scrolls horizontally; the table scrolls inside its own
+   block. whole-page horizontal scroll is disabled on body. */
+.table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:14px 0; }
+.table-scroll table { margin:0; }
+.table-scroll th { position:sticky; top:0; }
+th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line);
+        font-size:13.5px; white-space:nowrap; }
+th { background:#eef2f9; font-weight:700; color:#23334f; cursor:pointer;
+     user-select:none; position:sticky; top:0; z-index:1; }
+th:hover { background:#e2e9f5; }
+th .sort { font-size:10px; color:var(--muted); margin-left:4px; }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover td { background:#f6f9ff; }
+td.num { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--ok); font-weight:700; }
+.warn { color:var(--warn); font-weight:700; }
+.bad { color:var(--bad); font-weight:700; }
+.muted { color:var(--muted); }
+.badge { display:inline-block; font-size:12px; font-weight:700; border-radius:20px;
+         padding:2px 10px; }
+.badge.good { background:#e6f6ee; color:var(--ok); }
+.badge.warn { background:#fdf1e0; color:var(--warn); }
+.badge.bad { background:#fdeaea; color:var(--bad); }
+.metric-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr));
+               gap:12px; margin:16px 0; }
+.metric { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 16px; box-shadow:0 1px 3px rgba(20,30,60,.05); }
+.metric .k { font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+             color:var(--muted); font-weight:600; }
+.metric .v { font-size:19px; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+.metric .v.good { color:var(--ok); } .metric .v.warn { color:var(--warn); }
+.metric .v.bad { color:var(--bad); }
+/* consolidated metric grid: labeled groups, so the per-query page reads in
+   three scannable bands instead of one undifferentiated wall of cards. */
+.metric-group { margin:14px 0 6px; }
+.metric-group h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase;
+                   letter-spacing:.05em; color:var(--muted); }
+.chat { border:1px solid var(--line); border-radius:12px; overflow:hidden;
+        box-shadow:0 1px 4px rgba(20,30,60,.06); margin:16px 0; }
+.msg { padding:14px 20px; }
+.msg.user { background:var(--user-bubble); }
+.msg.assistant { background:var(--assistant-bubble); border-top:1px solid var(--line); }
+.msg .who { font-size:11px; font-weight:800; text-transform:uppercase;
+            letter-spacing:.06em; color:var(--muted); margin-bottom:5px; }
+.msg .body { white-space:pre-wrap; }
+/* client-side markdown rendering of message bodies */
+.msg .body p { margin:0 0 8px; }
+.msg .body p:last-child { margin-bottom:0; }
+.msg .body table { font-size:12.5px; margin:6px 0; }
+.msg .body code { background:var(--chip); padding:1px 5px; border-radius:4px;
+                  font-size:12.5px; font-family:ui-monospace,Menlo,monospace; }
+.msg .body pre { background:#0f1b2e; color:#d9e3f5; padding:10px 14px; border-radius:8px;
+                 overflow:auto; }
+.msg .body pre code { background:none; color:inherit; padding:0; }
+.msg .body blockquote { margin:6px 0; padding:4px 12px; border-left:3px solid var(--accent);
+                        color:var(--muted); }
+.msg .body h1,.msg .body h2 { font-size:15px; margin:10px 0 6px; color:#17305f; }
+.msg .body ul,.msg .body ol { margin:6px 0; padding-left:22px; }
+.tool { background:var(--tool); border-left:4px solid var(--tool-edge); padding:10px 16px;
+        margin:10px 16px; border-radius:8px; font-size:13px; box-shadow:0 1px 2px rgba(20,30,60,.05); }
+.tool .tname { font-weight:800; font-size:12.5px; text-transform:uppercase;
+               letter-spacing:.04em; color:#1d4ed8; }
+.tool .tinput { margin-top:6px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px;
+                white-space:pre-wrap; color:#2b3a57; background:#fff; padding:8px 10px;
+                border-radius:6px; border:1px solid var(--line); }
+.tool .tresult { margin-top:6px; color:var(--muted); font-size:12.5px; white-space:pre-wrap;
+                 font-family:ui-monospace,Menlo,monospace; background:#fbfcfe; padding:8px 10px;
+                 border-radius:6px; }
+.back { display:inline-block; margin:0 0 14px; color:var(--accent); text-decoration:none;
+        font-weight:700; font-size:14px; }
+.back:hover { text-decoration:underline; }
+.err { color:var(--bad); }
+.claims { list-style:none; padding:0; margin:8px 0; }
+.claims li { margin:5px 0; padding:6px 10px; background:var(--card);
+             border:1px solid var(--line); border-radius:8px; font-size:13.5px; }
+.claims .ok { color:var(--ok); font-weight:800; }
+.claims .bad { color:var(--bad); font-weight:800; }
+a { color:var(--accent); }
+
+/* ---- nav bar across pages ---- */
+.nav { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:22px; }
+.nav a { display:inline-block; padding:7px 14px; border-radius:999px;
+         font-size:13px; font-weight:700; color:var(--ink-2);
+         background:var(--card); border:1px solid var(--line);
+         text-decoration:none; }
+.nav a:hover { background:#eef2f9; }
+.nav a.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+
+/* ---- tabs (historical page) ---- */
+.tabs { display:flex; gap:4px; margin:0 0 18px; border-bottom:2px solid var(--line); }
+.tabs a { display:inline-block; padding:9px 18px; font-size:14px; font-weight:700;
+          color:var(--muted); text-decoration:none; border-bottom:3px solid transparent;
+          margin-bottom:-2px; }
+.tabs a.active { color:var(--navy); border-bottom-color:var(--navy); }
+.tabs a:hover { color:var(--accent); }
+
+/* ---- tooltips (hoverable stat descriptions + query previews) ----
+   A JS-driven tooltip (see below) renders the tip in a FIXED element
+   appended to <body>, so it is NOT clipped by .table-scroll's overflow
+   or any other container. The [data-tip] hint underline stays in CSS. */
+[data-tip] { cursor:help; border-bottom:1px dotted var(--muted); }
+#evtip { position:fixed; z-index:10000; max-width:min(340px, 90vw);
+         background:#101a2c; color:#e7edf8; padding:8px 12px; border-radius:8px;
+         font-size:12.5px; font-weight:400; line-height:1.45; white-space:normal;
+         box-shadow:0 4px 14px rgba(10,18,35,.35); text-align:left;
+         pointer-events:none; display:none; }
+/* ---- app chat transcript (ported from webapp/src/styles/app.css) ----
+   The eval transcript renders with the LIVE app's own classes + tokens so
+   it looks like the real conversation, not a bespoke viewer. */
+.chat-turn { display:flex; flex-direction:column; gap:8px; margin:18px 0; }
+.chat-bubble { position:relative; background:var(--card); border:1px solid var(--line);
+               border-radius:var(--r-md); padding:10px 16px; color:var(--ink);
+               font-size:14px; max-width:65ch; }
+.chat-bubble.has-tail { border-bottom-left-radius:4px; }
+.chat-user-row { display:flex; justify-content:flex-end; }
+.chat-user-bubble { background:var(--navy); color:#fff; border-radius:var(--r-md);
+                    border-bottom-right-radius:4px; padding:10px 16px; max-width:78%;
+                    font-size:14px; line-height:1.6; white-space:pre-wrap; }
+.chat-stop-note { font-size:12px; color:var(--ink-3); font-style:italic; padding:0 4px; }
+/* tool card + group, the app's own geometry */
+.chat-tool { border-radius:var(--r-sm); border:1px solid var(--line);
+             background:var(--card); max-width:65ch; overflow:hidden; margin:8px 0; }
+.chat-tool.is-failed { border-color:var(--chat-danger); }
+.chat-tool.is-inset { background:var(--canvas, #f5f5fa); }
+.chat-tool-head { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px;
+                  font-size:12.5px; color:var(--ink-2); }
+.chat-tool-glyph { flex-shrink:0; color:var(--ink-3); }
+.chat-tool.is-failed .chat-tool-glyph, .chat-tool.is-failed .chat-tool-label { color:var(--chat-danger); }
+.chat-tool-label { font-weight:700; color:var(--ink-2); flex-shrink:0; }
+.chat-tool-summary { color:var(--ink-3); font-size:12px; min-width:0; flex:1 1 auto;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-tool-summary::before { content:"↳ "; }
+.chat-tool-body { border-top:1px solid var(--line); padding:8px 12px;
+                  font-size:13px; color:var(--ink); }
+.chat-tool-body pre { margin:4px 0; white-space:pre-wrap; font-size:12px;
+                      font-family:ui-monospace,Menlo,monospace; color:var(--ink-2); }
+.chat-tool-body .chip-row { display:flex; flex-wrap:wrap; gap:6px; }
+.chat-chip { display:inline-flex; align-items:center; gap:4px; padding:1px 8px;
+             font-size:11px; font-weight:700; border-radius:var(--r-pill);
+             border:1px solid var(--line); background:var(--navy-100); color:var(--ink-2); }
+.chat-chip.is-good { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-chip.is-bad { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* citation pills, the app's cite state language */
+.chat-cite-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 6px;
+                  font-size:10px; font-weight:700; border-radius:4px; border:1px solid;
+                  font-family:var(--font); cursor:pointer; }
+.chat-cite-pill.is-verbatim { background:var(--az-gold-100); color:var(--az-gold-d); border-color:var(--az-gold); }
+.chat-cite-pill.is-paraphrase { background:var(--navy-100); color:var(--ink-2); border-color:var(--line); }
+.chat-cite-pill.is-failed { background:var(--chat-danger-tint); color:var(--chat-danger); border-color:var(--chat-danger); }
+/* tool calls, app-like */
+.tool { display:flex; align-items:flex-start; gap:8px; background:var(--tool);
+        border:1px solid var(--line); border-left:4px solid var(--accent);
+        padding:7px 12px; margin:8px 0; border-radius:8px; font-size:13px; }
+.tool .tname { font-weight:800; font-size:12px; text-transform:uppercase;
+               letter-spacing:.05em; color:#1d4ed8; white-space:nowrap; flex:none; }
+.tool .tdetail { color:#2b3a57; overflow-wrap:anywhere; }
+.tool .targs { color:var(--muted); font-family:ui-monospace,Menlo,monospace;
+               font-size:12px; white-space:nowrap; }
+.tool.retrieve { border-left-color:#2563eb; }
+.tool.cite { border-left-color:#0e9f5b; }
+.tool.result { border-left-color:#93c5fd; background:#f6f9ff; margin:2px 0 10px 28px;
+               border-left-style:dashed; }
+.tool.result.error { border-left-color:var(--bad); }
+/* header + summary prettier */
+header .runid { font-family:ui-monospace,Menlo,monospace; font-size:12px;
+                opacity:.85; margin-top:8px; }
+.summary-card { background:linear-gradient(180deg,#fff,#f7fafd); border:1px solid var(--line);
+                border-radius:14px; padding:18px 22px; margin-top:18px;
+                box-shadow:0 2px 10px rgba(20,30,60,.06); }
+.summary-card h2 { margin-top:0; border:none; padding-bottom:0; font-size:17px; }
+.hint { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+.query-chip { display:inline-block; max-width:240px; overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap; vertical-align:middle; }
+/* The JS tooltip above handles rendering; the wrapper only needs to not
+   clip the query-chip's ellipsis. */
+.tooltip-wrap { display:inline-block; }
+</style></head><body>
+<header><h1>Eval report — latest run metrics</h1><div class="sub">Most recent run: 2026-09-03T1004Z-623bf49 · 2026-09-03</div></header>
+<script>
+// Client-side markdown renderer for message bodies (limited, safe subset:
+// the content is model prose with tables/bold/lists/code — we render those
+// and escape everything else). No server dependency keeps the bundle a
+// single static folder.
+function md(text) {
+  text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // fenced code
+  text = text.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>");
+  // headings h2/h3 and bold
+  text = text.replace(/^####[ \t]*(.+)$/gm, "<h2>$1</h2>");
+  text = text.replace(/^###[ \t]*(.+)$/gm, "<h3>$1</h3>");
+  text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  text = text.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // tables: line groups starting with | -> render <table>
+  var lines = text.split("\n"), html = [], i = 0, inT = false;
+  while (i < lines.length) {
+    var l = lines[i];
+    if (l.trim().startsWith("|") && i + 1 < lines.length && lines[i+1].trim().startsWith("|")) {
+      if (!inT) { html.push("<table>"); inT = true; }
+      var cells = l.trim().split("|").slice(1, -1).map(function(c){ return c.trim(); });
+      var tag = (i === 0 || /^\s*:?-+:?\s*$/.test(l.trim().replace(/[^|:|\-\s]/g, ""))) ? "th" : "td";
+      // detect the header separator row (----) and skip rendering it as data
+      if (inT && /^[\s:|\-]+$/.test(l.trim())) { i++; continue; }
+      html.push("<tr><" + tag + ">" + cells.join("</" + tag + "><" + tag + ">") + "</" + tag + "></tr>");
+    } else {
+      if (inT) { html.push("</table>"); inT = false; }
+      if (l.trim() !== "") html.push("<p>" + l + "</p>");
+    }
+    i++;
+  }
+  if (inT) html.push("</table>");
+  // join and wrap
+  return html.join("");
+}
+document.addEventListener("DOMContentLoaded", function () {
+  // render message bodies
+  document.querySelectorAll(".chat-bubble").forEach(function (b) {
+    b.innerHTML = md(b.textContent);
+  });
+  // historical page tabs: show the tab named by ?tab= (default topline)
+  function showTab(name) {
+    document.querySelectorAll(".tabs a").forEach(function (a) {
+      var on = a.getAttribute("data-tab") === name;
+      a.classList.toggle("active", on);
+    });
+    document.querySelectorAll("[id^='tab-']").forEach(function (d) {
+      d.style.display = d.id === "tab-" + name ? "" : "none";
+    });
+  }
+  document.querySelectorAll(".tabs a").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      var name = a.getAttribute("data-tab");
+      showTab(name);
+      history.replaceState(null, "", "historical.html?tab=" + name);
+      e.preventDefault();
+    });
+  });
+  var m = location.search.match(/[?&]tab=([^&]+)/);
+  if (m) showTab(m[1]);
+  // ---- JS tooltip: renders [data-tip] in a FIXED element on <body> so the
+  // tip is never clipped by .table-scroll or any other overflow container.
+  var tip = document.createElement("div");
+  tip.id = "evtip";
+  document.body.appendChild(tip);
+  function tipShow(el) {
+    tip.textContent = el.getAttribute("data-tip");
+    tip.style.display = "block";
+    tipPos(el);
+  }
+  function tipPos(el) {
+    var r = el.getBoundingClientRect();
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    var x = r.left + r.width / 2 - tw / 2;
+    // clamp horizontally so the tip never goes off the right/left viewport edge
+    x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+    var y = r.top - th - 10;            // above the element
+    var flip = y < 8;                    // not enough room above -> below
+    if (flip) y = r.bottom + 10;
+    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+    tip.style.transform = flip ? "translateY(-4px)" : "translateY(4px)";
+  }
+  document.querySelectorAll("[data-tip]").forEach(function (el) {
+    el.addEventListener("mouseenter", function () { tipShow(el); });
+    el.addEventListener("mousemove", function (e) {
+      // follow horizontally only; vertical clamp stays anchored to the element
+      var r = el.getBoundingClientRect(), tw = tip.offsetWidth;
+      var x = Math.max(8, Math.min(e.clientX - tw / 2, window.innerWidth - tw - 8));
+      tip.style.left = x + "px";
+    });
+    el.addEventListener("mouseleave", function () {
+      tip.style.display = "none";
+    });
+  });
+  // sortable tables: click a header to sort asc/desc
+  document.querySelectorAll("table.sortable th").forEach(function (th, idx) {
+    th.addEventListener("click", function () {
+      var t = th.closest("table"), tbody = t.querySelector("tbody"), rows = Array.from(tbody.rows);
+      var dir = t.getAttribute("data-dir") === "asc" ? "desc" : "asc";
+      t.setAttribute("data-dir", dir);
+      rows.sort(function (a, b) {
+        var av = a.cells[idx].textContent.trim(), bv = b.cells[idx].textContent.trim();
+        var an = parseFloat(av.replace(/[$,\s]/g, "")), bn = parseFloat(bv.replace(/[$,\s]/g, ""));
+        var cmp = !isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv);
+        return dir === "asc" ? cmp : -cmp;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+      th.querySelector(".sort").textContent = dir === "asc" ? "▲" : "▼";
+    });
+  });
+});
+</script>
+<div class="wrap"><nav class='nav'><a href='index.html' class='active'>Latest Run Metrics</a><a href='index.html#per-query'>Per-Query</a><a href='historical.html'>Historical</a></nav><div class='summary-card'><h2>Latest Run Metrics</h2><p class='hint'>Run <code>2026-09-03T1004Z-623bf49</code> · 2026-09-03</p><div class='metric-grid'>
+<div class='metric' data-tip="Number of queries in this run."><div class='k'>queries</div><div class='v'>7</div></div>
+<div class='metric' data-tip="Queries whose terminal frame was not _done (crash). 0 is good."><div class='k'>crashed</div><div class='v'>0</div></div>
+<div class='metric' data-tip="Queries that passed ALL key facts AND produced ≥1 verified citation — the headline bar."><div class='k'>accurate n</div><div class='v'>3</div></div>
+<div class='metric' data-tip="Share of queries meeting the accurate bar. This is the headline quality number."><div class='k'>accurate rate</div><div class='v bad'>0.4286</div></div>
+<div class='metric' data-tip="Average tokens (input+output+cached) spent per ACCURATE query. Lower is better."><div class='k'>tokens/acc</div><div class='v'>112,271.33</div></div>
+<div class='metric' data-tip="Average agent turns (assistant steps) per ACCURATE query. Lower is better."><div class='k'>turns/acc</div><div class='v'>2.667</div></div>
+<div class='metric' data-tip="Mean fraction of the query&#x27;s pinned key facts that appear in the final answer."><div class='k'>fact rate mean</div><div class='v'>0.4286</div></div>
+<div class='metric' data-tip="Average agent turns across all queries."><div class='k'>turns mean</div><div class='v'>3.286</div></div>
+<div class='metric' data-tip="Average number of retrieve tool calls per query."><div class='k'>retrieves mean</div><div class='v'>2.143</div></div>
+<div class='metric' data-tip="Chunks actually used (cited or fact-bearing) ÷ chunks retrieved. 1.0 = no wasted retrieves."><div class='k'>retr eff mean</div><div class='v'>0.1205</div></div>
+<div class='metric' data-tip="Passing citation attempts ÷ all attempts."><div class='k'>cite pass</div><div class='v good'>1</div></div>
+<div class='metric' data-tip="Total spend on the live agent run (model calls)."><div class='k'>total cost</div><div class='v warn'>0.02965</div></div>
+<div class='metric' data-tip="Total cost ÷ number of queries."><div class='k'>cost/query</div><div class='v good'>0.004236</div></div>
+</div><p class='hint'>Hover any stat for what it means. Click a column to sort.</p></div>
+<h2 id='per-query'>Per-Query <span class='count'>hover a query to see its full question</span></h2><div class='table-scroll'><table class='sortable'><thead><tr>
+<th>query<span class='sort'></span></th>
+<th>shape<span class='sort'></span></th>
+<th>set<span class='sort'></span></th>
+<th data-tip="Met the headline bar: all key facts + ≥1 verified citation.">accurate<span class='sort'></span></th>
+<th data-tip="Share of the query&#x27;s pinned key facts present in the final answer. 1.0 = all.">fact rate<span class='sort'></span></th>
+<th>ok<span class='sort'></span></th>
+<th data-tip="Verified citations in the final answer.">cites ok<span class='sort'></span></th>
+<th data-tip="Passing citation attempts ÷ all attempts.">cite pass<span class='sort'></span></th>
+<th data-tip="Share of the answer&#x27;s figures that were linked to a verified citation.">fig cov<span class='sort'></span></th>
+<th data-tip="Model spend for this query.">cost<span class='sort'></span></th>
+<th data-tip="Total tokens (input+output+cached) spent on this query.">tokens<span class='sort'></span></th>
+<th data-tip="Agent steps taken to answer this query.">turns<span class='sort'></span></th>
+<th data-tip="Retrieve tool calls issued for this query.">retrieves<span class='sort'></span></th>
+<th data-tip="Used chunks ÷ retrieved chunks. 1.0 = every retrieved chunk was used.">retr eff<span class='sort'></span></th>
+<th data-tip="Share of citations that passed on the FIRST attempt (no retry).">1st-try<span class='sort'></span></th>
+<th data-tip="The date of the most recent run this query appeared in (queries in different sets can last run at different times).">last run<span class='sort'></span></th>
+<th data-tip="The run id of that most recent run.">run<span class='sort'></span></th>
+</tr></thead><tbody>
+<tr>
+<td><span class="tooltip-wrap" data-tip="In FY 2025, Medicaid enrollment apparently came in well under what the state budgeted for. What happened, and how did that ripple into the following year&#x27;s numbers?"><a class="query-chip" href="per-query/an-ahcccs-enrollment.html">an-ahcccs-enrollment</a></span></td>
+<td >analyze</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='bad'>0.1111</td>
+<td >0.009549</td>
+<td >268,883</td>
+<td >5</td>
+<td >3</td>
+<td class='bad'>0.1154</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="AHCCCS&#x27;s state share barely moved in FY 2026 even though its caseload costs jumped. How does that arithmetic actually work out?"><a class="query-chip" href="per-query/an-ahcccs-gf-drivers.html">an-ahcccs-gf-drivers</a></span></td>
+<td >analyze</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.007693</td>
+<td >192,708</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.04348</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What have school vouchers done to the cost of the K-12 funding formula, and did the state&#x27;s enrollment guesses turn out to be right?"><a class="query-chip" href="per-query/an-esa-growth.html">an-esa-growth</a></span></td>
+<td >analyze</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0.5</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>0.9</td>
+<td >0.009476</td>
+<td >200,352</td>
+<td >4</td>
+<td >3</td>
+<td class='bad'>0.06061</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Walk me through what&#x27;s happened to K-12 formula funding over the last three budget cycles. Is it climbing, and roughly how fast?"><a class="query-chip" href="per-query/cm-basic-aid-3yr.html">cm-basic-aid-3yr</a></span></td>
+<td >comparison</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >5</td>
+<td class='good'>1</td>
+<td class='good'>0.9333</td>
+<td >0.008472</td>
+<td >209,165</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.1852</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="DES keeps coming up as a fast-growing agency. How much has its general fund spending been rising, and what&#x27;s behind it?"><a class="query-chip" href="per-query/cm-des-gf-growth.html">cm-des-gf-growth</a></span></td>
+<td >comparison</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0.6667</td>
+<td >✓</td>
+<td >6</td>
+<td class='good'>1</td>
+<td class='good'>0.9231</td>
+<td >0.01024</td>
+<td >254,259</td>
+<td >5</td>
+<td >2</td>
+<td class='bad'>0.3462</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Has the amount going into building and maintaining state highways been holding steady the last few years?"><a class="query-chip" href="per-query/cm-highway-construction.html">cm-highway-construction</a></span></td>
+<td >comparison</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0.5</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.00727</td>
+<td >152,065</td>
+<td >3</td>
+<td >2</td>
+<td class='bad'>0.1852</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Which programs blew through their FY 2026 budgets badly enough to need extra money mid-year, and what did that come to?"><a class="query-chip" href="per-query/cm-supplementals-fy2026.html">cm-supplementals-fy2026</a></span></td>
+<td >comparison</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='warn'>0.7143</td>
+<td >0.007087</td>
+<td >330,761</td>
+<td >5</td>
+<td >5</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Compare what the three state universities are each getting from the Legislature in FY 2026, and say which one leans hardest on state tax dollars versus its own revenue."><a class="query-chip" href="per-query/cm-university-funding-dr.html">cm-university-funding-dr</a></span></td>
+<td >comparison</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.006512</td>
+<td >317,661</td>
+<td >6</td>
+<td >4</td>
+<td class='bad'>0.04348</td>
+<td class='good'>1</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="The federal stimulus money the state took in fiscal 2010 came with a condition that Arizona cut its own K-12 formula funding to match. How big was that required General Fund reduction to Basic State Aid?"><a class="query-chip" href="per-query/hs-arra-k12-stabilization-2010.html">hs-arra-k12-stabilization-2010</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.002642</td>
+<td >117,560</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="In fiscal 2008 Arizona pulled money out of its rainy-day Budget Stabilization Fund to help close a General Fund shortfall. How much was transferred to the General Fund that year?"><a class="query-chip" href="per-query/hs-bsf-draw-2008.html">hs-bsf-draw-2008</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='bad'>0</td>
+<td >0.003665</td>
+<td >164,306</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Around FY 2023, how much was the state really putting into fixing up existing school buildings, and how much of that was one-time money rather than something districts could count on?"><a class="query-chip" href="per-query/hs-building-renewal-2023.html">hs-building-renewal-2023</a></span></td>
+<td >historical</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >7</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.02328</td>
+<td >—</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.5</td>
+<td class='good'>1</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="During the pandemic the federal government temporarily picked up a bigger share of Medicaid costs. What was that worth to Arizona&#x27;s general fund, and what happened when it went away?"><a class="query-chip" href="per-query/hs-enhanced-fmap-2022.html">hs-enhanced-fmap-2022</a></span></td>
+<td >historical</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >8</td>
+<td class='good'>1</td>
+<td class='warn'>0.8</td>
+<td >0.03242</td>
+<td >—</td>
+<td >3</td>
+<td >2</td>
+<td class='bad'>0.4348</td>
+<td class='good'>1</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Before the voucher program was opened up to every student, how big was it really — roughly how many kids, and how much per kid?"><a class="query-chip" href="per-query/hs-esa-cost-2022.html">hs-esa-cost-2022</a></span></td>
+<td >historical</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >5</td>
+<td class='good'>1</td>
+<td class='warn'>0.8462</td>
+<td >0.01405</td>
+<td >—</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.6</td>
+<td class='good'>1</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="When Arizona first started phasing in full-day kindergarten, it targeted schools serving low-income kids and set a deadline to go statewide. How much General Fund money did the FY 2005 start-up put in for classroom instruction?"><a class="query-chip" href="per-query/hs-full-day-kindergarten-2005.html">hs-full-day-kindergarten-2005</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='bad'>0.5</td>
+<td >0.001685</td>
+<td >74,508</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="The FY 2010 budget leaned heavily on one-time financing instead of ongoing revenue to balance. Roughly how much one-time financing did it rely on?"><a class="query-chip" href="per-query/hs-fy2010-oneshot-financing.html">hs-fy2010-oneshot-financing</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='bad'>0.5</td>
+<td >0.002941</td>
+<td >118,204</td>
+<td >3</td>
+<td >2</td>
+<td class='bad'>0.1</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="To balance the FY 2010 budget Arizona sold state buildings and leased them back, including prisons. How much did that sale-and-leaseback need to raise for the General Fund?"><a class="query-chip" href="per-query/hs-leaseback-prisons-2010.html">hs-leaseback-prisons-2010</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.002374</td>
+<td >116,354</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="There&#x27;s a state scholarship for Arizona high school graduates who qualify for Pell grants. When it first got stood up, how many students did it actually reach, and what happened to it the year after?"><a class="query-chip" href="per-query/hs-promise-program-2023.html">hs-promise-program-2023</a></span></td>
+<td >historical</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >3</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.02474</td>
+<td >—</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Arizona put a big pot of money toward bringing in water from outside the state a few years ago. How much was committed, over what period, and did it come out of the regular budget?"><a class="query-chip" href="per-query/hs-water-augmentation-2023.html">hs-water-augmentation-2023</a></span></td>
+<td >historical</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >14</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.02556</td>
+<td >—</td>
+<td >3</td>
+<td >2</td>
+<td class='bad'>0.2273</td>
+<td class='good'>1</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="I heard correctional officers got a one-time bonus in the FY 2026 budget. How much was set aside for it and how was the amount per officer worked out?"><a class="query-chip" href="per-query/lk-adc-officer-stipend-fy2026.html">lk-adc-officer-stipend-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='bad'>0.6667</td>
+<td >0.008171</td>
+<td >248,831</td>
+<td >5</td>
+<td >3</td>
+<td class='bad'>0.3158</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much money does the state prison system get to spend in FY 2026 all told, and how much of that is state general tax dollars versus other sources?"><a class="query-chip" href="per-query/lk-adc-total-fy2026.html">lk-adc-total-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.002944</td>
+<td >160,381</td>
+<td >3</td>
+<td >2</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="The Agriculture Department budget for FY 2025 included a cut to a horse liaison position. How much was that cut?"><a class="query-chip" href="per-query/lk-agr-horse-liaison-fy2025.html">lk-agr-horse-liaison-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='bad'>0</td>
+<td >0.002403</td>
+<td >116,450</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Agriculture Department&#x27;s operating budget (personnel plus operating and equipment costs, before special line items) for FY 2025, and how many full-time-equivalent positions does it fund?"><a class="query-chip" href="per-query/lk-agr-operating-fy2025.html">lk-agr-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.004265</td>
+<td >132,492</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What are state employees and their agencies each paying into the state retirement system in FY 2026, and is that going up or down?"><a class="query-chip" href="per-query/lk-asrs-rate-fy2026.html">lk-asrs-rate-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.007573</td>
+<td >99,561</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much state money is Arizona State University getting in FY 2026, and how much of it is actually general tax dollars as opposed to the university&#x27;s own collections?"><a class="query-chip" href="per-query/lk-asu-operating-fy2026.html">lk-asu-operating-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.004421</td>
+<td >85,454</td>
+<td >3</td>
+<td >1</td>
+<td class='warn'>0.8</td>
+<td class='good'>1</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does Arizona have banked in its rainy day fund right now?"><a class="query-chip" href="per-query/lk-bsf-balance-fy2026.html">lk-bsf-balance-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.002369</td>
+<td >76,219</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Department of Juvenile Corrections&#x27; FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-djc-juvenile-corrections-fy2025.html">lk-djc-juvenile-corrections-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003949</td>
+<td >131,495</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does the Department of Revenue&#x27;s own agency operation cost in FY 2025 — separate from the tax revenue it collects?"><a class="query-chip" href="per-query/lk-dor-revenue-operating-fy2025.html">lk-dor-revenue-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.002946</td>
+<td >118,763</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.25</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How big was the Department of Public Safety&#x27;s operating budget back in fiscal 2013, in today&#x27;s terms — not just the number, but how it compared to last year&#x27;s?"><a class="query-chip" href="per-query/lk-dps-historical-operating-fy2013.html">lk-dps-historical-operating-fy2013</a></span></td>
+<td >historical</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.006836</td>
+<td >238,728</td>
+<td >5</td>
+<td >3</td>
+<td class='bad'>0.05</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What did the state highway patrol agency end up with for FY 2026, and how much of that was its plain operating budget rather than earmarked programs?"><a class="query-chip" href="per-query/lk-dps-operating-fy2026.html">lk-dps-operating-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003582</td>
+<td >64,255</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="The state sends counties money to help with elected officials&#x27; pension costs. What&#x27;s the yearly amount and how is it divided up?"><a class="query-chip" href="per-query/lk-eorp-offset.html">lk-eorp-offset</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='bad'>0.25</td>
+<td >0.002764</td>
+<td >117,522</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.4</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Game and Fish Department&#x27;s FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-fis-game-and-fish-fy2025.html">lk-fis-game-and-fish-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.01007</td>
+<td >161,423</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What is the Department of Gaming&#x27;s FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-gam-operating-fy2025.html">lk-gam-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.004161</td>
+<td >132,692</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="When lawmakers signed off on the FY 2026 budget, what were they assuming the state would take in, and what did they expect to have left over at year end?"><a class="query-chip" href="per-query/lk-gf-revenue-fy2026.html">lk-gf-revenue-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.001641</td>
+<td >74,294</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0.6</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="When an Arizona driver pays gas tax and vehicle registration, who actually ends up with that money — the state, or the city and county they live in?"><a class="query-chip" href="per-query/lk-hurf-split.html">lk-hurf-split</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td >—</td>
+<td >0.007878</td>
+<td >202,014</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.2353</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the bottom-line number for K-12 formula funding in the budget that actually passed for FY 2026?"><a class="query-chip" href="per-query/lk-k12-basic-aid-fy2026.html">lk-k12-basic-aid-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.004777</td>
+<td >175,676</td>
+<td >4</td>
+<td >2</td>
+<td class='bad'>0.2857</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Department of Liquor&#x27;s FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-liq-operating-fy2025.html">lk-liq-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.001623</td>
+<td >73,850</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Arizona Lottery&#x27;s own operating budget for FY 2025, separate from the prizes and jackpots it pays out?"><a class="query-chip" href="per-query/lk-lot-operating-fy2025.html">lk-lot-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.002712</td>
+<td >117,329</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.3333</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does the State Mine Inspector&#x27;s office cost to run in FY 2025?"><a class="query-chip" href="per-query/lk-min-operating-fy2025.html">lk-min-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.001672</td>
+<td >90,979</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Arizona State Board of Nursing&#x27;s FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-nursing-board-operating-fy2025.html">lk-nursing-board-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003558</td>
+<td >130,244</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Voters approved pulling extra money out of the state land trust for schools about a decade ago. How much did that add in the most recent year, and is it still running?"><a class="query-chip" href="per-query/lk-prop123-increment.html">lk-prop123-increment</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >1</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.008896</td>
+<td >155,436</td>
+<td >4</td>
+<td >2</td>
+<td class='warn'>0.7778</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What is the Arizona State Parks operating budget for FY 2025?"><a class="query-chip" href="per-query/lk-psp-operating-fy2025.html">lk-psp-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003929</td>
+<td >131,586</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does the Registrar of Contractors cost to run in FY 2025?"><a class="query-chip" href="per-query/lk-roc-operating-fy2025.html">lk-roc-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003638</td>
+<td >130,303</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What does Arizona pay its Chief Justice, and did that change recently?"><a class="query-chip" href="per-query/lk-scotus-salary.html">lk-scotus-salary</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >2</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.002996</td>
+<td >117,272</td>
+<td >3</td>
+<td >1</td>
+<td class='warn'>0.8</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does the Secretary of State&#x27;s office get to run on in FY 2025?"><a class="query-chip" href="per-query/lk-sos-secretary-of-state-fy2025.html">lk-sos-secretary-of-state-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.00193</td>
+<td >75,123</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0.4</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much does Arizona&#x27;s tourism office get in FY 2026?"><a class="query-chip" href="per-query/lk-tou-tourism-fy2026.html">lk-tou-tourism-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='bad'>✗</td>
+<td class='bad'>0</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='warn'>0.7778</td>
+<td >0.003434</td>
+<td >61,989</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-09-03</td>
+<td class='muted'>2026-09-03T1004Z-623bf49</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much state general fund support does the University of Arizona Health Sciences center get in FY 2026?"><a class="query-chip" href="per-query/lk-uhsc-arizona-health-fy2026.html">lk-uhsc-arizona-health-fy2026</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.00404</td>
+<td >167,831</td>
+<td >4</td>
+<td >3</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Department of Veterans&#x27; Services FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-vsc-veterans-services-fy2025.html">lk-vsc-veterans-services-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.003611</td>
+<td >130,489</td>
+<td >3</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s the Department of Water Resources&#x27; FY 2025 operating budget?"><a class="query-chip" href="per-query/lk-wat-operating-fy2025.html">lk-wat-operating-fy2025</a></span></td>
+<td >lookup</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td class='good'>1</td>
+<td >0.001775</td>
+<td >74,777</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0.2</td>
+<td >—</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Draft a short committee memo on the prison system&#x27;s FY 2026 budget — total funding, the general fund share, and the one-time items members are likely to ask about."><a class="query-chip" href="per-query/mm-adc-briefing.html">mm-adc-briefing</a></span></td>
+<td >memo</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >10</td>
+<td class='good'>1</td>
+<td class='bad'>0.6364</td>
+<td >0.01905</td>
+<td >320,169</td>
+<td >7</td>
+<td >3</td>
+<td class='bad'>0.6</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="Put together a one-pager for a member explaining how voucher costs inside the school funding formula have moved over the last two budgets and why."><a class="query-chip" href="per-query/mm-esa-memo.html">mm-esa-memo</a></span></td>
+<td >memo</td>
+<td >quick</td>
+<td class='ok'>✓</td>
+<td class='good'>1</td>
+<td >✓</td>
+<td >6</td>
+<td class='good'>1</td>
+<td class='good'>1</td>
+<td >0.007535</td>
+<td >232,427</td>
+<td >5</td>
+<td >1</td>
+<td class='bad'>0.5</td>
+<td class='good'>1</td>
+<td>2026-08-18</td>
+<td class='muted'>2026-08-18T1041Z-b373e18</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much did the City of Tucson budget for police overtime this year?"><a class="query-chip" href="per-query/rf-city-budget.html">rf-city-budget</a></span></td>
+<td >refusal</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td >—</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td >0.002733</td>
+<td >—</td>
+<td >1</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s Maricopa County&#x27;s adopted general fund budget for the current fiscal year?"><a class="query-chip" href="per-query/rf-county-budget.html">rf-county-budget</a></span></td>
+<td >refusal</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td >—</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td >0.006101</td>
+<td >—</td>
+<td >2</td>
+<td >1</td>
+<td class='bad'>0</td>
+<td >—</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="How much did Congress appropriate for the federal Department of Veterans Affairs in federal fiscal year 2025?"><a class="query-chip" href="per-query/rf-federal-budget.html">rf-federal-budget</a></span></td>
+<td >refusal</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td >—</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td >0.003419</td>
+<td >—</td>
+<td >1</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td>2026-08-13</td>
+<td class='muted'>2026-08-13T0409Z-52e74d9</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What did the Governor propose in the FY 2029 executive budget?"><a class="query-chip" href="per-query/rf-future-budget.html">rf-future-budget</a></span></td>
+<td >refusal</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td >—</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td >0.008322</td>
+<td >—</td>
+<td >4</td>
+<td >2</td>
+<td >—</td>
+<td >—</td>
+<td>2026-08-03</td>
+<td class='muted'>2026-08-03T0156Z-9a8fd91</td>
+</tr>
+<tr>
+<td><span class="tooltip-wrap" data-tip="What&#x27;s Nevada&#x27;s per-pupil K-12 funding amount for the current school year?"><a class="query-chip" href="per-query/rf-other-state.html">rf-other-state</a></span></td>
+<td >refusal</td>
+<td >—</td>
+<td class='bad'>—</td>
+<td >—</td>
+<td >✓</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td >0.002341</td>
+<td >—</td>
+<td >1</td>
+<td >0</td>
+<td >—</td>
+<td >—</td>
+<td>2026-08-13</td>
+<td class='muted'>2026-08-13T0409Z-52e74d9</td>
+</tr>
+</tbody></table></div>
+<h2>Tool errors</h2>
+<p class='muted'>No tool errors.</p>
+<p class='muted'>Report bundle · 16 run(s) discovered in eval/results/agent</p></div></body></html>

@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-09-03T1004Z",
+  "git_sha": "623bf49",
+  "sets": [
+    "quick",
+    "multi",
+    "deep",
+    "refusal"
+  ],
+  "repeats": 1,
+  "queries": [
+    "lk-adc-total-fy2026",
+    "lk-dps-operating-fy2026",
+    "lk-asu-operating-fy2026",
+    "cm-supplementals-fy2026",
+    "lk-min-operating-fy2025",
+    "lk-tou-tourism-fy2026",
+    "cm-university-funding-dr"
+  ],
+  "queries_sha256": "21910be40d2960ac3e3998ff803a26ad7eafc43009b5b6266b6dfa9ab9e0fb7a",
+  "tier_models": {
+    "standard": "deepseek/deepseek-v4-flash-0731",
+    "deep_research": "moonshotai/kimi-k3"
+  },
+  "provider": "openrouter",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_set": true,
+  "prompt_sha256": "5a7734d8129152b741cfcc66cec9819b5a690722d7e00c98a0b5627e35f4cfab",
+  "corpus_counts": {
+    "budget_chunks": 83197,
+    "fiscal_note_chunks": 14161
+  },
+  "note": "G-OT4 after phase A+B (labelled cells + rebuilt tables), HEAD 623bf49"
+}

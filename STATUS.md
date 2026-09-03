@@ -61,7 +61,7 @@ source. When something ships, update only this file.
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
 | Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B is APPLIED to the live corpus (2026-09-03) — see the row directly below. See the section below |
-| Operating tables — **phase B** (rebuild every agency table from the PDF) | ✅ **Shipped — APPLIED TO THE LIVE CORPUS 2026-09-03**, all gates passed, eval per-query identical | Merged `ce91af4`. Every JLBC agency operating table is re-read from the PDF's own text layer and accepted only if its subtotals add up: **4,656 of 4,875 (95.5%) rebuilt and written**, 219 left as they were, worst year 2009 at 83.7%. Ingest uses the same reader, so new uploads and the stored tables now carry the same reading. Live apply ~7 min: 4,656 rows / 0 skipped, every row verified, snapshot `lancedb-20260903T094313Z.zip` + a 30 MB reversal record. G-OT2 control and post runs identical on every query (`STATUS FLIPPED: []`, 0 rank / 0 score changes). Digit disagreements MinerU-vs-page: 1,141 on 613 tables, the page right in all 28 hand-checked. G-OT4 offered, not run; **G-OT5 (the browser check) is Destin's and not yet done**. Two small reader residuals found after the write — see the section below |
+| Operating tables — **phase B** (rebuild every agency table from the PDF) | ✅ **Shipped — APPLIED TO THE LIVE CORPUS 2026-09-03**, all gates passed, eval per-query identical | Merged `ce91af4`. Every JLBC agency operating table is re-read from the PDF's own text layer and accepted only if its subtotals add up: **4,656 of 4,875 (95.5%) rebuilt and written**, 219 left as they were, worst year 2009 at 83.7%. Ingest uses the same reader, so new uploads and the stored tables now carry the same reading. Live apply ~7 min: 4,656 rows / 0 skipped, every row verified, snapshot `lancedb-20260903T094313Z.zip` + a 30 MB reversal record. G-OT2 control and post runs identical on every query (`STATUS FLIPPED: []`, 0 rank / 0 score changes). Digit disagreements MinerU-vs-page: 1,141 on 613 tables, the page right in all 28 hand-checked. **G-OT4 run 2026-09-03 ($0.05, n = 7): accurate 2/7 → 3/7, every citation metric up, input tokens +31%, direction favourable but single-run noise**; **G-OT5 (the browser check) is Destin's and not yet done**. Two small reader residuals found after the write — see the section below |
 | **Table section paths — the corpus write** | ✅ **APPLIED TO THE LIVE CORPUS 2026-09-01**, all gates passed, eval per-query identical | Branch `table-section-path`. A table passage's heading breadcrumb used to be found by searching the whole document for matching text, so a table on page 400 could carry a heading from page 3 — measured at a **median 266 pages away** in the FY2026 Governor's Budget. It is now the heading the table physically sits under. **8,168 budget rows + 397 fiscal-note rows rewritten** (four columns; agency and fund labels byte-identical corpus-wide, `drift 0`). 1,079 Governor tables labelled *Table of Contents* → **5** (an extractor gap, not this work). Snapshots + reversal records for both tables. Layer 1 eval: **zero queries changed status**. **399 migration-era documents could not be repaired and are still wrong** — see the section below |
 
 ## Table section paths — the corpus repair, APPLIED to the live corpus (2026-09-01)
@@ -695,8 +695,9 @@ reach the linker. `eval/false_link_check.py`
 writes `false-link-report.json` (default) and `false-link-report-labelled.json`
 (labelled) into each run dir — gitignored transcripts, not committed.
 
-**G-OT4, the live Layer 2 spend, is OFFERED and NOT run** (paid work needs
-Destin's go-ahead per CLAUDE.md):
+**G-OT4 was RUN on 2026-09-03 — after phase B, so it measures labelled cells
+over the repaired corpus; the numbers are in the phase B section below.** The
+offer as it stood at phase A (paid work needs Destin's go-ahead per CLAUDE.md):
 
 ```
 uv run python -m eval.run_agent_eval --queries lk-asu-operating-fy2026 lk-dps-operating-fy2026 lk-adc-total-fy2026 lk-tou-tourism-fy2026 lk-min-operating-fy2025 cm-supplementals-fy2026 cm-university-funding-dr --note "G-OT4 after phase A"
@@ -884,7 +885,50 @@ Educational Convenience`, `Special Education Fund 0 27,600,900`) are separate
 rows with their own figures; the `PROGRAM TOTAL` row that carried six
 figures in three cells now carries three.
 
-**G-OT4** (the ~$0.10 Layer 2 run) remains **offered, not run**. **G-OT5**
+**G-OT4 — RUN 2026-09-03, on Destin's key and go-ahead ("do the paid model
+check").** The seven-query command from the plan, `--skip-judge` (the gate's
+metrics are mechanical), standard tier pinned to
+`deepseek/deepseek-v4-flash-0731` (the last committed baseline's model),
+deep tier `moonshotai/kimi-k3`, `--workers 4`, both sides against the SAME
+repaired corpus on the same day, minutes apart. The dev machine's stored
+OpenRouter key was found DEAD (401) on the way — the run used a scratch data
+folder with Destin's key, deleted afterwards; `data/insight-data/settings.json`
+is untouched and still carries the dead key.
+
+| | control `c20f8c4` (no `text_labelled`) | HEAD `623bf49` (labelled cells) |
+|---|---|---|
+| run dir | `eval/results/agent/2026-09-03T1004Z-c20f8c4` | `eval/results/agent/2026-09-03T1004Z-623bf49` |
+| accurate (all facts + a verified citation) | 2 of 7 | **3 of 7** |
+| `key_fact_rate_mean` | 0.286 | **0.429** |
+| `figure_coverage_mean` / `unverified_rate` | 0.831 / 0.169 | **0.927 / 0.073** |
+| `tag_accuracy_mean` / `marker_coverage_mean` | 0.781 / 0.611 | **0.944 / 0.745** |
+| `cite_pass_rate` / `first_try_cite_rate` | 1.00 / 1.00 | 1.00 / 1.00 |
+| `input_tokens_mean` | 70.8k | **93.0k (+31%)** |
+| `steps_mean` | 2.86 | 3.29 |
+| cost | $0.023 | $0.030 |
+
+Compare report:
+`eval/results/agent/compare-2026-09-03T1004Z-c20f8c4-vs-2026-09-03T1004Z-623bf49.md`.
+Total spend for both runs **$0.053**.
+
+**Read it as "nothing broke, direction favourable", not as a win.** n = 7,
+one repeat each, and the compare tool prints its own stochasticity warning.
+Every citation metric moved the right way and none regressed; the one cost
+is +31% input tokens, which is the labelled copy riding beside every table
+chunk (spec §5 accepted this). The four queries that miss on BOTH sides
+(`lk-dps-operating-fy2026`, `lk-tou-tourism-fy2026`, `cm-supplementals-fy2026`,
+`cm-university-funding-dr`) are all `verify_agent_query` "reachability"
+cases — every pinned fact exists in the corpus but not in one bare top-20
+search — and on reading the answers they are the query-wording ambiguity
+already recorded under the consolidated eval: e.g. DPS's pinned
+`$389,947,400` / `$281,005,300` occur only in the budget-bill DOCX, while
+both runs answered from the Appropriations Report's own DPS page
+(`$405,616,000` / `$294,057,800`, real corpus figures from a rebuilt table).
+Not a table-reading defect. `lk-adc-total-fy2026` flipped miss → accurate on
+HEAD: it read the enacted total off the Corrections operating table rather
+than the Baseline's.
+
+**G-OT5**
 (the browser check) is Destin's — the chunk to open is
 `jlbc-approps-fy2025-unibor-0000` (eval `q-013`, rebuilt): confirm the
 citation highlight lands where it did, that the cited-text panel shows the

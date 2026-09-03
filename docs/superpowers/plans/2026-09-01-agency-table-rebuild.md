@@ -8,7 +8,7 @@
 > rows / 0 skipped with snapshot `lancedb-20260903T094313Z.zip` and reversal
 > `table-rebuild-reversal-budget_chunks-2026-09-03T0943Z.json`, post eval
 > `eval/results/2026-09-03T0950Z-ce91af4` per-query identical. Full record in
-> the dry-run investigation doc and STATUS.md. G-OT4 offered, not run; G-OT5
+> the dry-run investigation doc and STATUS.md. G-OT4 run 2026-09-03 (see STATUS); G-OT5
 > (Destin's browser check) outstanding. The paragraphs below are the state as
 > it stood before that run.
 >
@@ -3077,7 +3077,7 @@ JLBC_DATA_DIR=data/insight-data uv run python -m chunking.repair_tables --apply 
 
 Expected: `wrote N rows; skipped 0 (text moved); snapshot lancedb-<UTC>.zip; reversal data/insight-data/table-rebuild-reversal-budget_chunks-<UTC>.json`. If the apply raises from `_verify_nothing_was_lost`, restore the named snapshot with `store.backup.restore(name)` and stop.
 
-- [x] **Step 3: G-OT2 after, and G-OT4 offer** — DONE (eval identical; G-OT4 offered). NOTE: `run_eval` has no `--note` flag; run it bare
+- [x] **Step 3: G-OT2 after, and G-OT4 offer** — DONE (eval identical; G-OT4 RUN 2026-09-03 on Destin's go-ahead, $0.05, `2026-09-03T1004Z-{c20f8c4,623bf49}`, recorded in STATUS). NOTE: `run_eval` has no `--note` flag; run it bare
 
 ```bash
 JLBC_DATA_DIR=data/insight-data uv run python -m eval.run_eval --note "G-OT2 after the operating-table rebuild"

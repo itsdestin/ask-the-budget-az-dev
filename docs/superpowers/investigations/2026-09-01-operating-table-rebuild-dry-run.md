@@ -1417,7 +1417,10 @@ Educational Convenience`, `Special Education Fund 0 27,600,900`) are separate
 rows with their own figures; the `PROGRAM TOTAL` row that carried six
 figures in three cells now carries three.
 
-**G-OT4** (the ~$0.10 Layer 2 run) remains **offered, not run**. **G-OT5**
+**G-OT4** was run later the same day on Destin's go-ahead — the record is in
+STATUS.md's phase B section (control `2026-09-03T1004Z-c20f8c4`, HEAD
+`2026-09-03T1004Z-623bf49`, $0.05, accurate 2/7 → 3/7, single-run noise,
+no citation metric regressed). **G-OT5**
 (the browser check) is Destin's — the chunk to open is
 `jlbc-approps-fy2025-unibor-0000` (eval `q-013`, rebuilt): confirm the
 citation highlight lands where it did, that the cited-text panel shows the
