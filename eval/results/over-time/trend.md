@@ -38,3 +38,9 @@
 |---|---|---|---|---|---|---|---|---|
 | 2026-08-18T1041Z-b373e18 | 1.44e+05 | 3.353 | 34 | 0.7556 | 0.8037 | — | 0.2531 | 45 |
 
+## Segment 7 — queries_sha256 21910be4
+
+| run | tokens_to_accurate_mean | turns_to_accurate_mean | accurate_n | accurate_rate | key_fact_rate_mean | document_correctness_mean | total_cost_usd | n |
+|---|---|---|---|---|---|---|---|---|
+| 2026-09-03T1004Z-623bf49 | 1.123e+05 | 2.667 | 3 | 0.4286 | 0.4286 | — | 0.02965 | 7 |
+
