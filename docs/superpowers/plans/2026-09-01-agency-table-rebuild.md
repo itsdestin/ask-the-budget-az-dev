@@ -9,7 +9,7 @@
 > `table-rebuild-reversal-budget_chunks-2026-09-03T0943Z.json`, post eval
 > `eval/results/2026-09-03T0950Z-ce91af4` per-query identical. Full record in
 > the dry-run investigation doc and STATUS.md. G-OT4 run 2026-09-03 (see STATUS); G-OT5
-> (Destin's browser check) outstanding. The paragraphs below are the state as
+> passed 2026-09-03 (Destin's browser check). Every gate in spec §7 is closed. The paragraphs below are the state as
 > it stood before that run.
 >
 > **Tasks 1–11 are DONE and committed on branch `agency-tables`.** Phase A
@@ -3087,7 +3087,7 @@ Compare against the control: every query's status (found / not found / refused) 
 
 Offer G-OT4 (phase B): the same seven-query command as Task 4, plus a same-day control. Run only on Destin's yes.
 
-- [ ] **Step 4: G-OT5 — the browser check is Destin's** — OUTSTANDING (chunk `jlbc-approps-fy2025-unibor-0000`)
+- [x] **Step 4: G-OT5 — the browser check is Destin's** — PASSED 2026-09-03 ("browser check is good", chunk `jlbc-approps-fy2025-unibor-0000`)
 
 Give him one chunk id from the rebuilt set that a Layer 1 query hits (e.g. `jlbc-approps-fy2025-unibor-0000` if it was rebuilt, else the first rebuilt AHCCCS chunk) and ask him to: open it from a citation chip, confirm the highlight box is where it was, confirm the cited-text panel shows the subtotal rows separately, and glance at its Budget Documents passage card. Record his answer in STATUS.
 
