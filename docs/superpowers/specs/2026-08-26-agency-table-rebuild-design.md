@@ -1,11 +1,12 @@
 # Agency operating tables: rebuild from the page's own text, and show the model labelled cells
 
-**Status:** approved 2026-08-26 (Destin); phase A shipped 2026-09-01; **phase B
-BUILT and rehearsed 2026-09-02 — the corpus repair has NOT been applied**, and
-Task 12 (the live apply) is waiting on Destin's yes at the checkpoint in
-`docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`.
-Its precondition, the section-path repair, is on master and was applied to the
-live corpus on 2026-09-01. Scope and approach are his
+**Status:** shipped 2026-09-03 (phase A 2026-09-01, phase B 2026-09-03 — the
+corpus repair was **APPLIED to the live corpus on 2026-09-03**: 4,656 of 4,875
+tables rewritten, 0 skipped; record in
+`docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`).
+**Do not run `chunking.repair_tables --apply` again** — a second apply writes
+the same bytes and costs a 670 MB snapshot. Its precondition, the section-path
+repair, was applied to the live corpus on 2026-09-01. Scope and approach are his
 calls and are not to be re-litigated: JLBC agency-page operating tables
 only, approach B (rebuild from the PDF text layer, verified
 arithmetically) in two phases, the labelled-cell rendering shipping first

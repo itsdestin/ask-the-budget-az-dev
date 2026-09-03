@@ -1,13 +1,15 @@
 ---
-status: active
+status: shipped
 ---
 
 # The operating-table rebuild, dry-run over the whole corpus (G-OT1)
 
 Task 10 of `docs/superpowers/plans/2026-08-26-agency-table-rebuild-design.md`;
-spec §6.1 and §6.3. This is the checkpoint document — the repair has been
-planned over every in-scope table in the live corpus and **nothing has been
-written**. The apply (`--apply`) has never been run.
+spec §6.1 and §6.3. This was the checkpoint document. **The apply RAN on
+2026-09-03** on Destin's yes — the record is the last section of this file,
+"The live apply". Everything between here and there is the state before it
+ran. **Do not run `--apply` again**; it writes the same bytes and spends a
+670 MB snapshot.
 
 **Headline: 4,656 of 4,875 operating tables (95.5%) can be rebuilt from the
 PDF text layer and verified arithmetically. The worst fiscal year is 2009 at
@@ -1377,3 +1379,76 @@ name and a header saying so, the way
 
 If yes, it is one command, roughly 7–15 minutes, with the snapshot and the
 reversal record as the way back.
+
+**Answered 2026-09-03: yes ("okay, lets do it").** The run follows.
+
+---
+
+## ✅ The live apply (2026-09-03)
+
+
+Run from the main checkout (`data/cached-pdfs/` present, `no source pdf: 0`),
+master at `ce91af4`, no server on 9300, no ingest lock, no other eval or
+repair process. The order was: dry run against the live store → control eval
+→ apply → post eval, with nothing else touching the corpus in between.
+
+| step | result |
+|---|---|
+| dry run against the live store (spec §6.1) | **4,656 of 4,875**, refusal histogram **143 / 47 / 12 / 10 / 7**, 2009 at 83.7% — matches the 2026-09-02 checkpoint to the row |
+| control eval (G-OT2, before) | `eval/results/2026-09-03T0942Z-ce91af4.{json,md}` — recall@5 85.71% / @15 97.62% / @20 100.00% / refusal 60.00% / p95 736 ms |
+| apply | 09:42:32Z → 09:49:21Z (**~7 min**); snapshot `backups/lancedb-20260903T094313Z.zip` (671 MB); reversal `<data_dir>/table-rebuild-reversal-budget_chunks-2026-09-03T0943Z.json` (30.5 MB, `stage: written`, `skipped_moved: []`) |
+| rows | **4,656 written in 10 batches, 0 skipped (text moved)**; verified all 4,656 in full plus 200 untouched rows; full-text index rebuilt and table optimized; lock released |
+| post eval (G-OT2, after) | `eval/results/2026-09-03T0950Z-ce91af4.{json,md}` — **85.71% / 97.62% / 100.00% / 60.00%** / p95 706 ms |
+| per-query diff | `STATUS FLIPPED: []`, **0 rank changes, 0 score changes**; the one top-5 change is `q-017`'s reorder (`agao-afr-fy2024-0438` out, `agao-afr-fy2025-0034` in) — the same movement the rehearsal produced |
+| record ↔ store | the reversal record's `after` text equals the live row on the eval-pinned chunk and on a 300-row random sample (300 of 300) |
+| settled | a dry run over three repaired documents reports **3 of 3 rebuilds byte-identical to the stored text** — a second `--apply` would write the same bytes |
+
+Source of the MinerU table across the 4,875: extractor output 4,533, stored
+`table_html` 342 (the FY2025-era documents whose extractor output is not on
+disk — the D5 body-equality gate was proven on the other 4,533 only).
+Digit disagreements after the gate: **1,141 on 613 tables**, unchanged.
+
+**A real before/after from the record**, `jlbc-approps-fy2005-adeassis-0000`
+(FY2005 Department of Education assistance page): MinerU stored Basic State
+Aid as `2,668,539,5002/3/` and `2,802,264,0002/4//6/` — the first reads as
+$26.7 billion — and the store now carries `2,668,539,500 [2/3/]` and
+`2,802,264,000 [2/4/5/6/]`. Two fused rows (`Employees Certificates of
+Educational Convenience`, `Special Education Fund 0 27,600,900`) are separate
+rows with their own figures; the `PROGRAM TOTAL` row that carried six
+figures in three cells now carries three.
+
+**G-OT4** (the ~$0.10 Layer 2 run) remains **offered, not run**. **G-OT5**
+(the browser check) is Destin's — the chunk to open is
+`jlbc-approps-fy2025-unibor-0000` (eval `q-013`, rebuilt): confirm the
+citation highlight lands where it did, that the cited-text panel shows the
+subtotal rows separately, and glance at its Budget Documents card. Not yet
+done.
+
+### ⏸ Known residuals after the write (also recorded in STATUS.md)
+
+* **219 tables (4.5%) keep their MinerU text**, by reason: 143 the printed
+  column does not foot (MinerU's own reading fails the same gate on 141), 47
+  anchor match under 0.8, 12 two figures in one column, 10 no header, 7 last
+  row unmatched. Per-year table above; the weak band is FY2007–FY2011.
+* **Footnote-marker completeness was never gated, and the reader drops some.**
+  Found by reading the eval-pinned chunk after the write: on
+  `jlbc-approps-fy2025-unibor-0000` the page prints `55,726,000 8/ 9/` on
+  `AGENCY TOTAL` (both markers are separate words in the text layer) and the
+  rebuild wrote `55,726,000 [9/]`. An automatic corpus-wide count of this
+  shape is not possible from the reversal record alone — every scan tried
+  flagged mostly MinerU's own misreads (`1/8/` for a printed `7/8/`;
+  `21,397,400 3/4/` on a row the page prints as `3,000,000 0 0`), so the
+  true count needs a hand-read sample. Follow-up for the reader, not the
+  repair: the figure is right, the reference is incomplete.
+* **8 cells across 6 tables where a printed zero with a footnote became a
+  BLANK cell** (`jlbc-approps-fy2005-{adegs,com}`, `-fy2008-{osh,vsc}`,
+  `-fy2009-{uniasum,uniumain}`). The PDF's own text layer fuses them into one
+  token (`04/`, verified on three pages), which is neither a figure nor a
+  marker to `FIGURE_RE`, so the cell is empty rather than `0 [4/]`. MinerU
+  had stored the same fused token, so nothing citable got worse; a blank is
+  still not a zero. Follow-up: teach `peel_markers` the `0N/` shape.
+* The rest of the residuals recorded above in this document and in STATUS (329 documents' PDF-viewer
+  resolution, the anchor denominator, the 111 out-of-scope ladder chunks, the
+  `NN-MM/` range spelling, the 206-page peel audit) are unchanged by the
+  write.
+

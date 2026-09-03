@@ -1,6 +1,16 @@
 # Agency Operating Tables Implementation Plan
 
-> ## ⏸ EXECUTION STATE (2026-09-02) — READ THIS BEFORE RUNNING ANYTHING
+> ## ✅ EXECUTED — ALL 12 TASKS DONE, THE CORPUS WAS WRITTEN 2026-09-03. DO NOT RE-RUN.
+>
+> **Task 12 ran on 2026-09-03 from the main checkout** (Destin's yes at the
+> checkpoint): dry run matched the record to the row, control eval
+> `eval/results/2026-09-03T0942Z-ce91af4`, apply 09:42–09:49Z wrote 4,656
+> rows / 0 skipped with snapshot `lancedb-20260903T094313Z.zip` and reversal
+> `table-rebuild-reversal-budget_chunks-2026-09-03T0943Z.json`, post eval
+> `eval/results/2026-09-03T0950Z-ce91af4` per-query identical. Full record in
+> the dry-run investigation doc and STATUS.md. G-OT4 offered, not run; G-OT5
+> (Destin's browser check) outstanding. The paragraphs below are the state as
+> it stood before that run.
 >
 > **Tasks 1–11 are DONE and committed on branch `agency-tables`.** Phase A
 > (Tasks 1–4) shipped 2026-09-01. Phase B's code (Tasks 5–9), the live dry run
@@ -3055,11 +3065,11 @@ git commit -m "docs(tables): rehearsal on a copy, G-OT3 drift 0, G-OT2 control r
 
 **Precondition:** Destin's explicit yes at the Task 11 checkpoint, and no ingest running (`ls data/insight-data/ingest.lock` absent).
 
-- [ ] **Step 1: Re-run the dry run against the live store if the section-path apply happened since Task 10**
+- [x] **Step 1: Re-run the dry run against the live store if the section-path apply happened since Task 10** — DONE 2026-09-03, matched to the row
 
 `JLBC_DATA_DIR=data/insight-data uv run python -m chunking.repair_tables --pairs 0 | tail -5` — the counts must match Task 10's; if they do not, re-record and re-checkpoint (spec §6.1).
 
-- [ ] **Step 2: Apply**
+- [x] **Step 2: Apply** — DONE 2026-09-03, 4,656 rows / 0 skipped
 
 ```bash
 JLBC_DATA_DIR=data/insight-data uv run python -m chunking.repair_tables --apply --report /tmp/table-rebuild-live.json 2>&1 | tee /tmp/table-rebuild-live.log
@@ -3067,7 +3077,7 @@ JLBC_DATA_DIR=data/insight-data uv run python -m chunking.repair_tables --apply 
 
 Expected: `wrote N rows; skipped 0 (text moved); snapshot lancedb-<UTC>.zip; reversal data/insight-data/table-rebuild-reversal-budget_chunks-<UTC>.json`. If the apply raises from `_verify_nothing_was_lost`, restore the named snapshot with `store.backup.restore(name)` and stop.
 
-- [ ] **Step 3: G-OT2 after, and G-OT4 offer**
+- [x] **Step 3: G-OT2 after, and G-OT4 offer** — DONE (eval identical; G-OT4 offered). NOTE: `run_eval` has no `--note` flag; run it bare
 
 ```bash
 JLBC_DATA_DIR=data/insight-data uv run python -m eval.run_eval --note "G-OT2 after the operating-table rebuild"
@@ -3077,11 +3087,11 @@ Compare against the control: every query's status (found / not found / refused) 
 
 Offer G-OT4 (phase B): the same seven-query command as Task 4, plus a same-day control. Run only on Destin's yes.
 
-- [ ] **Step 4: G-OT5 — the browser check is Destin's**
+- [ ] **Step 4: G-OT5 — the browser check is Destin's** — OUTSTANDING (chunk `jlbc-approps-fy2025-unibor-0000`)
 
 Give him one chunk id from the rebuilt set that a Layer 1 query hits (e.g. `jlbc-approps-fy2025-unibor-0000` if it was rebuilt, else the first rebuilt AHCCCS chunk) and ask him to: open it from a citation chip, confirm the highlight box is where it was, confirm the cited-text panel shows the subtotal rows separately, and glance at its Budget Documents passage card. Record his answer in STATUS.
 
-- [ ] **Step 5: STATUS, spec, archive**
+- [x] **Step 5: STATUS, spec, archive** — DONE (no `docs/superpowers/archive/` exists; docs stay in place with shipped status)
 
 STATUS phase-summary row:
 
@@ -3093,7 +3103,7 @@ and a section `## Operating tables — phase B shipped (2026-09-xx)` carrying: t
 
 Spec status line: `**Status:** shipped 2026-09-xx (phase A 2026-09-xx, phase B 2026-09-xx).` Move the spec, this plan and the two investigation docs' `status:` to `shipped`. Per the workspace convention, shipped lifecycle docs move to the archive folder if this repo has one (`docs/superpowers/archive/`); if it does not, leave them in place with the shipped status.
 
-- [ ] **Step 6: Commit and clean up**
+- [x] **Step 6: Commit and clean up** — DONE
 
 ```bash
 git add STATUS.md docs/superpowers eval/results/

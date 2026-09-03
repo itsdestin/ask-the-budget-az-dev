@@ -1,6 +1,6 @@
 # Project Status
 
-**Last updated:** 2026-09-01
+**Last updated:** 2026-09-03
 
 This file is the single source of truth for what's shipped, what's
 open, and what's blocked. The phase plans under `docs/superpowers/`
@@ -60,8 +60,8 @@ source. When something ships, update only this file.
 | **Easy-wins batch — five small fixes** | ✅ **Built 2026-08-22, all gates green, awaiting Destin's review + browser pass** | Branch `easy-wins`. Five open STATUS items closed: fund names on the filter-values card, tool card survives the answer arriving, the books panel tells offline from nothing-missing (and stops caching the poisoned answer), the chat nickname appears without a click, the issue-inbox transcript is bounded. Plus the uv.lock rename fallout committed. Each item: agent-drafted spec → independent review → implementation → per-task review; final whole-branch review clean. pytest 3323 / vitest 1158 / tsc / build green; no eval owed (nothing on an eval-gated path). See "Easy-wins batch" below |
 | **Windows beta fixes** — bundle-breakers, the launch/repair chain, three app bugs | ✅ **Shipped 2026-08-25**, both Linux checkpoints passed, all gates green, eval identical — **NOT yet run on Windows** | Branch `windows-beta-fixes`, 18 tasks. The bundle could not launch MinerU and lost every title; the one real beta install served fake rows for 14 minutes with no repair screen reachable. Now: `program\` subfolder + an installer that stops the running server and upgrades safely; port 9300 as the instance lock; the pointer normalised and validated the way LanceDB opens it; a repair box (with a **Choose folder…** picker) for every failure the pointer can cause, taking effect without restart; "Sample results only" on the stub; locate-cache crash, cache-on-error and share-locking retries fixed. **The repair route had returned 422 on every call since it shipped.** pytest 3419 / vitest 1164 / tsc / build green; Layer 1 eval identical to baseline. Acceptance = two installer runs on Destin's laptop. See "Windows beta fixes" below |
 | **Central user roster** | ✅ **Shipped, gates green, browser-verified 2026-08-25/26, three Important defects found and fixed 2026-08-26, MERGED `9bad6db`** | Branch `user-roster` (merged and deleted). One roster file per person now records who has opened the app, so admin dropdowns (spending limit, hand-over-admin) show real people instead of a typed username a typo could silently misdirect. G-U1 (Layer 1 eval), G-U2 (case-fold + hand-over + recovery) and G-U3 (unreadable roster) all executed live and passed. The People panel and hand-over picker render exactly as the approved mockup. **A final whole-branch review and this session's fix pass found and closed three Important defects** — the limit control bound to the server row, hide/unhide's exact-match comparison, and the spend cap's exact-match total — see "Central user roster" below |
-| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B is BUILT and rehearsed — see the row directly below. See the section below |
-| Operating tables — **phase B** (rebuild every agency table from the PDF) | 🟡 **BUILT and rehearsed 2026-09-02; the corpus repair is NOT applied** | Branch `agency-tables`. Every JLBC agency operating table can now be re-read from the PDF's own text layer and accepted only if its subtotals add up: **4,656 of 4,875 (95.5%) pass**, worst year 2009 at 83.7%. **The ingest path already uses it, so every NEW agency-page upload is rebuilt from today** — until the one-time repair runs the corpus is mixed. A rehearsal on a full copy wrote 4,656 rows / 0 skipped, a second pass was 100% byte-identical, drift 0, and the Layer 1 eval is per-query identical. **Task 12, the live apply, is waiting on Destin's yes** at the checkpoint in the dry-run record. See the section below |
+| Operating tables — **phase A** (labelled cells in `retrieve`) | ✓ Shipped (2026-09-01) | `text_labelled` beside `text`; false-link rate unchanged on the measured samples (0.00 percentage-point movement on every profile, both committed transcript sets, both seeds — not a structural guarantee, see the section below for why). G-OT4 offered, not run (needs Destin's go-ahead — real money). Phase B is APPLIED to the live corpus (2026-09-03) — see the row directly below. See the section below |
+| Operating tables — **phase B** (rebuild every agency table from the PDF) | ✅ **Shipped — APPLIED TO THE LIVE CORPUS 2026-09-03**, all gates passed, eval per-query identical | Merged `ce91af4`. Every JLBC agency operating table is re-read from the PDF's own text layer and accepted only if its subtotals add up: **4,656 of 4,875 (95.5%) rebuilt and written**, 219 left as they were, worst year 2009 at 83.7%. Ingest uses the same reader, so new uploads and the stored tables now carry the same reading. Live apply ~7 min: 4,656 rows / 0 skipped, every row verified, snapshot `lancedb-20260903T094313Z.zip` + a 30 MB reversal record. G-OT2 control and post runs identical on every query (`STATUS FLIPPED: []`, 0 rank / 0 score changes). Digit disagreements MinerU-vs-page: 1,141 on 613 tables, the page right in all 28 hand-checked. G-OT4 offered, not run; **G-OT5 (the browser check) is Destin's and not yet done**. Two small reader residuals found after the write — see the section below |
 | **Table section paths — the corpus write** | ✅ **APPLIED TO THE LIVE CORPUS 2026-09-01**, all gates passed, eval per-query identical | Branch `table-section-path`. A table passage's heading breadcrumb used to be found by searching the whole document for matching text, so a table on page 400 could carry a heading from page 3 — measured at a **median 266 pages away** in the FY2026 Governor's Budget. It is now the heading the table physically sits under. **8,168 budget rows + 397 fiscal-note rows rewritten** (four columns; agency and fund labels byte-identical corpus-wide, `drift 0`). 1,079 Governor tables labelled *Table of Contents* → **5** (an extractor gap, not this work). Snapshots + reversal records for both tables. Layer 1 eval: **zero queries changed status**. **399 migration-era documents could not be repaired and are still wrong** — see the section below |
 
 ## Table section paths — the corpus repair, APPLIED to the live corpus (2026-09-01)
@@ -723,20 +723,20 @@ Results: `eval/results/2026-09-02T0247Z-5787a00.{json,md}`.
 **Both clauses that used to sit here were false and are corrected below.**
 Phase B is BUILT (not "not started"), and its precondition — the section-path
 repair — IS on master and was applied to the live corpus on 2026-09-01 (this
-file's own "Table section paths" row says so). What is genuinely outstanding
-is the corpus repair itself. See the next section.
+file's own "Table section paths" row says so). The corpus repair itself
+ran on 2026-09-03. See the next section.
 
 ---
 
-## Operating tables — phase B built, rehearsed, NOT applied (2026-09-02)
+## Operating tables — phase B shipped, APPLIED to the live corpus (2026-09-03)
 
 Spec: `docs/superpowers/specs/2026-08-26-agency-table-rebuild-design.md`.
 Plan: `docs/superpowers/plans/2026-09-01-agency-table-rebuild.md` (tasks
-5–11 done; **task 12, the live apply, has not run**). The checkpoint, the
-per-year numbers, the before/after pairs and the one question for Destin are
-all in
+5–12 done; **the live apply ran 2026-09-03** — see the Task 12 subsection at
+the end of this section). The checkpoint, the per-year numbers, the
+before/after pairs and the live-apply record are all in
 `docs/superpowers/investigations/2026-09-01-operating-table-rebuild-dry-run.md`.
-Branch `agency-tables`.
+Branch `agency-tables`, merged `ce91af4`.
 
 **In plain English.** Every JLBC per-agency page prints one operating table —
 staff positions, spending lines, then the fund ladder down to
@@ -757,9 +757,9 @@ The reader (`chunking/readers/text_layer_table.py`), the arithmetic gate
 (`chunking/repair_tables.py`). **It is wired into ingest**
 (`MinerUReader(source_pdf=…)` → `chunk_doc(source_pdf=…)` → `ingest/worker.py`),
 which has a consequence worth stating out loud: **every JLBC agency-page
-document uploaded from now on is already rebuilt this way.** Until the
-one-time repair runs, the corpus is therefore **mixed** — new uploads carry
-rebuilt tables, the 4,656 tables already stored stay garbled.
+document uploaded from now on is already rebuilt this way.** The one-time
+repair ran on 2026-09-03, so the corpus is uniform: the 4,656 stored tables
+and every future upload carry the same reading.
 
 ### The gates, with their numbers
 
@@ -852,13 +852,72 @@ in that state **refuses before it takes the lock or spends a snapshot**.
   both sides of every comparison the normaliser feeds — and never reaches the
   written text. A follow-up, not a defect this branch introduced.
 
-### ⏸ Task 12 — the live apply — is waiting on Destin
+### ✅ Task 12 — the live apply, RUN 2026-09-03 (Destin: "okay, lets do it")
 
-One command, roughly 7–15 minutes, with a CRC-verified snapshot and a full
-reversal record as the way back. It must run from a checkout carrying
-`data/cached-pdfs/` (this worktree, or the main checkout), with a fresh
-control eval immediately before it. **A second apply is a content no-op** and
-still costs a 670 MB snapshot and ten minutes, so run it once.
+Run from the main checkout (`data/cached-pdfs/` present, `no source pdf: 0`),
+master at `ce91af4`, no server on 9300, no ingest lock, no other eval or
+repair process. The order was: dry run against the live store → control eval
+→ apply → post eval, with nothing else touching the corpus in between.
+
+| step | result |
+|---|---|
+| dry run against the live store (spec §6.1) | **4,656 of 4,875**, refusal histogram **143 / 47 / 12 / 10 / 7**, 2009 at 83.7% — matches the 2026-09-02 checkpoint to the row |
+| control eval (G-OT2, before) | `eval/results/2026-09-03T0942Z-ce91af4.{json,md}` — recall@5 85.71% / @15 97.62% / @20 100.00% / refusal 60.00% / p95 736 ms |
+| apply | 09:42:32Z → 09:49:21Z (**~7 min**); snapshot `backups/lancedb-20260903T094313Z.zip` (671 MB); reversal `<data_dir>/table-rebuild-reversal-budget_chunks-2026-09-03T0943Z.json` (30.5 MB, `stage: written`, `skipped_moved: []`) |
+| rows | **4,656 written in 10 batches, 0 skipped (text moved)**; verified all 4,656 in full plus 200 untouched rows; full-text index rebuilt and table optimized; lock released |
+| post eval (G-OT2, after) | `eval/results/2026-09-03T0950Z-ce91af4.{json,md}` — **85.71% / 97.62% / 100.00% / 60.00%** / p95 706 ms |
+| per-query diff | `STATUS FLIPPED: []`, **0 rank changes, 0 score changes**; the one top-5 change is `q-017`'s reorder (`agao-afr-fy2024-0438` out, `agao-afr-fy2025-0034` in) — the same movement the rehearsal produced |
+| record ↔ store | the reversal record's `after` text equals the live row on the eval-pinned chunk and on a 300-row random sample (300 of 300) |
+| settled | a dry run over three repaired documents reports **3 of 3 rebuilds byte-identical to the stored text** — a second `--apply` would write the same bytes |
+
+Source of the MinerU table across the 4,875: extractor output 4,533, stored
+`table_html` 342 (the FY2025-era documents whose extractor output is not on
+disk — the D5 body-equality gate was proven on the other 4,533 only).
+Digit disagreements after the gate: **1,141 on 613 tables**, unchanged.
+
+**A real before/after from the record**, `jlbc-approps-fy2005-adeassis-0000`
+(FY2005 Department of Education assistance page): MinerU stored Basic State
+Aid as `2,668,539,5002/3/` and `2,802,264,0002/4//6/` — the first reads as
+$26.7 billion — and the store now carries `2,668,539,500 [2/3/]` and
+`2,802,264,000 [2/4/5/6/]`. Two fused rows (`Employees Certificates of
+Educational Convenience`, `Special Education Fund 0 27,600,900`) are separate
+rows with their own figures; the `PROGRAM TOTAL` row that carried six
+figures in three cells now carries three.
+
+**G-OT4** (the ~$0.10 Layer 2 run) remains **offered, not run**. **G-OT5**
+(the browser check) is Destin's — the chunk to open is
+`jlbc-approps-fy2025-unibor-0000` (eval `q-013`, rebuilt): confirm the
+citation highlight lands where it did, that the cited-text panel shows the
+subtotal rows separately, and glance at its Budget Documents card. Not yet
+done.
+
+### ⏸ Known residuals after the write
+
+* **219 tables (4.5%) keep their MinerU text**, by reason: 143 the printed
+  column does not foot (MinerU's own reading fails the same gate on 141), 47
+  anchor match under 0.8, 12 two figures in one column, 10 no header, 7 last
+  row unmatched. Per-year table above; the weak band is FY2007–FY2011.
+* **Footnote-marker completeness was never gated, and the reader drops some.**
+  Found by reading the eval-pinned chunk after the write: on
+  `jlbc-approps-fy2025-unibor-0000` the page prints `55,726,000 8/ 9/` on
+  `AGENCY TOTAL` (both markers are separate words in the text layer) and the
+  rebuild wrote `55,726,000 [9/]`. An automatic corpus-wide count of this
+  shape is not possible from the reversal record alone — every scan tried
+  flagged mostly MinerU's own misreads (`1/8/` for a printed `7/8/`;
+  `21,397,400 3/4/` on a row the page prints as `3,000,000 0 0`), so the
+  true count needs a hand-read sample. Follow-up for the reader, not the
+  repair: the figure is right, the reference is incomplete.
+* **8 cells across 6 tables where a printed zero with a footnote became a
+  BLANK cell** (`jlbc-approps-fy2005-{adegs,com}`, `-fy2008-{osh,vsc}`,
+  `-fy2009-{uniasum,uniumain}`). The PDF's own text layer fuses them into one
+  token (`04/`, verified on three pages), which is neither a figure nor a
+  marker to `FIGURE_RE`, so the cell is empty rather than `0 [4/]`. MinerU
+  had stored the same fused token, so nothing citable got worse; a blank is
+  still not a zero. Follow-up: teach `peel_markers` the `0N/` shape.
+* The rest of the residuals in the section above (329 documents' PDF-viewer
+  resolution, the anchor denominator, the 111 out-of-scope ladder chunks, the
+  `NN-MM/` range spelling, the 206-page peel audit) are unchanged by the
+  write.
 
 
 ---
